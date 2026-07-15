@@ -1,0 +1,15 @@
+{
+  "name": "Termweave",
+  "description": "A config-driven Tauri and OpenTUI starter for native desktop terminal apps.",
+  "packageName": "termweave",
+  "bundleIdentifier": "com.nikdelvin.termweave",
+  "version": "0.1.0",
+  "authors": ["Nik Delvin"],
+  "windowWidth": 1920,
+  "windowHeight": 1080,
+  "fontSize": 15,
+  "showDiagnostics": false,
+  "themeColor": "#0B1020",
+  "foregroundColor": "#E6EDF7",
+  "icon": "app-icon.svg"
+}

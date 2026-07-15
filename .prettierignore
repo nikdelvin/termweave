@@ -1,0 +1,9 @@
+node_modules/
+dist/
+docs/
+sidecar/
+src-tauri/binaries/
+src-tauri/gen/
+src-tauri/icons/
+src-tauri/target/
+bun.lock

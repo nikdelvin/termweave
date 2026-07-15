@@ -1,0 +1,113 @@
+@font-face {
+  font-family: 'Kreative Square';
+  src: url('./assets/fonts/KreativeSquare.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+}
+
+:root {
+  --theme-color: #0b1020;
+  --foreground-color: #e6edf7;
+  font-synthesis: none;
+  background: var(--theme-color);
+  color: var(--foreground-color);
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+#diagnostics {
+  position: fixed;
+  z-index: 1000;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: min(34vh, 320px);
+  display: flex;
+  flex-direction: column;
+  color: #d7e3f4;
+  border-bottom: 1px solid #38445e;
+  background: rgba(7, 11, 24, 0.97);
+  font:
+    12px/1.35 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    monospace;
+  user-select: text;
+}
+
+#diagnostics[hidden] {
+  display: none;
+}
+
+#diagnostic-header {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 8px;
+  border-bottom: 1px solid #38445e;
+  color: #70e1d4;
+}
+
+#diagnostic-status {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: #9caac2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#diagnostic-header button {
+  padding: 3px 9px;
+  color: #d7e3f4;
+  border: 1px solid #53617d;
+  border-radius: 2px;
+  background: #182238;
+  font: inherit;
+  cursor: pointer;
+}
+
+#diagnostic-log {
+  min-height: 0;
+  flex: 1;
+  margin: 0;
+  padding: 7px 9px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+#app {
+  display: grid;
+  place-items: center;
+  background: var(--theme-color);
+}
+
+#terminal {
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  background: var(--theme-color);
+}
+
+.xterm,
+.xterm-viewport,
+.xterm-screen {
+  width: 100%;
+  height: 100%;
+}

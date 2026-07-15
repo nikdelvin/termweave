@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0B1020" />
+    <meta name="color-scheme" content="dark" />
+    <title>Termweave</title>
+  </head>
+  <body>
+    <section id="diagnostics" aria-label="Production diagnostics" hidden>
+      <header id="diagnostic-header">
+        <strong>PRODUCTION DIAGNOSTICS</strong>
+        <span id="diagnostic-status">HTML loaded; waiting for JavaScript…</span>
+        <button id="diagnostic-copy" type="button">Copy</button>
+        <button id="diagnostic-clear" type="button">Clear</button>
+      </header>
+      <pre id="diagnostic-log">[HTML] Diagnostic panel rendered.</pre>
+    </section>
+    <main id="app">
+      <div id="terminal" aria-label="Termweave terminal"></div>
+    </main>
+    <script type="module" src="/src/diagnostics.ts"></script>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

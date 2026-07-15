@@ -1,0 +1,26 @@
+{
+  "name": "sidecar",
+  "module": "src/index.tsx",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bun run --watch src/index.tsx",
+    "build": "bun scripts/build.ts",
+    "check": "tsc --noEmit",
+    "format": "prettier --write --ignore-unknown ."
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^26.1.1",
+    "prettier": "^3.9.5",
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@babel/core": "^7.29.0",
+    "@babel/preset-typescript": "^7.28.5",
+    "@opentui/core": "^0.4.3",
+    "@opentui/solid": "^0.4.3",
+    "babel-preset-solid": "1.9.12",
+    "solid-js": "1.9.12"
+  }
+}
