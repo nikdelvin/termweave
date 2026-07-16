@@ -33,5 +33,5 @@
     "typescript": "~5.6.2",
     "vite": "^6.0.3"
   },
-  "description": "A config-driven Tauri and OpenTUI starter for native desktop terminal apps."
+  "description": "A config-driven Tauri and OpenTUI builder for native desktop terminal apps."
 }

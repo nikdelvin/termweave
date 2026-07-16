@@ -1,6 +1,6 @@
 {
   "name": "Termweave",
-  "description": "A config-driven Tauri and OpenTUI starter for native desktop terminal apps.",
+  "description": "A config-driven Tauri and OpenTUI builder for native desktop terminal apps.",
   "packageName": "termweave",
   "bundleIdentifier": "com.nikdelvin.termweave",
   "version": "0.1.0",

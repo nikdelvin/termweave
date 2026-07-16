@@ -5,7 +5,7 @@
 <h1 align="center">Termweave</h1>
 
 <p align="center">
-  A config-driven Tauri + OpenTUI starter for native desktop terminal apps.
+  A config-driven Tauri + OpenTUI builder for native desktop terminal apps.
 </p>
 
 Termweave packages an [OpenTUI](https://github.com/anomalyco/opentui) interface powered by
@@ -78,7 +78,7 @@ Most applications only need changes in three places:
 
 1. Edit `app.config.json` for product metadata, window size, terminal grid, and base colors.
 2. Replace `app-icon.svg` with one SVG or PNG source icon and update `icon` if its path changes.
-3. Replace the starter interface in `sidecar/src/App.tsx` and add application modules under
+3. Replace the welcome interface in `sidecar/src/App.tsx` and add application modules under
    `sidecar/src/`.
 
 Then run:
@@ -100,7 +100,7 @@ extending the transport or desktop shell itself.
 ```json
 {
   "name": "Termweave",
-  "description": "A config-driven Tauri and OpenTUI starter for native desktop terminal apps.",
+  "description": "A config-driven Tauri and OpenTUI builder for native desktop terminal apps.",
   "packageName": "termweave",
   "bundleIdentifier": "com.nikdelvin.termweave",
   "version": "0.1.0",
@@ -216,7 +216,7 @@ src-tauri/                 Native Tauri shell and bundle configuration
 
 ## Platform notes
 
-- The starter has been exercised on macOS. Tauri targets macOS, Windows, and Linux, but installers
+- Termweave builder has been exercised only on macOS. Tauri targets macOS, Windows, and Linux, but installers
   should be validated and signed on every platform you plan to release.
 - The sidecar build uses `rustc --print host-tuple`, so it produces a binary for the current host.
   Cross-compilation is not configured.
