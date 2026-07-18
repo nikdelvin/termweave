@@ -7,9 +7,12 @@ import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import {
   FOREGROUND_COLOR,
+  SHOW_DIAGNOSTICS,
   SIDECAR_PROTOCOL,
   TERMINAL_GRID,
   THEME_COLOR,
+  type SidecarAuthenticate,
+  type SidecarAuthenticated,
 } from '../shared/terminal-config'
 import './styles.css'
 
@@ -20,7 +23,7 @@ const FONT_FIT_SAFETY = 0.995
 const HANDSHAKE_TIMEOUT_MS = 2_000
 const CONNECTION_RETRY_DELAY_MS = 100
 const STARTUP_CONNECTION_ATTEMPTS = 300
-const RECOVERY_RECONNECT_ATTEMPTS = 20
+const RECOVERY_RECONNECT_ATTEMPTS = import.meta.env.DEV ? 100 : 20
 const RECOVERY_CYCLE_RETRY_DELAY_MS = 2_000
 const appWebview = getCurrentWebview()
 const appWindow = getCurrentWindow()
@@ -32,6 +35,7 @@ type BackendDiagnostics = {
   executable: string
   currentDirectory: string
   instanceId: string
+  sidecarToken: string
   sidecarPort: number
 }
 
@@ -115,11 +119,25 @@ function getSidecarHello(data: unknown): ReceivedSidecarHello | undefined {
   return undefined
 }
 
+function getSidecarAuthenticated(data: unknown): SidecarAuthenticated | undefined {
+  if (typeof data !== 'string') return undefined
+
+  try {
+    const message = JSON.parse(data) as Record<string, unknown>
+    if (message.type === 'authenticated') return { type: 'authenticated' }
+  } catch {
+    // Authentication acknowledgements must be valid JSON.
+  }
+
+  return undefined
+}
+
 function openSocket(url: string, attempt: number, runtime: BackendDiagnostics) {
   return new Promise<WebSocket>((resolve, reject) => {
     const attemptStartedAt = performance.now()
     let settled = false
     let accepted = false
+    let identityAccepted = false
     let handshakeTimer: number | undefined
     diagnostic('websocket', 'connection attempt started', { attempt, url })
 
@@ -134,7 +152,7 @@ function openSocket(url: string, attempt: number, runtime: BackendDiagnostics) {
 
       if (closeSocket && socket.readyState < WebSocket.CLOSING) {
         try {
-          socket.close(1008, 'Invalid sidecar identity')
+          socket.close(1008, 'Sidecar authentication failed')
         } catch (closeError) {
           diagnostic('websocket', 'failed to close rejected connection', closeError, 'warn')
         }
@@ -144,8 +162,39 @@ function openSocket(url: string, attempt: number, runtime: BackendDiagnostics) {
     }
 
     const handleHandshake = (event: MessageEvent) => {
-      const hello = getSidecarHello(event.data)
+      if (identityAccepted) {
+        const authenticated = getSidecarAuthenticated(event.data)
+        if (!authenticated) {
+          diagnostic(
+            'websocket',
+            'sidecar sent data before client authentication completed',
+            {
+              attempt,
+              dataType: event.data?.constructor?.name ?? typeof event.data,
+            },
+            'error',
+          )
+          rejectConnection(
+            new SidecarIdentityError('Sidecar client authentication was not acknowledged'),
+            true,
+          )
+          return
+        }
 
+        accepted = true
+        settled = true
+        if (handshakeTimer !== undefined) window.clearTimeout(handshakeTimer)
+        socket.removeEventListener('message', handleHandshake)
+        socket.addEventListener('message', handleSocketMessage)
+        diagnostic('websocket', 'mutual sidecar authentication completed', {
+          attempt,
+          elapsedMs: performance.now() - attemptStartedAt,
+        })
+        resolve(socket)
+        return
+      }
+
+      const hello = getSidecarHello(event.data)
       if (!hello) {
         diagnostic(
           'websocket',
@@ -190,19 +239,19 @@ function openSocket(url: string, attempt: number, runtime: BackendDiagnostics) {
         return
       }
 
-      accepted = true
-      settled = true
-      if (handshakeTimer !== undefined) window.clearTimeout(handshakeTimer)
-      socket.removeEventListener('message', handleHandshake)
-      socket.addEventListener('message', handleSocketMessage)
-      diagnostic('websocket', 'sidecar identity accepted', {
+      identityAccepted = true
+      const authentication: SidecarAuthenticate = {
+        type: 'authenticate',
+        token: runtime.sidecarToken,
+      }
+      socket.send(JSON.stringify(authentication))
+      diagnostic('websocket', 'sidecar identity accepted; client authentication sent', {
         attempt,
         protocol: hello.protocol,
         version: hello.version,
         port: hello.port,
         elapsedMs: performance.now() - attemptStartedAt,
       })
-      resolve(socket)
     }
 
     socket.addEventListener('message', handleHandshake)
@@ -242,7 +291,7 @@ function openSocket(url: string, attempt: number, runtime: BackendDiagnostics) {
       )
       if (!accepted) {
         rejectConnection(
-          new Error(`WebSocket attempt ${attempt} closed before identity verification`),
+          new Error(`WebSocket attempt ${attempt} closed before authentication completed`),
           false,
         )
       }
@@ -251,14 +300,14 @@ function openSocket(url: string, attempt: number, runtime: BackendDiagnostics) {
     handshakeTimer = window.setTimeout(() => {
       diagnostic(
         'websocket',
-        'sidecar identity handshake timed out',
+        'sidecar authentication handshake timed out',
         {
           attempt,
           timeoutMs: HANDSHAKE_TIMEOUT_MS,
         },
         'error',
       )
-      rejectConnection(new SidecarIdentityError('Sidecar identity handshake timed out'), true)
+      rejectConnection(new SidecarIdentityError('Sidecar authentication handshake timed out'), true)
     }, HANDSHAKE_TIMEOUT_MS)
   })
 }
@@ -619,6 +668,8 @@ async function spawnSidecar(runtime: BackendDiagnostics, reason: string) {
     env: {
       TUI_SIDECAR_INSTANCE_ID: runtime.instanceId,
       TUI_SIDECAR_PORT: String(runtime.sidecarPort),
+      TUI_SIDECAR_TOKEN: runtime.sidecarToken,
+      TUI_SIDECAR_DIAGNOSTICS: import.meta.env.DEV || SHOW_DIAGNOSTICS ? '1' : '0',
     },
   })
   command.stdout.on('data', (data) => {
@@ -648,6 +699,25 @@ async function spawnSidecar(runtime: BackendDiagnostics, reason: string) {
   })
   child = await command.spawn()
   diagnostic('sidecar', 'process spawned', { pid: child.pid, reason })
+}
+
+async function stopSidecar(reason: string) {
+  const processToStop = child
+  child = undefined
+  if (!processToStop) return
+
+  diagnostic('sidecar', 'stopping process', { pid: processToStop.pid, reason }, 'warn')
+  try {
+    await processToStop.kill()
+    diagnostic('sidecar', 'process stopped', { pid: processToStop.pid, reason })
+  } catch (error) {
+    diagnostic(
+      'sidecar',
+      'failed to stop process',
+      { pid: processToStop.pid, reason, error },
+      'warn',
+    )
+  }
 }
 
 function sendTerminalResize(reason: string) {
@@ -732,6 +802,7 @@ async function recoverSidecar(runtime: BackendDiagnostics) {
     diagnostic('recovery', 'existing sidecar did not recover; restarting it', error, 'warn')
   }
 
+  await stopSidecar('recovery reconnect grace period expired')
   await spawnSidecar(runtime, 'automatic crash recovery')
   const restartedSocket = await connectWithRetry(
     runtime,
@@ -824,6 +895,7 @@ function cleanup() {
   terminalHost.removeEventListener('pointerdown', scheduleTerminalFocus)
   inputSubscription?.dispose()
   socket?.close()
+  void stopSidecar('frontend cleanup')
   if (terminalOpened) terminal.dispose()
 }
 
@@ -840,7 +912,11 @@ void (async () => {
   let backend: BackendDiagnostics
   try {
     backend = await invoke<BackendDiagnostics>('backend_diagnostics')
-    diagnostic('tauri', 'native backend responded', backend)
+    const { sidecarToken: _sidecarToken, ...safeBackendDiagnostics } = backend
+    diagnostic('tauri', 'native backend responded', {
+      ...safeBackendDiagnostics,
+      sidecarTokenPresent: _sidecarToken.length > 0,
+    })
   } catch (error) {
     diagnostic('tauri', 'native backend diagnostics failed', error, 'error')
     throw error

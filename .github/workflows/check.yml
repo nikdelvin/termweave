@@ -1,0 +1,46 @@
+name: Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+      - name: Install SDK dependencies
+        run: bun install --frozen-lockfile
+      - name: Install sidecar dependencies
+        run: bun install --cwd sidecar --frozen-lockfile
+      - name: Verify project template lockfile
+        run: bun install --cwd templates/project --frozen-lockfile --lockfile-only
+      - name: Verify generated configuration is committed
+        run: |
+          bun run config:sync
+          git diff --exit-code
+      - name: Check TypeScript, ESLint, and formatting
+        run: bun run app:check
+      - name: Build webview
+        run: bun run build
+      - name: Build sidecar programs
+        run: |
+          bun run --cwd sidecar build
+          bun run --cwd sidecar build:dev-launcher
+      - name: Check shell syntax
+        run: sh -n install.sh
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+      - name: Check Cargo manifest and lockfile
+        run: cargo metadata --manifest-path src-tauri/Cargo.toml --no-deps --locked --format-version 1

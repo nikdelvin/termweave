@@ -10,7 +10,7 @@
 
 Termweave packages an [OpenTUI](https://github.com/anomalyco/opentui) interface powered by
 [Solid](https://www.solidjs.com/) into a native [Tauri](https://tauri.app/) window. The OpenTUI
-application runs as a bundled sidecar, streams terminal output over an identity-checked local
+application runs as a bundled sidecar, streams terminal output over a mutually authenticated local
 WebSocket, and is rendered by [xterm.js](https://github.com/xtermjs/xterm.js) inside the webview.
 
 Use it for terminal-style games, dashboards, focused productivity tools, launchers, and other
@@ -28,8 +28,8 @@ at a time.
 - Desktop icon generation from one SVG or PNG source; mobile icon outputs are discarded.
 - A native-window startup sequence that avoids the initial white webview flash.
 - A centered xterm loading indicator while OpenTUI starts.
-- Per-instance sidecar identity, an ephemeral localhost port, handshake validation, and crash
-  recovery.
+- Per-instance sidecar identity, a random client token, an ephemeral localhost port, mutual
+  authentication, and crash recovery.
 - Optional production diagnostics for investigating bundled-app failures.
 
 Termweave is not a shell or a general-purpose PTY emulator. xterm.js is the display and input
@@ -37,61 +37,126 @@ surface for the bundled OpenTUI application.
 
 ## Prerequisites
 
-- [Bun](https://bun.sh/)
+- macOS (the standalone installer and development wrapper are currently macOS-only)
+- [Bun](https://bun.sh/) 1.3 or newer
 - A stable Rust toolchain
 - The platform dependencies listed in the
   [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/)
 
-On macOS, install Xcode Command Line Tools before building. Windows and Linux require their normal
-Tauri/WebView system dependencies.
+Install Xcode Command Line Tools before building. The generated native application uses the host
+toolchain and does not currently support cross-compilation.
 
 ## Quick start
 
-Install the root and sidecar dependencies:
+Create an empty project directory, download the installer, and run it:
 
 ```sh
-bun install
-bun install --cwd sidecar
+mkdir my-termweave-project
+cd my-termweave-project
+curl -fsSLo install.sh https://raw.githubusercontent.com/nikdelvin/termweave/main/install.sh
+sh install.sh
 ```
 
-Start the desktop application:
+The installer prompts for application metadata, clones the SDK into the ignored `termweave/`
+directory, creates the OpenTUI project scaffold, and installs the project and SDK dependencies.
+
+Start the desktop application from the project root:
 
 ```sh
-bun run app:dev
+bun run dev
 ```
 
 Create a production bundle for the current host platform:
 
 ```sh
-bun run app:build
+bun run build
 ```
 
-Both commands begin with `bun run app:check`, which type-checks the root and sidecar TypeScript
-projects and then formats both with Prettier. If either type-check fails, development or building
-stops before icons, configuration, sidecar binaries, or native bundles are generated.
-
-The release bundles are written under `src-tauri/target/release/bundle/`.
+The release bundles are copied to the project root under `build/`.
 
 ## Create your application
 
 Most applications only need changes in three places:
 
 1. Edit `app.config.json` for product metadata, window size, terminal grid, and base colors.
-2. Replace `app-icon.svg` with one SVG or PNG source icon and update `icon` if its path changes.
-3. Replace the welcome interface in `sidecar/src/App.tsx` and add application modules under
-   `sidecar/src/`.
+2. Replace `app.icon.svg` with one SVG or PNG source icon and update `icon` if its path changes.
+3. Replace the welcome interface in `src/App.tsx` and add application modules under `src/`.
 
 Then run:
 
 ```sh
-bun run app:dev
+bun run dev
 ```
 
-The development command already includes `app:check`; run `bun run app:check` separately only when
-you want to validate and format the projects without starting the application.
+The project root is the source of truth. Termweave copies the project source, configuration, and
+icon into the ignored SDK before running its existing configuration and native build workflow.
+Do not edit the copied files under `termweave/`.
 
-Keep the bridge in `sidecar/src/index.tsx` and the webview code in `src/` unchanged unless you are
-extending the transport or desktop shell itself.
+While `bun run dev` is running, source changes are copied into the SDK and Bun restarts only the
+OpenTUI sidecar. The Tauri window stays open and reconnects. Configuration and icon changes require
+stopping and rerunning the development command.
+
+`src/App.tsx` must export a named `App` component. `src/index.tsx` is reserved by the SDK, and
+symbolic links beneath `src/` are rejected so synchronization cannot copy files from outside the
+project.
+
+Run the project checks without opening the native application:
+
+```sh
+bun run check
+```
+
+This runs ESLint, TypeScript, and a Prettier check. Use `bun run format` to apply formatting.
+
+## Update the SDK
+
+Projects follow the latest `main` branch only when explicitly requested:
+
+```sh
+bun run update
+```
+
+The update command discards derived changes inside the ignored SDK clone, resets it to
+`origin/main`, reinstalls its dependencies, preserves user-added root package fields and
+dependencies, and reapplies the root project. Changes made directly inside `termweave/` are not
+preserved. The runner verifies the SDK location and its identity marker before performing the
+destructive reset.
+
+## Dependency version policy
+
+All direct Bun and Cargo dependencies use exact versions. Security overrides for transitive Bun
+packages are exact as well. Bun packages shared by the SDK, sidecar, and generated project use the
+same version. Every Bun workspace—including the project template—and the native Rust crate has a
+committed lockfile for transitive dependencies. The installer copies the template lockfile into new
+projects before installing anything.
+
+Application developers should receive dependency changes through `bun run update`; they should not
+update packages inside `termweave/` directly.
+
+SDK maintainers can preview and apply coordinated stable dependency updates with:
+
+```sh
+bun run sdk:deps:update --dry-run
+bun run sdk:deps:update
+```
+
+Install `cargo-audit` once, then audit all Bun and Rust lockfiles with:
+
+```sh
+cargo install cargo-audit --locked
+bun run sdk:deps:audit
+```
+
+By default, the updater stays within the current major version, or the current minor version for
+pre-1.0 packages. Use `--latest` only when intentionally reviewing breaking releases:
+
+```sh
+bun run sdk:deps:update --dry-run --latest
+```
+
+The maintainer command updates all three Bun manifests and the Cargo manifest, regenerates their
+lockfiles, and runs the non-Tauri checks. Breaking dependency changes may still require code changes
+and native manual verification before committing.
 
 ## Application configuration
 
@@ -107,11 +172,11 @@ extending the transport or desktop shell itself.
   "authors": ["Nik Delvin"],
   "windowWidth": 1920,
   "windowHeight": 1080,
-  "fontSize": 10,
+  "fontSize": 15,
   "showDiagnostics": false,
   "themeColor": "#0B1020",
   "foregroundColor": "#E6EDF7",
-  "icon": "app-icon.svg"
+  "icon": "app.icon.svg"
 }
 ```
 
@@ -128,7 +193,7 @@ extending the transport or desktop shell itself.
 | `showDiagnostics`              | Shows the production diagnostics panel when `true`. Keep `false` for releases.    |
 | `themeColor`                   | Background for the native window, webview, xterm.js, and OpenTUI.                 |
 | `foregroundColor`              | Default xterm.js/OpenTUI text, cursor, and loading indicator color.               |
-| `icon`                         | Root-relative source SVG or PNG used to generate desktop bundle icons.            |
+| `icon`                         | Project-relative source SVG or PNG used to generate desktop bundle icons.         |
 
 The terminal grid is calculated as:
 
@@ -138,17 +203,20 @@ rows    = windowHeight / fontSize
 ```
 
 Both results must be integers or configuration synchronization stops with an error. The default
-`1920 × 1080` design at `10px` produces a `192 × 108` grid. The bundled square font is deliberately
+`1920 × 1080` design at `15px` produces a `128 × 72` grid. The bundled square font is deliberately
 not configurable because a different font can break cell geometry.
 
 The actual xterm font size is recalculated when the native window changes size. The terminal keeps
-its configured grid, remains centered, and fits inside the largest available 16:9 area; the app is
-not forced to stay fullscreen.
+its configured grid, remains centered, and fits inside the largest available 16:9 area. The app
+launches fullscreen by default, but the native window remains resizable and can leave fullscreen.
+
+The icon may be stored at the project root or in a user-owned asset directory. SDK-managed
+directories such as `src/`, `termweave/`, and `node_modules/` are intentionally rejected.
 
 ## Generated branding
 
-Run `bun run config:sync` after changing `app.config.json`. The `app:dev`, `app:build`, `dev`, and
-`build` scripts already do this automatically.
+The root `bun run dev` and `bun run build` commands copy the project configuration and run the
+SDK's existing configuration synchronization automatically.
 
 The synchronization script updates:
 
@@ -162,9 +230,9 @@ The synchronization script updates:
 
 Do not hand-edit synchronized branding values in those files. Change `app.config.json` instead.
 
-`bun run icons:generate` creates the macOS, Windows, and Linux icon files under
-`src-tauri/icons/`. Generated icons and host-specific sidecar binaries are ignored by Git and are
-rebuilt by the application scripts.
+The SDK's icon generator creates the macOS, Windows, and Linux icon files under
+`termweave/src-tauri/icons/`. Generated icons, host-specific sidecar binaries, and the complete SDK
+directory are ignored by the outer project Git repository.
 
 ## Architecture
 
@@ -175,49 +243,54 @@ flowchart LR
   Solid -->|ANSI output over local WebSocket| Xterm["xterm.js"]
   Xterm --> Webview["Tauri webview"]
   Webview -->|keyboard and mouse input| Sidecar
-  Native -->|ephemeral port and instance identity| Webview
+  Native -->|ephemeral port, identity, and client token| Webview
 ```
 
-At startup, Tauri allocates an unused localhost port and a unique instance ID. The webview passes
-both values to the sidecar process. Before any terminal data is accepted, the sidecar must identify
-itself with the expected protocol, instance ID, and port. If the sidecar exits unexpectedly, the
-webview first attempts to reconnect and then starts a replacement process.
+At startup, Tauri allocates an unused localhost port, a unique instance ID, and a random client
+token. The webview passes them to the sidecar process. The sidecar must first identify itself with
+the expected protocol, instance ID, and port; the webview must then prove possession of the token.
+No terminal data is released until both sides are authenticated. If the sidecar exits unexpectedly,
+the webview first attempts to reconnect and then starts a replacement process.
 
 The native window stays hidden until the page background, bundled font, xterm.js, and loading frame
 are ready. This avoids a white startup flash while still providing immediate feedback before the
 first OpenTUI frame arrives.
 
+Development diagnostics are enabled automatically. Production builds do not capture terminal
+input or output unless `showDiagnostics` is explicitly enabled.
+
 ## Project layout
 
 ```text
-app.config.json            Product and rendering configuration
-app-icon.svg               Single source icon
-scripts/                   Config synchronization and icon generation
-shared/                    Config values shared by webview and sidecar
-sidecar/src/App.tsx        Your OpenTUI + Solid application
-sidecar/src/index.tsx      Terminal/WebSocket bridge
-sidecar/scripts/build.ts   Host-specific sidecar compiler
-src/                       xterm.js webview and diagnostics
-src-tauri/                 Native Tauri shell and bundle configuration
+src/App.tsx          OpenTUI + Solid application entry
+src/                 User components and application modules
+app.config.json      Product and rendering configuration
+app.icon.svg         Default source icon
+package.json         Root development, build, update, and quality commands
+tsconfig.json        User-project TypeScript configuration
+eslint.config.js     User-project ESLint configuration
+termweave/           Ignored SDK clone; never edit project code here
+build/               Ignored native bundle output
 ```
 
 ## Scripts
 
-| Command                  | Purpose                                                                   |
-| ------------------------ | ------------------------------------------------------------------------- |
-| `bun run app:dev`        | Run `app:check`, prepare assets/config/sidecar, and start Tauri dev.      |
-| `bun run app:build`      | Run `app:check`, prepare assets/config/sidecar, and build native bundles. |
-| `bun run app:check`      | Type-check both TypeScript projects and format both with Prettier.        |
-| `bun run config:sync`    | Validate `app.config.json` and synchronize generated branding.            |
-| `bun run icons:generate` | Generate desktop icons from the configured source icon.                   |
-| `bun run sidecar:build`  | Compile OpenTUI into the host-specific Tauri sidecar binary.              |
-| `bun run dev`            | Run only the Vite webview development server.                             |
-| `bun run build`          | Type-check and build only the Vite webview assets.                        |
+| Command                | Purpose                                                                     |
+| ---------------------- | --------------------------------------------------------------------------- |
+| `bun run dev`          | Check and sync the root project, then start Tauri with sidecar reload.      |
+| `bun run build`        | Check and sync the project, build native bundles, and copy them to build/.  |
+| `bun run update`       | Reset and update the ignored SDK clone, reinstall, and reapply the project. |
+| `bun run check`        | Run root ESLint, TypeScript, and Prettier validation.                       |
+| `bun run lint`         | Lint the user-owned source tree.                                            |
+| `bun run typecheck`    | Type-check the user-owned source tree without emitting files.               |
+| `bun run format`       | Format the user-owned project files.                                        |
+| `bun run format:check` | Check formatting without modifying files.                                   |
 
 ## Platform notes
 
-- Termweave builder has been exercised only on macOS. Tauri targets macOS, Windows, and Linux, but installers
-  should be validated and signed on every platform you plan to release.
+- The standalone installer and development wrapper currently support macOS only. Tauri targets
+  macOS, Windows, and Linux, but installers should be validated and signed on every platform you
+  plan to release.
 - The sidecar build uses `rustc --print host-tuple`, so it produces a binary for the current host.
   Cross-compilation is not configured.
 - Mobile targets are intentionally out of scope; the icon script removes Android and iOS outputs.
@@ -227,3 +300,6 @@ src-tauri/                 Native Tauri shell and bundle configuration
 ## License
 
 [MIT](./LICENSE)
+
+Contributions are welcome; see [CONTRIBUTING.md](./CONTRIBUTING.md). Please report security issues
+using the process in [SECURITY.md](./SECURITY.md).

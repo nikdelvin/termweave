@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto'
 import { PassThrough } from 'node:stream'
 import { createCliRenderer } from '@opentui/core'
 import { render } from '@opentui/solid'
@@ -5,17 +6,27 @@ import {
   SIDECAR_PROTOCOL,
   TERMINAL_GRID,
   THEME_COLOR,
+  type SidecarAuthenticate,
+  type SidecarAuthenticated,
   type SidecarHello,
 } from '../../shared/terminal-config'
 import { App } from './App'
 
 const startedAt = performance.now()
 const HOST = '127.0.0.1'
+const CLIENT_AUTHENTICATION_TIMEOUT_MS = 5_000
+const MAX_PENDING_OUTPUT_BYTES = 4 * 1024 * 1024
 const INSTANCE_ID = process.env.TUI_SIDECAR_INSTANCE_ID?.trim()
+const configuredClientToken = process.env.TUI_SIDECAR_TOKEN?.trim()
 const configuredPort = Number(process.env.TUI_SIDECAR_PORT)
+const DIAGNOSTICS_ENABLED = process.env.TUI_SIDECAR_DIAGNOSTICS === '1'
 
 if (!INSTANCE_ID) {
   throw new Error('TUI_SIDECAR_INSTANCE_ID is required')
+}
+
+if (!configuredClientToken) {
+  throw new Error('TUI_SIDECAR_TOKEN is required')
 }
 
 if (!Number.isInteger(configuredPort) || configuredPort < 1 || configuredPort > 65_535) {
@@ -23,12 +34,17 @@ if (!Number.isInteger(configuredPort) || configuredPort < 1 || configuredPort > 
 }
 
 const PORT = configuredPort
+const CLIENT_TOKEN = configuredClientToken
 const { cols: COLS, rows: ROWS } = TERMINAL_GRID
 
 type ClientMessage =
-  { type: 'input'; data: string } | { type: 'resize'; cols: number; rows: number }
+  | SidecarAuthenticate
+  | { type: 'input'; data: string }
+  | { type: 'resize'; cols: number; rows: number }
 
 type Session = {
+  authenticationTimer?: ReturnType<typeof setTimeout>
+  authenticated: boolean
   id: number
 }
 
@@ -51,6 +67,8 @@ function serializeError(error: unknown) {
 }
 
 function sidecarLog(message: string, details?: unknown) {
+  if (!DIAGNOSTICS_ENABLED) return
+
   const elapsed = (performance.now() - startedAt).toFixed(1).padStart(8)
   let suffix = ''
 
@@ -65,6 +83,40 @@ function sidecarLog(message: string, details?: unknown) {
   const line = `[${elapsed}ms] [sidecar] ${message}${suffix}`
   if (sendSidecarDiagnostic?.(line)) return
   process.stderr.write(`${line}\n`)
+}
+
+function parseClientMessage(rawMessage: string): ClientMessage | undefined {
+  try {
+    const message = JSON.parse(rawMessage) as Record<string, unknown>
+
+    if (message.type === 'authenticate' && typeof message.token === 'string') {
+      return { type: 'authenticate', token: message.token }
+    }
+
+    if (message.type === 'input' && typeof message.data === 'string') {
+      return { type: 'input', data: message.data }
+    }
+
+    if (
+      message.type === 'resize' &&
+      typeof message.cols === 'number' &&
+      Number.isFinite(message.cols) &&
+      typeof message.rows === 'number' &&
+      Number.isFinite(message.rows)
+    ) {
+      return { type: 'resize', cols: message.cols, rows: message.rows }
+    }
+  } catch {
+    // Invalid messages are ignored below.
+  }
+
+  return undefined
+}
+
+function tokenMatches(candidate: string) {
+  const expected = Buffer.from(CLIENT_TOKEN)
+  const received = Buffer.from(candidate)
+  return expected.length === received.length && timingSafeEqual(expected, received)
 }
 
 sidecarLog('process started', {
@@ -110,6 +162,8 @@ function terminalOutput() {
 const input = terminalInput()
 const output = terminalOutput()
 const pendingOutput: Uint8Array[] = []
+let pendingOutputBytes = 0
+let pendingOutputTruncated = false
 let activeSocket: Bun.ServerWebSocket<Session> | undefined
 let nextConnectionId = 0
 let outputChunkCount = 0
@@ -124,6 +178,17 @@ sendSidecarDiagnostic = (line) => {
     return true
   } catch {
     return false
+  }
+}
+
+function bufferPendingOutput(data: Uint8Array) {
+  pendingOutput.push(data)
+  pendingOutputBytes += data.byteLength
+
+  while (pendingOutputBytes > MAX_PENDING_OUTPUT_BYTES && pendingOutput.length > 0) {
+    const discarded = pendingOutput.shift()
+    if (discarded) pendingOutputBytes -= discarded.byteLength
+    pendingOutputTruncated = true
   }
 }
 
@@ -149,10 +214,11 @@ output.on('data', (chunk: Buffer) => {
   })
 
   if (!activeSocket) {
-    pendingOutput.push(data)
+    bufferPendingOutput(data)
     sidecarLog('terminal output buffered', {
       pendingChunks: pendingOutput.length,
-      pendingBytes: pendingOutput.reduce((total, pending) => total + pending.byteLength, 0),
+      pendingBytes: pendingOutputBytes,
+      truncated: pendingOutputTruncated,
     })
     return
   }
@@ -168,7 +234,7 @@ output.on('data', (chunk: Buffer) => {
   } catch (error) {
     sidecarLog('terminal output send failed', serializeError(error))
     activeSocket = undefined
-    pendingOutput.push(data)
+    bufferPendingOutput(data)
   }
 })
 
@@ -203,8 +269,63 @@ sidecarLog('Solid application mounted; waiting for renderer idle')
 await renderer.idle()
 sidecarLog('renderer idle after initial frame', {
   pendingChunks: pendingOutput.length,
-  pendingBytes: pendingOutput.reduce((total, pending) => total + pending.byteLength, 0),
+  pendingBytes: pendingOutputBytes,
 })
+
+function activateAuthenticatedSocket(socket: Bun.ServerWebSocket<Session>) {
+  if (socket.data.authenticationTimer) clearTimeout(socket.data.authenticationTimer)
+  socket.data.authenticationTimer = undefined
+
+  const isReconnect = hasConnected
+  const replacingConnectionId = activeSocket?.data.id
+  const pendingBytes = pendingOutputBytes
+  const bufferedOutputTruncated = pendingOutputTruncated
+  const needsFullRepaint = isReconnect || bufferedOutputTruncated
+  const authenticated: SidecarAuthenticated = { type: 'authenticated' }
+  const authenticationStatus = socket.send(JSON.stringify(authenticated))
+
+  if (authenticationStatus < 0) {
+    process.stderr.write('[sidecar] client authentication response failed\n')
+    socket.close(1011, 'Authentication response failed')
+    return
+  }
+
+  activeSocket?.close(1000, 'Replaced by authenticated client')
+  activeSocket = socket
+
+  sidecarLog('WebSocket client authenticated', {
+    connectionId: socket.data.id,
+    replacingConnectionId,
+    isReconnect,
+    pendingChunks: pendingOutput.length,
+    pendingBytes,
+    authenticationStatus,
+  })
+
+  const bufferedOutput = pendingOutput.splice(0)
+  pendingOutputBytes = 0
+  pendingOutputTruncated = false
+
+  for (const chunk of bufferedOutput) {
+    const sendStatus = socket.send(chunk)
+    sidecarLog('buffered terminal output flushed', {
+      connectionId: socket.data.id,
+      bytes: chunk.byteLength,
+      sendStatus,
+    })
+  }
+
+  if (needsFullRepaint) {
+    sidecarLog('reconnecting terminal; forcing full OpenTUI repaint', {
+      connectionId: socket.data.id,
+      bufferedOutputTruncated,
+    })
+    renderer.suspend()
+    renderer.resume()
+  }
+
+  hasConnected = true
+}
 
 sidecarLog('starting WebSocket server', { host: HOST, port: PORT })
 const server = Bun.serve<Session>({
@@ -225,7 +346,9 @@ const server = Bun.serve<Session>({
     }
 
     const connectionId = ++nextConnectionId
-    const upgraded = server.upgrade(request, { data: { id: connectionId } })
+    const upgraded = server.upgrade(request, {
+      data: { authenticated: false, id: connectionId },
+    })
     sidecarLog('WebSocket upgrade attempted', { connectionId, upgraded })
 
     return upgraded ? undefined : new Response('Upgrade failed', { status: 500 })
@@ -233,13 +356,6 @@ const server = Bun.serve<Session>({
 
   websocket: {
     open(socket) {
-      const isReconnect = hasConnected
-      const replacingConnectionId = activeSocket?.data.id
-      const pendingBytes = pendingOutput.reduce((total, pending) => total + pending.byteLength, 0)
-
-      activeSocket?.close()
-      activeSocket = socket
-
       const hello: SidecarHello = {
         type: 'hello',
         protocol: SIDECAR_PROTOCOL.name,
@@ -250,43 +366,21 @@ const server = Bun.serve<Session>({
       const helloStatus = socket.send(JSON.stringify(hello))
 
       if (helloStatus < 0) {
-        activeSocket = undefined
         process.stderr.write('[sidecar] identity handshake send failed\n')
         socket.close(1011, 'Identity handshake failed')
         return
       }
 
-      sidecarLog('WebSocket opened', {
+      sidecarLog('WebSocket opened; awaiting client authentication', {
         connectionId: socket.data.id,
-        replacingConnectionId,
-        isReconnect,
-        pendingChunks: pendingOutput.length,
-        pendingBytes,
         helloStatus,
       })
-
-      for (const chunk of pendingOutput.splice(0)) {
-        const sendStatus = socket.send(chunk)
-        sidecarLog('buffered terminal output flushed', {
-          connectionId: socket.data.id,
-          bytes: chunk.byteLength,
-          sendStatus,
-        })
-      }
-
-      sidecarLog('WebSocket initial flush completed', {
-        connectionId: socket.data.id,
-      })
-
-      if (isReconnect) {
-        sidecarLog('reconnecting terminal; forcing full OpenTUI repaint', {
+      socket.data.authenticationTimer = setTimeout(() => {
+        sidecarLog('WebSocket client authentication timed out', {
           connectionId: socket.data.id,
         })
-        renderer.suspend()
-        renderer.resume()
-      }
-
-      hasConnected = true
+        socket.close(1008, 'Authentication timed out')
+      }, CLIENT_AUTHENTICATION_TIMEOUT_MS)
     },
 
     message(socket, rawMessage) {
@@ -302,13 +396,28 @@ const server = Bun.serve<Session>({
         return
       }
 
-      let message: ClientMessage
-      try {
-        message = JSON.parse(rawMessage) as ClientMessage
-      } catch (error) {
-        sidecarLog('WebSocket JSON parse failed', serializeError(error))
+      const message = parseClientMessage(rawMessage)
+      if (!message) {
+        sidecarLog('invalid WebSocket message ignored', { connectionId: socket.data.id })
+        if (!socket.data.authenticated) socket.close(1008, 'Authentication required')
         return
       }
+
+      if (!socket.data.authenticated) {
+        if (message.type !== 'authenticate' || !tokenMatches(message.token)) {
+          sidecarLog('WebSocket client authentication rejected', {
+            connectionId: socket.data.id,
+          })
+          socket.close(1008, 'Authentication failed')
+          return
+        }
+
+        socket.data.authenticated = true
+        activateAuthenticatedSocket(socket)
+        return
+      }
+
+      if (socket !== activeSocket || message.type === 'authenticate') return
 
       const isMouseMotion = message.type === 'input' && isMouseMotionInput(message.data)
 
@@ -346,6 +455,7 @@ const server = Bun.serve<Session>({
     },
 
     close(socket, code, reason) {
+      if (socket.data.authenticationTimer) clearTimeout(socket.data.authenticationTimer)
       sidecarLog('WebSocket closed', {
         connectionId: socket.data.id,
         code,

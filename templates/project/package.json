@@ -1,0 +1,38 @@
+{
+  "name": "termweave-app",
+  "private": true,
+  "version": "0.1.0",
+  "engines": {
+    "bun": ">=1.3.0"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "bun termweave/scripts/project.ts dev",
+    "build": "bun termweave/scripts/project.ts build",
+    "update": "bun termweave/scripts/project.ts update",
+    "check": "bun run lint && bun run typecheck && bun run format:check",
+    "lint": "eslint src",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write --ignore-unknown src app.config.json package.json tsconfig.json eslint.config.js .prettierrc.json",
+    "format:check": "prettier --check --ignore-unknown src app.config.json package.json tsconfig.json eslint.config.js .prettierrc.json"
+  },
+  "dependencies": {
+    "@opentui/core": "0.4.5",
+    "@opentui/solid": "0.4.5",
+    "solid-js": "1.9.12"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@types/bun": "1.3.14",
+    "@types/node": "26.1.1",
+    "eslint": "9.39.5",
+    "prettier": "3.9.5",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.64.0"
+  },
+  "overrides": {
+    "@babel/core": "7.29.7",
+    "@babel/preset-typescript": "7.29.7"
+  },
+  "description": "A terminal desktop application built with Termweave."
+}

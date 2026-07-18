@@ -16,7 +16,7 @@ export const TERMINAL_GRID = {
 
 export const SIDECAR_PROTOCOL = {
   name: `${appConfig.bundleIdentifier}/opentui`,
-  version: 1,
+  version: 2,
 } as const
 
 export type SidecarHello = {
@@ -25,4 +25,13 @@ export type SidecarHello = {
   version: typeof SIDECAR_PROTOCOL.version
   instanceId: string
   port: number
+}
+
+export type SidecarAuthenticate = {
+  type: 'authenticate'
+  token: string
+}
+
+export type SidecarAuthenticated = {
+  type: 'authenticated'
 }

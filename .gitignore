@@ -11,6 +11,11 @@ node_modules
 dist
 dist-ssr
 *.local
+*.tsbuildinfo
+.eslintcache
+.termweave-active.json
+.termweave-project-files.json
+.termweave-sidecar-restart
 
 # Editor directories and files
 .vscode/*

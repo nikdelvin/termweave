@@ -7,7 +7,6 @@
     "core:default",
     "core:window:allow-show",
     "core:webview:allow-set-webview-focus",
-    "opener:default",
     {
       "identifier": "shell:allow-spawn",
       "allow": [

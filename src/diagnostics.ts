@@ -7,6 +7,7 @@ const maxLines = 1000
 const lines: string[] = []
 const reportedCspViolations = new Set<string>()
 const diagnosticsElement = document.querySelector<HTMLElement>('#diagnostics')
+const diagnosticsEnabled = import.meta.env.DEV || SHOW_DIAGNOSTICS
 
 if (SHOW_DIAGNOSTICS) {
   diagnosticsElement?.removeAttribute('hidden')
@@ -85,6 +86,8 @@ export function diagnostic(
   details?: unknown,
   level: DiagnosticLevel = 'info',
 ) {
+  if (!diagnosticsEnabled) return
+
   const elapsed = (performance.now() - startedAt).toFixed(1).padStart(8)
   const suffix = details === undefined ? '' : ` ${serialize(details)}`
   const line = `[${elapsed}ms] [${level.toUpperCase()}] [${scope}] ${message}${suffix}`
@@ -104,81 +107,83 @@ function captureConsole(
   nativeMethod(...values)
 }
 
-console.log = (...values: unknown[]) => {
-  captureConsole('info', nativeConsole.log, values)
+if (diagnosticsEnabled) {
+  console.log = (...values: unknown[]) => {
+    captureConsole('info', nativeConsole.log, values)
+  }
+  console.warn = (...values: unknown[]) => {
+    captureConsole('warn', nativeConsole.warn, values)
+  }
+  console.error = (...values: unknown[]) => {
+    captureConsole('error', nativeConsole.error, values)
+  }
+
+  window.addEventListener('error', (event) => {
+    diagnostic(
+      'window',
+      'uncaught error',
+      {
+        message: event.message,
+        filename: event.filename,
+        line: event.lineno,
+        column: event.colno,
+        error: event.error,
+      },
+      'error',
+    )
+  })
+
+  window.addEventListener('unhandledrejection', (event) => {
+    diagnostic('window', 'unhandled promise rejection', event.reason, 'error')
+  })
+
+  document.addEventListener('securitypolicyviolation', (event) => {
+    const signature = [
+      event.effectiveDirective,
+      event.blockedURI,
+      event.sourceFile,
+      event.lineNumber,
+    ].join(':')
+    if (reportedCspViolations.has(signature)) return
+    reportedCspViolations.add(signature)
+
+    diagnostic(
+      'csp',
+      'security policy violation',
+      {
+        directive: event.effectiveDirective,
+        blockedUri: event.blockedURI,
+        source: event.sourceFile,
+        line: event.lineNumber,
+      },
+      'error',
+    )
+  })
+
+  window.addEventListener('online', () => diagnostic('window', 'online'))
+  window.addEventListener('offline', () => diagnostic('window', 'offline', undefined, 'warn'))
+
+  document.querySelector<HTMLButtonElement>('#diagnostic-copy')?.addEventListener('click', () => {
+    void navigator.clipboard
+      .writeText(lines.join('\n'))
+      .then(() => diagnostic('diagnostics', 'log copied to clipboard'))
+      .catch((error: unknown) => diagnostic('diagnostics', 'copy failed', error, 'error'))
+  })
+
+  document.querySelector<HTMLButtonElement>('#diagnostic-clear')?.addEventListener('click', () => {
+    lines.splice(0)
+    if (logElement) logElement.textContent = ''
+    diagnostic('diagnostics', 'log cleared')
+  })
+
+  diagnostic('webview', 'diagnostics initialized', {
+    href: window.location.href,
+    readyState: document.readyState,
+    userAgent: navigator.userAgent,
+    language: navigator.language,
+    viewport: `${window.innerWidth}x${window.innerHeight}`,
+    screen: `${window.screen.width}x${window.screen.height}`,
+    devicePixelRatio: window.devicePixelRatio,
+    visibility: document.visibilityState,
+  })
 }
-console.warn = (...values: unknown[]) => {
-  captureConsole('warn', nativeConsole.warn, values)
-}
-console.error = (...values: unknown[]) => {
-  captureConsole('error', nativeConsole.error, values)
-}
-
-window.addEventListener('error', (event) => {
-  diagnostic(
-    'window',
-    'uncaught error',
-    {
-      message: event.message,
-      filename: event.filename,
-      line: event.lineno,
-      column: event.colno,
-      error: event.error,
-    },
-    'error',
-  )
-})
-
-window.addEventListener('unhandledrejection', (event) => {
-  diagnostic('window', 'unhandled promise rejection', event.reason, 'error')
-})
-
-document.addEventListener('securitypolicyviolation', (event) => {
-  const signature = [
-    event.effectiveDirective,
-    event.blockedURI,
-    event.sourceFile,
-    event.lineNumber,
-  ].join(':')
-  if (reportedCspViolations.has(signature)) return
-  reportedCspViolations.add(signature)
-
-  diagnostic(
-    'csp',
-    'security policy violation',
-    {
-      directive: event.effectiveDirective,
-      blockedUri: event.blockedURI,
-      source: event.sourceFile,
-      line: event.lineNumber,
-    },
-    'error',
-  )
-})
-
-window.addEventListener('online', () => diagnostic('window', 'online'))
-window.addEventListener('offline', () => diagnostic('window', 'offline', undefined, 'warn'))
-
-document.querySelector<HTMLButtonElement>('#diagnostic-copy')?.addEventListener('click', () => {
-  void navigator.clipboard
-    .writeText(lines.join('\n'))
-    .then(() => diagnostic('diagnostics', 'log copied to clipboard'))
-    .catch((error: unknown) => diagnostic('diagnostics', 'copy failed', error, 'error'))
-})
-
-document.querySelector<HTMLButtonElement>('#diagnostic-clear')?.addEventListener('click', () => {
-  lines.splice(0)
-  if (logElement) logElement.textContent = ''
-  diagnostic('diagnostics', 'log cleared')
-})
-
-diagnostic('webview', 'diagnostics initialized', {
-  href: window.location.href,
-  readyState: document.readyState,
-  userAgent: navigator.userAgent,
-  language: navigator.language,
-  viewport: `${window.innerWidth}x${window.innerHeight}`,
-  screen: `${window.screen.width}x${window.screen.height}`,
-  devicePixelRatio: window.devicePixelRatio,
-  visibility: document.visibilityState,
-})

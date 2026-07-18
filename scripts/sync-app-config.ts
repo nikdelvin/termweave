@@ -1,5 +1,6 @@
 import { relative, resolve } from 'node:path'
 import { readFile, writeFile } from 'node:fs/promises'
+import { format, resolveConfig } from 'prettier'
 
 type AppBuilderConfig = {
   name: string
@@ -255,14 +256,24 @@ const updatedCss = css
   .replace(/(--theme-color:\s*)#[0-9A-Fa-f]{6}/, `$1${config.themeColor}`)
   .replace(/(--foreground-color:\s*)#[0-9A-Fa-f]{6}/, `$1${config.foregroundColor}`)
 
+const prettierConfig = (await resolveConfig(configPath)) ?? {}
+const [formattedTauriConfig, formattedPackageJson, formattedHtml, formattedCss] = await Promise.all(
+  [
+    format(JSON.stringify(tauriConfig), { ...prettierConfig, filepath: tauriPath }),
+    format(JSON.stringify(packageJson), { ...prettierConfig, filepath: packagePath }),
+    format(updatedHtml, { ...prettierConfig, filepath: htmlPath }),
+    format(updatedCss, { ...prettierConfig, filepath: cssPath }),
+  ],
+)
+
 const outputs: Array<[string, string]> = [
-  [tauriPath, `${JSON.stringify(tauriConfig, null, 2)}\n`],
-  [packagePath, `${JSON.stringify(packageJson, null, 2)}\n`],
+  [tauriPath, formattedTauriConfig],
+  [packagePath, formattedPackageJson],
   [bunLockPath, updatedBunLock],
   [cargoPath, cargoToml],
   [rustMainPath, updatedRustMain],
-  [htmlPath, updatedHtml],
-  [cssPath, updatedCss],
+  [htmlPath, formattedHtml],
+  [cssPath, formattedCss],
 ]
 
 const changed: string[] = []
