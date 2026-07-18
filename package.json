@@ -16,7 +16,7 @@
     "sidecar:build": "cd sidecar && bun run build",
     "app:check": "bun run check && bun run --cwd sidecar check && bun run format && bun run --cwd sidecar format",
     "app:dev": "bun run app:check && bun run icons:generate && bun run config:sync && bun run sidecar:build && tauri dev",
-    "app:build": "bun run app:check && bun run icons:generate && bun run config:sync && bun run sidecar:build && tauri build"
+    "app:build": "bun run app:check && bun run icons:generate && bun run config:sync && bun run sidecar:build && bun scripts/build-app.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

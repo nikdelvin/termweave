@@ -203,16 +203,16 @@ src-tauri/                 Native Tauri shell and bundle configuration
 
 ## Scripts
 
-| Command                  | Purpose                                                                            |
-| ------------------------ | ---------------------------------------------------------------------------------- |
-| `bun run app:dev`        | Run `app:check`, prepare assets/config/sidecar, and start Tauri dev.                |
-| `bun run app:build`      | Run `app:check`, prepare assets/config/sidecar, and build native bundles.           |
-| `bun run app:check`      | Type-check both TypeScript projects and format both with Prettier.                 |
-| `bun run config:sync`    | Validate `app.config.json` and synchronize generated branding.                     |
-| `bun run icons:generate` | Generate desktop icons from the configured source icon.                            |
-| `bun run sidecar:build`  | Compile OpenTUI into the host-specific Tauri sidecar binary.                       |
-| `bun run dev`            | Run only the Vite webview development server.                                      |
-| `bun run build`          | Type-check and build only the Vite webview assets.                                 |
+| Command                  | Purpose                                                                   |
+| ------------------------ | ------------------------------------------------------------------------- |
+| `bun run app:dev`        | Run `app:check`, prepare assets/config/sidecar, and start Tauri dev.      |
+| `bun run app:build`      | Run `app:check`, prepare assets/config/sidecar, and build native bundles. |
+| `bun run app:check`      | Type-check both TypeScript projects and format both with Prettier.        |
+| `bun run config:sync`    | Validate `app.config.json` and synchronize generated branding.            |
+| `bun run icons:generate` | Generate desktop icons from the configured source icon.                   |
+| `bun run sidecar:build`  | Compile OpenTUI into the host-specific Tauri sidecar binary.              |
+| `bun run dev`            | Run only the Vite webview development server.                             |
+| `bun run build`          | Type-check and build only the Vite webview assets.                        |
 
 ## Platform notes
 
