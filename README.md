@@ -310,5 +310,4 @@ build/               Ignored native bundle output
 
 [MIT](./LICENSE)
 
-Contributions are welcome; see [CONTRIBUTING.md](./CONTRIBUTING.md). Please report security issues
-using the process in [SECURITY.md](./SECURITY.md).
+Contributions are welcome; see [CONTRIBUTING.md](./CONTRIBUTING.md).
