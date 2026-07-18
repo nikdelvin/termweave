@@ -1,66 +1,97 @@
-# Contributing to Termweave
+# 🤝 Contributing to Termweave
 
-Thank you for helping improve Termweave.
+Thanks for helping make Termweave better. Bug fixes, documentation, examples, and focused feature
+improvements are all welcome.
 
-## Development setup
+## 🚀 Set up
 
-Termweave currently targets macOS for standalone installation and development. Install Bun 1.3 or
-newer, a stable Rust toolchain, and the Xcode Command Line Tools.
+Development currently requires macOS, [Bun 1.3+](https://bun.sh/), a stable
+[Rust toolchain](https://www.rust-lang.org/tools/install), and the Xcode Command Line Tools.
 
-Clone the repository, enter the SDK directory, and install both JavaScript workspaces:
+Clone the repository and install both workspaces:
 
 ```sh
-cd sdk
+git clone https://github.com/nikdelvin/termweave.git
+cd termweave/sdk
 bun install --frozen-lockfile
 bun install --cwd sidecar --frozen-lockfile
-cargo install cargo-audit --locked
 ```
 
-Run all non-native checks with:
+Run the development app:
+
+```sh
+bun run app:dev
+```
+
+## 🗺️ Find your way around
+
+| Path                 | What lives there                                 |
+| -------------------- | ------------------------------------------------ |
+| `src/`               | xterm.js renderer and webview code.              |
+| `sidecar/`           | OpenTUI + Solid application and sidecar tooling. |
+| `src-tauri/`         | Native Tauri application.                        |
+| `scripts/`           | Configuration, build, install, and update tools. |
+| `templates/project/` | Files generated for a new Termweave application. |
+
+## ✅ Check your work
+
+Run the standard checks before opening a pull request:
 
 ```sh
 bun run app:check
-bun run sdk:deps:audit
+bun run build
 sh -n install.sh
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+cargo metadata --manifest-path src-tauri/Cargo.toml --no-deps --locked --format-version 1
 ```
 
-Use `bun run format` and `bun run --cwd sidecar format` before committing when formatting changes
-are needed.
+Use `bun run app:format` to format the SDK and sidecar.
 
-## Updating dependencies
+For native or sidecar lifecycle changes, also verify:
 
-Do not introduce version ranges in the SDK, sidecar, project template, or Cargo manifest. Preview
-registry updates before applying them:
+- The development app starts and shuts down cleanly.
+- Source changes restart the sidecar and reconnect.
+- `bun run app:build` creates a production bundle.
+- The packaged application launches and exits normally.
+
+## 🧩 Keep changes focused
+
+- Preserve the named `App` export used by `sidecar/src/index.tsx`.
+- Change product metadata in `app.config.json`; generated Tauri, Cargo, HTML, and CSS values are
+  synchronized by `scripts/sync-app-config.ts`.
+- Keep direct Bun and Cargo dependency versions exact.
+- Guard and document platform-specific behavior.
+- Update the README when public commands, requirements, configuration, or layout change.
+- Do not commit generated output, dependency directories, or synchronized standalone-project
+  files.
+
+## 📦 Update dependencies
+
+Preview compatible dependency updates before applying them:
 
 ```sh
 bun run sdk:deps:update --dry-run
 bun run sdk:deps:update
 ```
 
-Compatible updates stay within the current major version, or the current minor version for pre-1.0
-packages. Add `--latest` to the preview only when intentionally evaluating breaking releases.
+Use `--latest` only when intentionally reviewing breaking releases. Audit the resulting lockfiles
+with:
 
-The updater assigns exact versions to direct Bun packages, Bun security overrides, and Rust crates;
-aligns shared Bun packages; regenerates every Bun lockfile and the Cargo lockfile; and runs the
-static checks. Review upstream changelogs and the resulting lockfile diff, then perform the native
-lifecycle checks described below before committing.
+```sh
+cargo install cargo-audit --locked
+bun run sdk:deps:audit
+```
 
-## Making changes
+Review upstream changelogs and test the native lifecycle before committing dependency updates.
 
-- Keep user-owned project code under the standalone project root and SDK-owned runtime code in this
-  repository.
-- Preserve the named `App` export expected by `sdk/sidecar/src/index.tsx`.
-- Keep configuration-derived files managed by `sdk/scripts/sync-app-config.ts`.
-- Avoid adding platform-specific behavior without documenting and guarding it.
-- Update the README when a public command, configuration field, prerequisite, or project layout
-  changes.
+## 📬 Open a pull request
 
-For native or sidecar lifecycle changes, manually verify development startup, sidecar restart and
-reconnect, production bundling, and application shutdown before opening a pull request.
+Keep each pull request small and explain:
 
-## Pull requests
+- What changed and why.
+- What users will notice.
+- Which automated and manual checks you ran.
+- Any follow-up work or known limitations.
 
-Keep pull requests focused, describe the user-visible behavior, and include the manual verification
-you performed. Do not include generated build output, dependency directories, or synchronized
-standalone-project files.
+Add screenshots or a short recording for visible interface changes. Link related issues when
+available.

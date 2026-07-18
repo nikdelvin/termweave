@@ -6,6 +6,7 @@ import {
   mkdir,
   readFile,
   readdir,
+  rename,
   rm,
   rmdir,
   stat,
@@ -28,6 +29,8 @@ type JsonObject = Record<string, unknown>
 
 const SDK_ROOT = resolve(import.meta.dir, '..')
 const SDK_CHECKOUT_ROOT = resolve(SDK_ROOT, '..')
+const SDK_GIT_ROOT = resolve(SDK_CHECKOUT_ROOT, '.termweave-git')
+const LEGACY_SDK_GIT_ROOT = resolve(SDK_CHECKOUT_ROOT, '.git')
 const SDK_MARKER = '.termweave-sdk.json'
 const SYNC_MANIFEST = '.termweave-project-files.json'
 const ACTIVE_PROCESS = '.termweave-active.json'
@@ -123,14 +126,30 @@ async function removeEmptyParents(path: string, stopAt: string) {
   }
 }
 
-async function validateProjectContext(projectRoot: string) {
+function validateProjectLocation(projectRoot: string) {
   const expectedSdkRoot = resolve(projectRoot, 'termweave/sdk')
   if (expectedSdkRoot !== SDK_ROOT) {
     throw new Error(`Run this command from the standalone project root containing ${SDK_ROOT}`)
   }
+}
 
-  if (!(await pathExists(resolve(SDK_CHECKOUT_ROOT, '.git')))) {
-    throw new Error(`Refusing to manage ${SDK_ROOT}: the SDK repository is not a Git checkout`)
+async function migrateLegacyGitDirectory() {
+  if (await pathExists(SDK_GIT_ROOT)) return
+  if (!(await pathExists(LEGACY_SDK_GIT_ROOT))) return
+
+  await rename(LEGACY_SDK_GIT_ROOT, SDK_GIT_ROOT)
+  process.stdout.write('Migrated Termweave Git metadata out of repository auto-detection.\n')
+}
+
+function sdkGitCommand(...args: string[]) {
+  return ['git', `--git-dir=${SDK_GIT_ROOT}`, `--work-tree=${SDK_CHECKOUT_ROOT}`, ...args]
+}
+
+async function validateProjectContext(projectRoot: string) {
+  validateProjectLocation(projectRoot)
+
+  if (!(await pathExists(SDK_GIT_ROOT))) {
+    throw new Error(`Refusing to manage ${SDK_ROOT}: the SDK Git metadata is missing`)
   }
 
   try {
@@ -498,9 +517,13 @@ async function runUpdate(projectRoot: string) {
     )
   }
 
-  await runRequired(['git', 'fetch', 'origin', 'main'], SDK_CHECKOUT_ROOT, 'SDK fetch')
-  await runRequired(['git', 'reset', '--hard', 'origin/main'], SDK_CHECKOUT_ROOT, 'SDK reset')
-  await runRequired(['git', 'clean', '-fd'], SDK_CHECKOUT_ROOT, 'SDK generated-file cleanup')
+  await runRequired(sdkGitCommand('fetch', 'origin', 'main'), SDK_CHECKOUT_ROOT, 'SDK fetch')
+  await runRequired(sdkGitCommand('reset', '--hard', 'origin/main'), SDK_CHECKOUT_ROOT, 'SDK reset')
+  await runRequired(
+    sdkGitCommand('clean', '-fd', '-e', '.termweave-git/'),
+    SDK_CHECKOUT_ROOT,
+    'SDK generated-file cleanup',
+  )
   await runRequired(
     ['bun', 'install', '--frozen-lockfile'],
     SDK_ROOT,
@@ -533,6 +556,8 @@ async function runUpdate(projectRoot: string) {
 async function main() {
   const command = process.argv[2]
   const projectRoot = resolve(process.env.TERMWEAVE_PROJECT_ROOT ?? process.cwd())
+  validateProjectLocation(projectRoot)
+  await migrateLegacyGitDirectory()
   await validateProjectContext(projectRoot)
 
   if (command === 'sync') {
