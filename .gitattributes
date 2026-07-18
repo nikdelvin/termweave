@@ -2,6 +2,6 @@
 
 *.icns binary
 *.ico binary
-*.mp4 binary
+*.gif binary
 *.png binary
 *.ttf binary

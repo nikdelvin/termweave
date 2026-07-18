@@ -9,15 +9,11 @@
 </p>
 
 <p align="center">
-  <video controls width="100%">
-    <source
-      src="https://raw.githubusercontent.com/nikdelvin/termweave/main/termweave-sdk.mp4"
-      type="video/mp4"
-    />
-    <a href="https://raw.githubusercontent.com/nikdelvin/termweave/main/termweave-sdk.mp4">
-      Watch the 24-second project preview
-    </a>
-  </video>
+  <img
+    src="./termweave-sdk.gif"
+    width="100%"
+    alt="Termweave project preview"
+  />
 </p>
 
 Termweave packages an [OpenTUI](https://github.com/anomalyco/opentui) interface powered by
