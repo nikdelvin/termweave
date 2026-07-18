@@ -1,8 +1,6 @@
-<p align="center">
-  <img src="./sdk/app-icon.svg" width="128" height="128" alt="Termweave icon" />
-</p>
-
-<h1 align="center">Termweave</h1>
+<div align="center">
+  <img src="./sdk/readme-title.svg" width="192" height="48" alt="Termweave" />
+</div>
 
 <p align="center">
   A config-driven Tauri + OpenTUI builder for native desktop terminal apps.
