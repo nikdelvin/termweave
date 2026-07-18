@@ -8,6 +8,18 @@
   A config-driven Tauri + OpenTUI builder for native desktop terminal apps.
 </p>
 
+<p align="center">
+  <video controls width="100%">
+    <source
+      src="https://raw.githubusercontent.com/nikdelvin/termweave/main/termweave-sdk.mp4"
+      type="video/mp4"
+    />
+    <a href="https://raw.githubusercontent.com/nikdelvin/termweave/main/termweave-sdk.mp4">
+      Watch the 24-second project preview
+    </a>
+  </video>
+</p>
+
 Termweave packages an [OpenTUI](https://github.com/anomalyco/opentui) interface powered by
 [Solid](https://www.solidjs.com/) into a native [Tauri](https://tauri.app/) window. The OpenTUI
 application runs as a bundled sidecar, streams terminal output over a mutually authenticated local
