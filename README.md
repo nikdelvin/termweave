@@ -18,8 +18,8 @@ Termweave turns an [OpenTUI](https://github.com/anomalyco/opentui) interface int
 [Tauri](https://tauri.app/) desktop app.
 
 You build the interface with
-[Solid](https://www.solidjs.com/) — Termweave handles everything else: 📦
-The window, terminal renderer, app lifecycle,
+[Solid](https://www.solidjs.com/) — Termweave handles everything else:<br>
+📦 The window, terminal renderer, app lifecycle,
 and native packaging.
 
 ## ✨ Why Termweave?
