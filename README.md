@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./app-icon.svg" width="128" height="128" alt="Termweave icon" />
+  <img src="./sdk/app-icon.svg" width="128" height="128" alt="Termweave icon" />
 </p>
 
 <h1 align="center">Termweave</h1>
@@ -10,7 +10,7 @@
 
 <p align="center">
   <img
-    src="./termweave-sdk.gif"
+    src="./sdk/termweave-sdk.gif"
     width="100%"
     alt="Termweave project preview"
   />
@@ -61,12 +61,13 @@ Create an empty project directory, download the installer, and run it:
 ```sh
 mkdir my-termweave-project
 cd my-termweave-project
-curl -fsSLo install.sh https://raw.githubusercontent.com/nikdelvin/termweave/main/install.sh
+curl -fsSLo install.sh https://raw.githubusercontent.com/nikdelvin/termweave/main/sdk/install.sh
 sh install.sh
 ```
 
-The installer prompts for application metadata, clones the SDK into the ignored `termweave/`
-directory, creates the OpenTUI project scaffold, and installs the project and SDK dependencies.
+The installer prompts for application metadata, clones the repository into the ignored
+`termweave/` directory, runs the SDK from `termweave/sdk/`, creates the OpenTUI project scaffold,
+and installs the project and SDK dependencies.
 
 Start the desktop application from the project root:
 
@@ -98,7 +99,7 @@ bun run dev
 
 The project root is the source of truth. Termweave copies the project source, configuration, and
 icon into the ignored SDK before running its existing configuration and native build workflow.
-Do not edit the copied files under `termweave/`.
+Do not edit the copied files under `termweave/sdk/`.
 
 While `bun run dev` is running, source changes are copied into the SDK and Bun restarts only the
 OpenTUI sidecar. The Tauri window stays open and reconnects. Configuration and icon changes require
@@ -141,9 +142,11 @@ projects before installing anything.
 Application developers should receive dependency changes through `bun run update`; they should not
 update packages inside `termweave/` directly.
 
-SDK maintainers can preview and apply coordinated stable dependency updates with:
+SDK maintainers can work from the `sdk/` directory and preview or apply coordinated stable
+dependency updates with:
 
 ```sh
+cd sdk
 bun run sdk:deps:update --dry-run
 bun run sdk:deps:update
 ```
@@ -239,8 +242,8 @@ The synchronization script updates:
 Do not hand-edit synchronized branding values in those files. Change `app.config.json` instead.
 
 The SDK's icon generator creates the macOS, Windows, and Linux icon files under
-`termweave/src-tauri/icons/`. Generated icons, host-specific sidecar binaries, and the complete SDK
-directory are ignored by the outer project Git repository.
+`termweave/sdk/src-tauri/icons/`. Generated icons, host-specific sidecar binaries, and the complete
+SDK checkout are ignored by the outer project Git repository.
 
 ## Architecture
 
@@ -277,7 +280,7 @@ app.icon.svg         Default source icon
 package.json         Root development, build, update, and quality commands
 tsconfig.json        User-project TypeScript configuration
 eslint.config.js     User-project ESLint configuration
-termweave/           Ignored SDK clone; never edit project code here
+termweave/sdk/       SDK runtime within the ignored repository clone
 build/               Ignored native bundle output
 ```
 

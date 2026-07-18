@@ -7,9 +7,10 @@ Thank you for helping improve Termweave.
 Termweave currently targets macOS for standalone installation and development. Install Bun 1.3 or
 newer, a stable Rust toolchain, and the Xcode Command Line Tools.
 
-Clone the repository and install both JavaScript workspaces:
+Clone the repository, enter the SDK directory, and install both JavaScript workspaces:
 
 ```sh
+cd sdk
 bun install --frozen-lockfile
 bun install --cwd sidecar --frozen-lockfile
 cargo install cargo-audit --locked
@@ -49,8 +50,8 @@ lifecycle checks described below before committing.
 
 - Keep user-owned project code under the standalone project root and SDK-owned runtime code in this
   repository.
-- Preserve the named `App` export expected by `sidecar/src/index.tsx`.
-- Keep configuration-derived files managed by `scripts/sync-app-config.ts`.
+- Preserve the named `App` export expected by `sdk/sidecar/src/index.tsx`.
+- Keep configuration-derived files managed by `sdk/scripts/sync-app-config.ts`.
 - Avoid adding platform-specific behavior without documenting and guarding it.
 - Update the README when a public command, configuration field, prerequisite, or project layout
   changes.

@@ -27,6 +27,7 @@ type ActiveProcess = {
 type JsonObject = Record<string, unknown>
 
 const SDK_ROOT = resolve(import.meta.dir, '..')
+const SDK_CHECKOUT_ROOT = resolve(SDK_ROOT, '..')
 const SDK_MARKER = '.termweave-sdk.json'
 const SYNC_MANIFEST = '.termweave-project-files.json'
 const ACTIVE_PROCESS = '.termweave-active.json'
@@ -123,13 +124,13 @@ async function removeEmptyParents(path: string, stopAt: string) {
 }
 
 async function validateProjectContext(projectRoot: string) {
-  const expectedSdkRoot = resolve(projectRoot, 'termweave')
+  const expectedSdkRoot = resolve(projectRoot, 'termweave/sdk')
   if (expectedSdkRoot !== SDK_ROOT) {
     throw new Error(`Run this command from the standalone project root containing ${SDK_ROOT}`)
   }
 
-  if (!(await pathExists(resolve(SDK_ROOT, '.git')))) {
-    throw new Error(`Refusing to manage ${SDK_ROOT}: the SDK is not a Git checkout`)
+  if (!(await pathExists(resolve(SDK_CHECKOUT_ROOT, '.git')))) {
+    throw new Error(`Refusing to manage ${SDK_ROOT}: the SDK repository is not a Git checkout`)
   }
 
   try {
@@ -497,9 +498,9 @@ async function runUpdate(projectRoot: string) {
     )
   }
 
-  await runRequired(['git', 'fetch', 'origin', 'main'], SDK_ROOT, 'SDK fetch')
-  await runRequired(['git', 'reset', '--hard', 'origin/main'], SDK_ROOT, 'SDK reset')
-  await runRequired(['git', 'clean', '-fd'], SDK_ROOT, 'SDK generated-file cleanup')
+  await runRequired(['git', 'fetch', 'origin', 'main'], SDK_CHECKOUT_ROOT, 'SDK fetch')
+  await runRequired(['git', 'reset', '--hard', 'origin/main'], SDK_CHECKOUT_ROOT, 'SDK reset')
+  await runRequired(['git', 'clean', '-fd'], SDK_CHECKOUT_ROOT, 'SDK generated-file cleanup')
   await runRequired(
     ['bun', 'install', '--frozen-lockfile'],
     SDK_ROOT,
@@ -551,7 +552,7 @@ async function main() {
     return
   }
 
-  throw new Error('Usage: bun termweave/scripts/project.ts <sync|dev|build|update>')
+  throw new Error('Usage: bun termweave/sdk/scripts/project.ts <sync|dev|build|update>')
 }
 
 if (import.meta.main) {

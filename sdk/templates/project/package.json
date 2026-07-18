@@ -7,9 +7,9 @@
   },
   "type": "module",
   "scripts": {
-    "dev": "bun termweave/scripts/project.ts dev",
-    "build": "bun termweave/scripts/project.ts build",
-    "update": "bun termweave/scripts/project.ts update",
+    "dev": "bun termweave/sdk/scripts/project.ts dev",
+    "build": "bun termweave/sdk/scripts/project.ts build",
+    "update": "bun termweave/sdk/scripts/project.ts update",
     "check": "bun run lint && bun run typecheck && bun run format:check",
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",
