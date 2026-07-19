@@ -1,10 +1,10 @@
 <div align="center">
-  <img src="./sdk/app.logo.svg" width="192" height="48" alt="Termweave" />
+  <img
+    src="./sdk/termweave-sdk.png"
+    width="100%"
+    alt="Termweave — Build terminal apps. Ship them native."
+  />
 </div>
-
-<p align="center">
-  A config-driven Tauri + OpenTUI builder for native desktop 📟 <strong>terminal apps</strong>.
-</p>
 
 <p align="center">
   <img
@@ -14,7 +14,7 @@
   />
 </p>
 
-Termweave turns an [OpenTUI](https://github.com/anomalyco/opentui) interface into a native
+📟 **Termweave** turns an [OpenTUI](https://github.com/anomalyco/opentui) interface into a native
 [Tauri](https://tauri.app/) desktop app.
 
 You build the interface with
