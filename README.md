@@ -59,7 +59,7 @@ You only need to edit three places:
 
 1. `src/App.tsx` — build your OpenTUI interface.
 2. `app.config.json` — set the app name, colors, window size, and bundle metadata.
-3. `app.icon.svg` — replace the default app icon.
+3. `app.icon.png` — replace the default app icon.
 
 Changes under `src/` reload while the app is running. Restart `bun run dev` after changing the
 configuration or icon.
@@ -70,7 +70,7 @@ Your project stays small:
 my-termweave-app/
 ├── src/App.tsx
 ├── app.config.json
-├── app.icon.svg
+├── app.icon.png
 ├── package.json
 └── termweave/       Managed SDK checkout
 ```

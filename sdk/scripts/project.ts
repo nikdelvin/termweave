@@ -433,7 +433,7 @@ async function runDevelopment(projectRoot: string) {
 
     const closeWatchers = createProjectWatchers(
       projectRoot,
-      initialSync.icon ?? 'app.icon.svg',
+      initialSync.icon ?? 'app.icon.png',
       scheduleSourceSync,
     )
     const subprocess = Bun.spawn(['bun', 'run', 'app:dev'], {

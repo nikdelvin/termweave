@@ -9,7 +9,7 @@ const SDK_ROOT = resolve(import.meta.dir, '..')
 const SCAFFOLD_CONFLICTS = [
   'src',
   'app.config.json',
-  'app.icon.svg',
+  'app.icon.png',
   'package.json',
   'bun.lock',
   'tsconfig.json',
@@ -107,7 +107,7 @@ export async function createScaffold(
   await cp(resolve(templateRoot, 'src'), resolve(projectRoot, 'src'), { recursive: true })
 
   for (const path of [
-    'app.icon.svg',
+    'app.icon.png',
     'tsconfig.json',
     'eslint.config.js',
     '.prettierrc.json',
@@ -141,7 +141,7 @@ export async function createScaffold(
     showDiagnostics: false,
     themeColor: '#0B1020',
     foregroundColor: '#E6EDF7',
-    icon: 'app.icon.svg',
+    icon: 'app.icon.png',
   }
   await writeFile(
     resolve(projectRoot, 'app.config.json'),
