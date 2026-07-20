@@ -7,7 +7,7 @@ const maxLines = 1000
 const lines: string[] = []
 const reportedCspViolations = new Set<string>()
 const diagnosticsElement = document.querySelector<HTMLElement>('#diagnostics')
-const diagnosticsEnabled = import.meta.env.DEV || SHOW_DIAGNOSTICS
+const diagnosticsEnabled = SHOW_DIAGNOSTICS
 
 if (SHOW_DIAGNOSTICS) {
   diagnosticsElement?.removeAttribute('hidden')

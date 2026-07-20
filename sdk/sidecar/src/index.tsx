@@ -11,11 +11,18 @@ import {
   type SidecarExitRequested,
   type SidecarHello,
 } from '../../shared/terminal-config'
+import {
+  MAX_TERMINAL_FRAME_ID,
+  encodeTerminalFrame,
+  isTerminalFrameId,
+  type SidecarFrameAcknowledgement,
+} from '../../shared/terminal-protocol'
 import { App } from './App'
 
 const startedAt = performance.now()
 const HOST = '127.0.0.1'
 const CLIENT_AUTHENTICATION_TIMEOUT_MS = 5_000
+const FRAME_ACKNOWLEDGEMENT_TIMEOUT_MS = 5_000
 const MAX_PENDING_OUTPUT_BYTES = 4 * 1024 * 1024
 const INSTANCE_ID = process.env.TUI_SIDECAR_INSTANCE_ID?.trim()
 const configuredClientToken = process.env.TUI_SIDECAR_TOKEN?.trim()
@@ -40,6 +47,7 @@ const { cols: COLS, rows: ROWS } = TERMINAL_GRID
 
 type ClientMessage =
   | SidecarAuthenticate
+  | SidecarFrameAcknowledgement
   | { type: 'input'; data: string }
   | { type: 'resize'; cols: number; rows: number }
 
@@ -96,6 +104,10 @@ function parseClientMessage(rawMessage: string): ClientMessage | undefined {
 
     if (message.type === 'input' && typeof message.data === 'string') {
       return { type: 'input', data: message.data }
+    }
+
+    if (message.type === 'frame-ack' && isTerminalFrameId(message.frameId)) {
+      return { type: 'frame-ack', frameId: message.frameId }
     }
 
     if (
@@ -162,9 +174,29 @@ function terminalOutput() {
 
 const input = terminalInput()
 const output = terminalOutput()
-const pendingOutput: Uint8Array[] = []
-let pendingOutputBytes = 0
-let pendingOutputTruncated = false
+
+type QueuedOutputFrame = {
+  contentBytes: number
+  frameId: number
+  message: Uint8Array
+}
+
+type InFlightOutputFrame = QueuedOutputFrame & {
+  connectionId: number
+}
+
+const outputChunks: Uint8Array[] = []
+const queuedOutputFrames: QueuedOutputFrame[] = []
+let outputChunkBytes = 0
+let queuedOutputBytes = 0
+let outputFlushTimer: ReturnType<typeof setTimeout> | undefined
+let outputFrameBoundariesReady = false
+let outputRequiresFullRepaint = false
+let nextOutputFrameId = 0
+let inFlightOutputFrame: InFlightOutputFrame | undefined
+let frameAcknowledgementTimer: ReturnType<typeof setTimeout> | undefined
+let terminalReadyPromise: Promise<void> | undefined
+let resolveTerminalReady: (() => void) | undefined
 let activeSocket: Bun.ServerWebSocket<Session> | undefined
 let nextConnectionId = 0
 let outputChunkCount = 0
@@ -173,14 +205,209 @@ let hasConnected = false
 let exitRequested = false
 let exitRequestConnectionId: number | undefined
 
-sendSidecarDiagnostic = (line) => {
-  if (!activeSocket) return false
+if (DIAGNOSTICS_ENABLED) {
+  sendSidecarDiagnostic = (line) => {
+    if (!activeSocket) return false
+
+    try {
+      activeSocket.send(JSON.stringify({ type: 'diagnostic', line }))
+      return true
+    } catch {
+      return false
+    }
+  }
+}
+
+function blockTerminalRendering() {
+  if (terminalReadyPromise) return
+
+  terminalReadyPromise = new Promise<void>((resolve) => {
+    resolveTerminalReady = resolve
+  })
+}
+
+function releaseTerminalRendering() {
+  const resolve = resolveTerminalReady
+  terminalReadyPromise = undefined
+  resolveTerminalReady = undefined
+  resolve?.()
+}
+
+function waitForTerminalReady() {
+  return terminalReadyPromise ?? Promise.resolve()
+}
+
+function clearFrameAcknowledgementTimer() {
+  if (!frameAcknowledgementTimer) return
+  clearTimeout(frameAcknowledgementTimer)
+  frameAcknowledgementTimer = undefined
+}
+
+function clearOutputFlushTimer() {
+  if (!outputFlushTimer) return
+  clearTimeout(outputFlushTimer)
+  outputFlushTimer = undefined
+}
+
+function clearBufferedOutput() {
+  clearOutputFlushTimer()
+  clearFrameAcknowledgementTimer()
+  outputChunks.splice(0)
+  queuedOutputFrames.splice(0)
+  outputChunkBytes = 0
+  queuedOutputBytes = 0
+  inFlightOutputFrame = undefined
+}
+
+function abandonOutputUntilFullRepaint() {
+  clearBufferedOutput()
+  outputRequiresFullRepaint = true
+  blockTerminalRendering()
+}
+
+function resetOutputForFullRepaint() {
+  clearBufferedOutput()
+  outputRequiresFullRepaint = false
+  releaseTerminalRendering()
+}
+
+function allocateOutputFrameId() {
+  nextOutputFrameId = nextOutputFrameId >= MAX_TERMINAL_FRAME_ID ? 1 : nextOutputFrameId + 1
+  return nextOutputFrameId
+}
+
+function sendNextOutputFrame() {
+  const socket = activeSocket
+  const frame = queuedOutputFrames[0]
+  if (!socket || inFlightOutputFrame || !frame) return
+
+  queuedOutputFrames.shift()
+  queuedOutputBytes -= frame.contentBytes
 
   try {
-    activeSocket.send(JSON.stringify({ type: 'diagnostic', line }))
-    return true
-  } catch {
-    return false
+    const sendStatus = socket.send(frame.message)
+    if (sendStatus === 0) {
+      sidecarLog('terminal frame dropped by WebSocket transport', {
+        connectionId: socket.data.id,
+        frameId: frame.frameId,
+        bytes: frame.contentBytes,
+      })
+      abandonOutputUntilFullRepaint()
+      socket.close(1011, 'Terminal frame delivery failed')
+      return
+    }
+
+    inFlightOutputFrame = {
+      ...frame,
+      connectionId: socket.data.id,
+    }
+    frameAcknowledgementTimer = setTimeout(() => {
+      if (
+        activeSocket !== socket ||
+        inFlightOutputFrame?.connectionId !== socket.data.id ||
+        inFlightOutputFrame.frameId !== frame.frameId
+      ) {
+        return
+      }
+
+      sidecarLog('terminal frame acknowledgement timed out', {
+        connectionId: socket.data.id,
+        frameId: frame.frameId,
+        timeoutMs: FRAME_ACKNOWLEDGEMENT_TIMEOUT_MS,
+      })
+      abandonOutputUntilFullRepaint()
+      socket.close(1011, 'Terminal frame acknowledgement timed out')
+    }, FRAME_ACKNOWLEDGEMENT_TIMEOUT_MS)
+
+    sidecarLog('terminal frame sent', {
+      connectionId: socket.data.id,
+      frameId: frame.frameId,
+      bytes: frame.contentBytes,
+      messageBytes: frame.message.byteLength,
+      sendStatus,
+    })
+  } catch (error) {
+    sidecarLog('terminal frame send failed', serializeError(error))
+    abandonOutputUntilFullRepaint()
+    socket.close(1011, 'Terminal frame send failed')
+  }
+}
+
+function queueOutputFrame(frame: QueuedOutputFrame) {
+  blockTerminalRendering()
+  queuedOutputFrames.push(frame)
+  queuedOutputBytes += frame.contentBytes
+
+  if (!activeSocket && queuedOutputBytes > MAX_PENDING_OUTPUT_BYTES) {
+    sidecarLog('pending terminal output exceeded buffer limit', {
+      pendingFrames: queuedOutputFrames.length,
+      pendingBytes: queuedOutputBytes,
+      limitBytes: MAX_PENDING_OUTPUT_BYTES,
+    })
+    abandonOutputUntilFullRepaint()
+    return
+  }
+
+  sendNextOutputFrame()
+}
+
+function flushOutputFrame(reason: string, openTuiFrameId?: number) {
+  clearOutputFlushTimer()
+  if (outputChunkBytes === 0) return
+
+  const chunks = outputChunks.splice(0)
+  const contentBytes = outputChunkBytes
+  outputChunkBytes = 0
+
+  if (outputRequiresFullRepaint && !activeSocket) {
+    sidecarLog('terminal output discarded while awaiting full repaint', {
+      reason,
+      bytes: contentBytes,
+    })
+    return
+  }
+
+  const frameId = allocateOutputFrameId()
+  const message = encodeTerminalFrame(frameId, chunks, contentBytes)
+  sidecarLog('terminal output coalesced', {
+    reason,
+    openTuiFrameId,
+    frameId,
+    chunks: chunks.length,
+    bytes: contentBytes,
+  })
+  queueOutputFrame({ contentBytes, frameId, message })
+}
+
+function scheduleOutputFrameFlush() {
+  if (!outputFrameBoundariesReady) return
+  if (outputFlushTimer) clearTimeout(outputFlushTimer)
+  outputFlushTimer = setTimeout(() => flushOutputFrame('non-render output'), 0)
+}
+
+function acknowledgeOutputFrame(socket: Bun.ServerWebSocket<Session>, frameId: number) {
+  const frame = inFlightOutputFrame
+  if (!frame || frame.connectionId !== socket.data.id || frame.frameId !== frameId) {
+    sidecarLog('stale terminal frame acknowledgement ignored', {
+      connectionId: socket.data.id,
+      frameId,
+      expectedConnectionId: frame?.connectionId,
+      expectedFrameId: frame?.frameId,
+    })
+    return
+  }
+
+  clearFrameAcknowledgementTimer()
+  inFlightOutputFrame = undefined
+  sidecarLog('terminal frame acknowledged', {
+    connectionId: socket.data.id,
+    frameId,
+    bytes: frame.contentBytes,
+  })
+
+  sendNextOutputFrame()
+  if (!inFlightOutputFrame && queuedOutputFrames.length === 0 && !outputRequiresFullRepaint) {
+    releaseTerminalRendering()
   }
 }
 
@@ -198,24 +425,13 @@ function sendExitRequest(socket = activeSocket) {
 
   try {
     const sendStatus = socket.send(JSON.stringify(message))
-    if (sendStatus >= 0) exitRequestConnectionId = socket.data.id
+    if (sendStatus !== 0) exitRequestConnectionId = socket.data.id
     sidecarLog('host exit requested', {
       connectionId: socket.data.id,
       sendStatus,
     })
   } catch (error) {
     sidecarLog('host exit request failed', serializeError(error))
-  }
-}
-
-function bufferPendingOutput(data: Uint8Array) {
-  pendingOutput.push(data)
-  pendingOutputBytes += data.byteLength
-
-  while (pendingOutputBytes > MAX_PENDING_OUTPUT_BYTES && pendingOutput.length > 0) {
-    const discarded = pendingOutput.shift()
-    if (discarded) pendingOutputBytes -= discarded.byteLength
-    pendingOutputTruncated = true
   }
 }
 
@@ -228,41 +444,24 @@ sidecarLog('terminal streams created', {
 
 output.on('data', (chunk: Buffer) => {
   const data = Uint8Array.from(chunk)
-  outputChunkCount += 1
-  outputByteCount += data.byteLength
+  outputChunks.push(data)
+  outputChunkBytes += data.byteLength
 
-  sidecarLog('terminal output produced', {
-    chunk: outputChunkCount,
-    bytes: data.byteLength,
-    totalBytes: outputByteCount,
-    destination: activeSocket ? `socket ${activeSocket.data.id}` : 'pending buffer',
-    pendingChunks: pendingOutput.length,
-    preview: chunk.toString('utf8').slice(0, 240),
-  })
-
-  if (!activeSocket) {
-    bufferPendingOutput(data)
-    sidecarLog('terminal output buffered', {
-      pendingChunks: pendingOutput.length,
-      pendingBytes: pendingOutputBytes,
-      truncated: pendingOutputTruncated,
-    })
-    return
-  }
-
-  try {
-    const connectionId = activeSocket.data.id
-    const sendStatus = activeSocket.send(data)
-    sidecarLog('terminal output sent', {
-      connectionId,
+  if (DIAGNOSTICS_ENABLED) {
+    outputChunkCount += 1
+    outputByteCount += data.byteLength
+    sidecarLog('terminal output produced', {
+      chunk: outputChunkCount,
       bytes: data.byteLength,
-      sendStatus,
+      totalBytes: outputByteCount,
+      destination: 'OpenTUI frame buffer',
+      pendingChunks: outputChunks.length,
+      pendingBytes: outputChunkBytes,
+      preview: chunk.toString('utf8').slice(0, 240),
     })
-  } catch (error) {
-    sidecarLog('terminal output send failed', serializeError(error))
-    activeSocket = undefined
-    bufferPendingOutput(data)
   }
+
+  scheduleOutputFrameFlush()
 })
 
 sidecarLog('creating OpenTUI renderer')
@@ -294,13 +493,22 @@ sidecarLog('OpenTUI renderer created', {
   screenMode: renderer.screenMode,
 })
 
+outputFrameBoundariesReady = true
+renderer.setFrameCallback(waitForTerminalReady)
+renderer.on('frame', ({ frameId }: { frameId: number }) => {
+  flushOutputFrame('OpenTUI refresh', frameId)
+})
+
 sidecarLog('mounting Solid application')
 render(() => <App />, renderer)
 sidecarLog('Solid application mounted; waiting for renderer idle')
-await renderer.idle()
-sidecarLog('renderer idle after initial frame', {
-  pendingChunks: pendingOutput.length,
-  pendingBytes: pendingOutputBytes,
+void renderer.idle().then(() => {
+  sidecarLog('renderer idle after initial frame', {
+    pendingChunks: outputChunks.length,
+    pendingBytes: outputChunkBytes + queuedOutputBytes,
+    pendingFrames: queuedOutputFrames.length,
+    inFlightFrameId: inFlightOutputFrame?.frameId,
+  })
 })
 
 function activateAuthenticatedSocket(socket: Bun.ServerWebSocket<Session>) {
@@ -309,51 +517,42 @@ function activateAuthenticatedSocket(socket: Bun.ServerWebSocket<Session>) {
 
   const isReconnect = hasConnected
   const replacingConnectionId = activeSocket?.data.id
-  const pendingBytes = pendingOutputBytes
-  const bufferedOutputTruncated = pendingOutputTruncated
-  const needsFullRepaint = isReconnect || bufferedOutputTruncated
+  const pendingBytes =
+    outputChunkBytes + queuedOutputBytes + (inFlightOutputFrame?.contentBytes ?? 0)
+  const needsFullRepaint = isReconnect || outputRequiresFullRepaint
   const authenticated: SidecarAuthenticated = { type: 'authenticated' }
   const authenticationStatus = socket.send(JSON.stringify(authenticated))
 
-  if (authenticationStatus < 0) {
+  if (authenticationStatus === 0) {
     process.stderr.write('[sidecar] client authentication response failed\n')
     socket.close(1011, 'Authentication response failed')
     return
   }
 
-  activeSocket?.close(1000, 'Replaced by authenticated client')
+  const previousSocket = activeSocket
+  if (needsFullRepaint) resetOutputForFullRepaint()
   activeSocket = socket
+  previousSocket?.close(1000, 'Replaced by authenticated client')
   sendExitRequest(socket)
 
   sidecarLog('WebSocket client authenticated', {
     connectionId: socket.data.id,
     replacingConnectionId,
     isReconnect,
-    pendingChunks: pendingOutput.length,
+    pendingFrames: queuedOutputFrames.length,
     pendingBytes,
     authenticationStatus,
   })
 
-  const bufferedOutput = pendingOutput.splice(0)
-  pendingOutputBytes = 0
-  pendingOutputTruncated = false
-
-  for (const chunk of bufferedOutput) {
-    const sendStatus = socket.send(chunk)
-    sidecarLog('buffered terminal output flushed', {
-      connectionId: socket.data.id,
-      bytes: chunk.byteLength,
-      sendStatus,
-    })
-  }
-
   if (needsFullRepaint) {
     sidecarLog('reconnecting terminal; forcing full OpenTUI repaint', {
       connectionId: socket.data.id,
-      bufferedOutputTruncated,
+      isReconnect,
     })
     renderer.suspend()
     renderer.resume()
+  } else {
+    sendNextOutputFrame()
   }
 
   hasConnected = true
@@ -397,7 +596,7 @@ const server = Bun.serve<Session>({
       }
       const helloStatus = socket.send(JSON.stringify(hello))
 
-      if (helloStatus < 0) {
+      if (helloStatus === 0) {
         process.stderr.write('[sidecar] identity handshake send failed\n')
         socket.close(1011, 'Identity handshake failed')
         return
@@ -451,9 +650,15 @@ const server = Bun.serve<Session>({
 
       if (socket !== activeSocket || message.type === 'authenticate') return
 
-      const isMouseMotion = message.type === 'input' && isMouseMotionInput(message.data)
+      if (message.type === 'frame-ack') {
+        acknowledgeOutputFrame(socket, message.frameId)
+        return
+      }
 
-      if (!isMouseMotion) {
+      const isMouseMotion =
+        DIAGNOSTICS_ENABLED && message.type === 'input' && isMouseMotionInput(message.data)
+
+      if (DIAGNOSTICS_ENABLED && !isMouseMotion) {
         sidecarLog('WebSocket message received', {
           connectionId: socket.data.id,
           kind: typeof rawMessage,
@@ -463,7 +668,7 @@ const server = Bun.serve<Session>({
       }
 
       if (message.type === 'input') {
-        if (!isMouseMotion) {
+        if (DIAGNOSTICS_ENABLED && !isMouseMotion) {
           sidecarLog('terminal input forwarded', {
             connectionId: socket.data.id,
             length: message.data.length,
@@ -494,7 +699,10 @@ const server = Bun.serve<Session>({
         reason,
         wasActive: activeSocket === socket,
       })
-      if (activeSocket === socket) activeSocket = undefined
+      if (activeSocket === socket) {
+        activeSocket = undefined
+        abandonOutputUntilFullRepaint()
+      }
     },
 
     drain(socket) {

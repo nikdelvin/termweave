@@ -15,6 +15,7 @@ import {
   type SidecarAuthenticated,
   type SidecarExitRequested,
 } from '../shared/terminal-config'
+import { decodeTerminalFrame, type SidecarFrameAcknowledgement } from '../shared/terminal-protocol'
 import './styles.css'
 
 const { cols: COLS, rows: ROWS } = TERMINAL_GRID
@@ -419,23 +420,25 @@ function stopLoadingIndicator() {
   diagnostic('xterm', 'loading indicator stopped')
 }
 
-terminal.onRender(({ start, end }) => {
-  xtermRenderCount += 1
-  diagnostic('xterm', 'render event', {
-    count: xtermRenderCount,
-    startRow: start,
-    endRow: end,
+if (SHOW_DIAGNOSTICS) {
+  terminal.onRender(({ start, end }) => {
+    xtermRenderCount += 1
+    diagnostic('xterm', 'render event', {
+      count: xtermRenderCount,
+      startRow: start,
+      endRow: end,
+    })
   })
-})
 
-terminal.onWriteParsed(() => {
-  xtermParseCount += 1
-  diagnostic('xterm', 'write parsed', { count: xtermParseCount })
-})
+  terminal.onWriteParsed(() => {
+    xtermParseCount += 1
+    diagnostic('xterm', 'write parsed', { count: xtermParseCount })
+  })
 
-terminal.onResize(({ cols, rows }) => {
-  diagnostic('xterm', 'terminal resized', { cols, rows })
-})
+  terminal.onResize(({ cols, rows }) => {
+    diagnostic('xterm', 'terminal resized', { cols, rows })
+  })
+}
 
 function terminalSnapshot() {
   const buffer = terminal.buffer.active
@@ -472,6 +475,8 @@ function getSidecarTextMessage(data: string): SidecarTextMessage | undefined {
 }
 
 function handleSocketMessage(event: MessageEvent) {
+  const sourceSocket = event.currentTarget instanceof WebSocket ? event.currentTarget : undefined
+
   if (typeof event.data === 'string') {
     const message = getSidecarTextMessage(event.data)
     if (message?.type === 'diagnostic') {
@@ -483,28 +488,72 @@ function handleSocketMessage(event: MessageEvent) {
       void closeWindowForSidecarExit()
       return
     }
+
+    diagnostic('websocket', 'unexpected text message ignored', { data: event.data }, 'warn')
+    return
   }
 
-  const data = event.data instanceof ArrayBuffer ? new Uint8Array(event.data) : String(event.data)
-  const byteLength =
-    typeof data === 'string' ? new TextEncoder().encode(data).byteLength : data.byteLength
+  if (!(event.data instanceof ArrayBuffer)) {
+    diagnostic(
+      'websocket',
+      'unexpected terminal frame payload ignored',
+      { dataType: event.data?.constructor?.name ?? typeof event.data },
+      'error',
+    )
+    sourceSocket?.close(1002, 'Unexpected terminal frame payload')
+    return
+  }
 
-  socketMessageCount += 1
+  const frame = decodeTerminalFrame(event.data)
+  if (!frame) {
+    diagnostic(
+      'websocket',
+      'invalid terminal frame ignored',
+      { bytes: event.data.byteLength },
+      'error',
+    )
+    sourceSocket?.close(1002, 'Invalid terminal frame')
+    return
+  }
+
+  stopLoadingIndicator()
+
+  const acknowledgeFrame = () => {
+    if (sourceSocket?.readyState !== WebSocket.OPEN) return
+
+    const acknowledgement: SidecarFrameAcknowledgement = {
+      type: 'frame-ack',
+      frameId: frame.frameId,
+    }
+    sourceSocket.send(JSON.stringify(acknowledgement))
+  }
+
+  if (!SHOW_DIAGNOSTICS) {
+    terminal.write(frame.data, acknowledgeFrame)
+    return
+  }
+
+  const byteLength = frame.data.byteLength
+  const messageNumber = ++socketMessageCount
   socketBytesReceived += byteLength
   diagnostic('websocket', 'message received', {
-    message: socketMessageCount,
+    message: messageNumber,
+    frameId: frame.frameId,
     bytes: byteLength,
     totalBytes: socketBytesReceived,
     dataType: event.data?.constructor?.name ?? typeof event.data,
   })
-
-  stopLoadingIndicator()
-  terminal.write(data, () => {
-    diagnostic('xterm', 'write callback completed', {
-      message: socketMessageCount,
-      bytes: byteLength,
-      snapshot: terminalSnapshot(),
-    })
+  terminal.write(frame.data, () => {
+    try {
+      diagnostic('xterm', 'write callback completed', {
+        message: messageNumber,
+        frameId: frame.frameId,
+        bytes: byteLength,
+        snapshot: terminalSnapshot(),
+      })
+    } finally {
+      acknowledgeFrame()
+    }
   })
 }
 
@@ -694,7 +743,7 @@ async function spawnSidecar(runtime: BackendDiagnostics, reason: string) {
       TUI_SIDECAR_INSTANCE_ID: runtime.instanceId,
       TUI_SIDECAR_PORT: String(runtime.sidecarPort),
       TUI_SIDECAR_TOKEN: runtime.sidecarToken,
-      TUI_SIDECAR_DIAGNOSTICS: import.meta.env.DEV || SHOW_DIAGNOSTICS ? '1' : '0',
+      TUI_SIDECAR_DIAGNOSTICS: SHOW_DIAGNOSTICS ? '1' : '0',
     },
   })
   command.stdout.on('data', (data) => {
