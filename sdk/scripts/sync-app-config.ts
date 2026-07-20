@@ -65,7 +65,7 @@ function requireBoolean(value: unknown, path: string) {
 function requireHexColor(value: unknown, path: string) {
   const color = requireString(value, path)
   if (!/^#[0-9A-Fa-f]{6}$/.test(color)) {
-    fail(`${path} must be a six-digit hex color such as #0B1020`)
+    fail(`${path} must be a six-digit hex color such as #181A1B`)
   }
   return color
 }

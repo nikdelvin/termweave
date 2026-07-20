@@ -9,7 +9,7 @@
   "windowHeight": 1080,
   "fontSize": 10,
   "showDiagnostics": false,
-  "themeColor": "#0B1020",
-  "foregroundColor": "#E6EDF7",
+  "themeColor": "#181A1B",
+  "foregroundColor": "#E8E6E3",
   "icon": "app.icon.png"
 }

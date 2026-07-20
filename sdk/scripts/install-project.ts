@@ -156,10 +156,10 @@ export async function createScaffold(
     authors: [metadata.author],
     windowWidth: 1920,
     windowHeight: 1080,
-    fontSize: 15,
+    fontSize: 10,
     showDiagnostics: false,
-    themeColor: '#0B1020',
-    foregroundColor: '#E6EDF7',
+    themeColor: '#181A1B',
+    foregroundColor: '#E8E6E3',
     icon: 'app.icon.png',
   }
   await writeFile(
@@ -207,12 +207,16 @@ async function main() {
     }
 
     name = await ask(terminal, 'Application name', titleFromSlug(packageName))
-    bundleIdentifier = await ask(terminal, 'Bundle identifier', `com.example.${packageName}`)
+    bundleIdentifier = await ask(
+      terminal,
+      'Bundle identifier',
+      `com.${getGitAuthor(projectRoot) || 'awesome-dev'}.${packageName}`,
+    )
     if (!/^[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+$/.test(bundleIdentifier)) {
       throw new Error('Bundle identifier must be a reverse-domain identifier')
     }
 
-    author = await ask(terminal, 'Author', getGitAuthor(projectRoot) || 'Your Name')
+    author = await ask(terminal, 'Author', getGitAuthor(projectRoot) || 'awesome-dev')
     description = await ask(
       terminal,
       'Description',
