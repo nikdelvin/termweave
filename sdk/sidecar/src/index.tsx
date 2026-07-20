@@ -3,6 +3,7 @@ import { PassThrough } from 'node:stream'
 import { createCliRenderer } from '@opentui/core'
 import { render } from '@opentui/solid'
 import {
+  FOREGROUND_COLOR,
   SIDECAR_PROTOCOL,
   TERMINAL_GRID,
   THEME_COLOR,
@@ -500,6 +501,10 @@ renderer.on('frame', ({ frameId }: { frameId: number }) => {
 })
 
 sidecarLog('mounting Solid application')
+process.env.TERMWEAVE_THEME_COLOR = THEME_COLOR
+process.env.TERMWEAVE_FOREGROUND_COLOR = FOREGROUND_COLOR
+process.env.TERMWEAVE_TERMINAL_COLS = String(TERMINAL_GRID.cols)
+process.env.TERMWEAVE_TERMINAL_ROWS = String(TERMINAL_GRID.rows)
 render(() => <App />, renderer)
 sidecarLog('Solid application mounted; waiting for renderer idle')
 void renderer.idle().then(() => {

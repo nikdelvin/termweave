@@ -1,103 +1,66 @@
-import { createSignal } from 'solid-js'
-import { useKeyboard } from '@opentui/solid'
-import { FOREGROUND_COLOR, PRODUCT_DESCRIPTION, THEME_COLOR } from '../../shared/terminal-config'
+import {
+  Route,
+  createMemoryHistory,
+  createRouter,
+  type LocationChange,
+} from '@solidjs/router/universal'
+import { getTermweaveConfig, preloadPixelImages } from '@termweave/sdk'
+import { createSignal, onMount, Show } from 'solid-js'
 
-const ASCII_TITLE = `#####  #####  ####   #   #  #   #  #####   ###   #   #  #####
-  #    #      #   #  ## ##  #   #  #      #   #  #   #  #
-  #    ####   ####   # # #  # # #  ####   #####  #   #  ####
-  #    #      #  #   #   #  ## ##  #      #   #   # #   #
-  #    #####  #   #  #   #  #   #  #####  #   #    #    #####`
+import { DEMO_ROUTE, getConnectedRoutes, HOME_ROUTE, type AppRoutePath } from './routes'
+import { DemoRoute } from './routes/DemoRoute'
+import { HomeRoute } from './routes/HomeRoute'
 
-const ASCII_LOGO = String.raw`@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-@@@@@@@@@@@%%%%%%%%%%%%%%%%%%%%%%%@@@@@@@@@@@
-@@@@@@@@+-:::::::::::::::::::::::::-+@@@@@@@@
-@@@@@@*:::::::::::::::::::::::::::::::*@@@@@@
-@@@@@+::::::::::::::::::::.:.........::+@@@@@
-@@@@*:::::::::::::::::::..............::*@@@@
-@@@@::::::::::::::::::::.:.............::@@@@
-@@@+::::::::::::::::....................:+@@@
-@@@-::::::::::::::::::..................:-@@@
-@@@:::::::::::::::.:....................::@@@
-@@%::::::+#########################+.....:%@@
-@@%::::::#@+++++++++++++++++++++++##.....:%@@
-@@%::::::##:::::::................##.....:%@@
-@@%::::::##:::.:.------...........##.....:%@@
-@@%::::::##:::::*######+..........##.....:%@@
-@@%::::::##:....##++++#+..........##.....:%@@
-@@%::::::##=====##-..-*+...-======%#.....:%@@
-@@%::::::#%#######-..-*+...=******%#.....:%@@
-@@%::::::#%======-...-*+...+*+====##.....:%@@
-@@%:::::.##..........-**+++**=....##.....:%@@
-@@%::::::##..........-*******=....##.....:%@@
-@@%:::...##...........======-.....##.....:%@@
-@@%:::::.##.*=....................##.....:%@@
-@@%::....##.##*...................##.....:%@@
-@@%:::...##.-###-.................##.....:%@@
-@@%::....##...*##-................##.....:%@@
-@@%::....##...=##=................##.....:%@@
-@@%::....##..=##=.................##.....:%@@
-@@%::....##.=##=..=********=......##.....:%@@
-@@%::....##.##-...#########=......##.....:%@@
-@@%::....##........--------.......##.....:%@@
-@@%::....##+++++++++++++++++++++++@#.....:%@@
-@@%::....+#########################+.....:%@@
-@@@::....................................:@@@
-@@@-:...................................:-@@@
-@@@+:...................................:+@@@
-@@@@::.................................::@@@@
-@@@@*::...............................::*@@@@
-@@@@@+::.............................::+@@@@@
-@@@@@@*::::........................:::*@@@@@@
-@@@@@@@@+-:::::::::::::::::::::::::-+@@@@@@@@
-@@@@@@@@@@@%%%%%%%%%%%%%%%%%%%%%%%@@@@@@@@@@@
-@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@`
+const history = createMemoryHistory()
+const [routerMount, setRouterMount] = createSignal<object>({})
 
-export function App() {
-  const [count, setCount] = createSignal(0)
+function preloadConnectedRouteImages(path: AppRoutePath) {
+  const { terminalGrid } = getTermweaveConfig()
+  void preloadPixelImages(
+    getConnectedRoutes(path).map((route) => ({
+      uri: route.imageUri,
+      width: terminalGrid.cols,
+      height: terminalGrid.rows,
+    })),
+  ).catch(() => {})
+}
 
-  useKeyboard((key) => {
-    if (key.name === 'left') {
-      setCount((value) => value - 1)
-    }
+function scheduleConnectedRoutePreload(path: AppRoutePath) {
+  setImmediate(() => preloadConnectedRouteImages(path))
+}
 
-    if (key.name === 'right') {
-      setCount((value) => value + 1)
-    }
+function navigate(path: AppRoutePath) {
+  history.set({ value: path, replace: false, scroll: false })
+  setRouterMount({})
+  scheduleConnectedRoutePreload(path)
+}
 
-    if (key.name === 'r') {
-      setCount(0)
-    }
+function RouterView() {
+  const TerminalRouter = createRouter({
+    get: history.get,
+    set: (change: LocationChange) => {
+      history.set({ ...change, scroll: false })
+    },
+    init: history.listen,
+    utils: {
+      go: history.go,
+    },
   })
 
   return (
-    <box
-      width="100%"
-      height="100%"
-      backgroundColor={THEME_COLOR}
-      alignItems="center"
-      justifyContent="center"
-    >
-      <box width={96} flexDirection="column" alignItems="center" gap={3}>
-        <text fg={FOREGROUND_COLOR}>{ASCII_LOGO}</text>
-        <text fg={FOREGROUND_COLOR}>{ASCII_TITLE}</text>
-        <text fg={FOREGROUND_COLOR}>{PRODUCT_DESCRIPTION}</text>
+    <TerminalRouter>
+      <Route path={HOME_ROUTE.path} component={() => <HomeRoute onNavigate={navigate} />} />
+      <Route path={DEMO_ROUTE.path} component={() => <DemoRoute onNavigate={navigate} />} />
+    </TerminalRouter>
+  )
+}
 
-        <box
-          border
-          title="SOLID SIGNAL"
-          width={48}
-          height={8}
-          padding={1}
-          gap={2}
-          flexDirection="column"
-          alignItems="center"
-        >
-          <text fg={FOREGROUND_COLOR}>[&lt;] {count()} [&gt;]</text>
-          <text fg={FOREGROUND_COLOR}>Left/Right changes value | R resets</text>
-        </box>
-      </box>
-    </box>
+export function App() {
+  onMount(() => scheduleConnectedRoutePreload(history.get() as AppRoutePath))
+
+  return (
+    <Show keyed when={routerMount()}>
+      <RouterView />
+    </Show>
   )
 }

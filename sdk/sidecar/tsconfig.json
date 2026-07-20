@@ -16,6 +16,9 @@
     "resolveJsonModule": true,
     "verbatimModuleSyntax": true,
     "noEmit": true,
+    "paths": {
+      "@termweave/sdk": ["./sdk/src/index.ts"]
+    },
 
     // Best practices
     "strict": true,

@@ -1,5 +1,10 @@
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile, rm, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import {
+  TERMWEAVE_SDK_PACKAGE,
+  TERMWEAVE_SDK_SIDECAR_DEPENDENCY,
+  TERMWEAVE_SDK_TEMPLATE_DEPENDENCY,
+} from './managed-package'
 
 type DependencySection = 'dependencies' | 'devDependencies' | 'overrides'
 
@@ -8,6 +13,7 @@ type PackageJson = {
   dependencies?: Record<string, string>
   devDependencies?: Record<string, string>
   overrides?: Record<string, string>
+  patchedDependencies?: Record<string, string>
 }
 
 type Manifest = {
@@ -45,6 +51,7 @@ const EXACT_VERSION =
 const MANIFEST_PATHS = [
   { label: 'SDK', path: resolve(SDK_ROOT, 'package.json') },
   { label: 'sidecar', path: resolve(SDK_ROOT, 'sidecar/package.json') },
+  { label: 'managed SDK', path: resolve(SDK_ROOT, 'sidecar/sdk/package.json') },
   { label: 'project template', path: resolve(SDK_ROOT, 'templates/project/package.json') },
 ] as const
 const CARGO_DEPENDENCIES = [
@@ -75,12 +82,58 @@ function dependencyEntries(manifest: Manifest) {
   )
 }
 
+function registryDependencyEntries(manifest: Manifest) {
+  const patchedDependencies = new Set(
+    Object.keys(manifest.packageJson.patchedDependencies ?? {}).map((specifier) => {
+      const versionSeparator = specifier.lastIndexOf('@')
+      return versionSeparator > 0 ? specifier.slice(0, versionSeparator) : specifier
+    }),
+  )
+
+  return dependencyEntries(manifest).filter(
+    ({ dependency }) =>
+      dependency !== TERMWEAVE_SDK_PACKAGE && !patchedDependencies.has(dependency),
+  )
+}
+
 function validatePinnedDependencies(manifests: Manifest[]) {
   const errors: string[] = []
   const sharedVersions = new Map<string, { manifest: string; version: string }>()
 
   for (const manifest of manifests) {
+    for (const specifier of Object.keys(manifest.packageJson.patchedDependencies ?? {})) {
+      const versionSeparator = specifier.lastIndexOf('@')
+      const dependency = versionSeparator > 0 ? specifier.slice(0, versionSeparator) : specifier
+      const version = versionSeparator > 0 ? specifier.slice(versionSeparator + 1) : ''
+      const declaredVersion = manifest.packageJson.dependencies?.[dependency]
+
+      if (!declaredVersion || declaredVersion !== version) {
+        errors.push(
+          `${manifest.label} patched dependency ${specifier} must match dependencies.${dependency}`,
+        )
+      }
+    }
+
     for (const entry of dependencyEntries(manifest)) {
+      if (entry.dependency === TERMWEAVE_SDK_PACKAGE) {
+        const expectedVersion =
+          entry.manifest === 'sidecar'
+            ? TERMWEAVE_SDK_SIDECAR_DEPENDENCY
+            : entry.manifest === 'project template'
+              ? TERMWEAVE_SDK_TEMPLATE_DEPENDENCY
+              : undefined
+        if (
+          entry.section !== 'dependencies' ||
+          expectedVersion === undefined ||
+          entry.version !== expectedVersion
+        ) {
+          errors.push(
+            `${entry.manifest} ${TERMWEAVE_SDK_PACKAGE} must use its managed local dependency path`,
+          )
+        }
+        continue
+      }
+
       if (!EXACT_VERSION.test(entry.version)) {
         errors.push(
           `${entry.manifest} ${entry.section}.${entry.dependency} must use an exact semantic version; found ${entry.version}`,
@@ -374,7 +427,7 @@ async function main() {
 
   const currentVersions = new Map(
     manifests
-      .flatMap(dependencyEntries)
+      .flatMap(registryDependencyEntries)
       .map(({ dependency, version }) => [dependency, version] as const),
   )
   const dependencies = [...currentVersions].sort(([left], [right]) => left.localeCompare(right))
@@ -416,7 +469,7 @@ async function main() {
   const changes: DependencyChange[] = []
 
   for (const manifest of manifests) {
-    for (const entry of dependencyEntries(manifest)) {
+    for (const entry of registryDependencyEntries(manifest)) {
       const nextVersion = resolvedVersions.get(entry.dependency)
       if (!nextVersion) throw new Error(`No resolved version for ${entry.dependency}`)
       if (entry.version === nextVersion) continue
@@ -479,12 +532,19 @@ async function main() {
     ),
     writeFile(CARGO_MANIFEST_PATH, nextCargoManifest),
   ])
+  const managedSdkChanged = changes.some((change) => change.manifest === 'managed SDK')
   await runRequired(['bun', 'install'], SDK_ROOT, 'SDK dependency installation')
+  if (managedSdkChanged) {
+    await rm(resolve(SDK_ROOT, 'sidecar/bun.lock'), { force: true })
+  }
   await runRequired(
     ['bun', 'install'],
     resolve(SDK_ROOT, 'sidecar'),
     'Sidecar dependency installation',
   )
+  if (managedSdkChanged) {
+    await rm(resolve(SDK_ROOT, 'templates/project/bun.lock'), { force: true })
+  }
   await runRequired(
     ['bun', 'install', '--lockfile-only'],
     resolve(SDK_ROOT, 'templates/project'),

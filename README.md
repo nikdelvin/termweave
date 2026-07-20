@@ -55,23 +55,59 @@ bun run dev
 
 ## 🎨 Make it yours
 
-You only need to edit three places:
+The main places to edit are:
 
-1. `src/App.tsx` — build your OpenTUI interface.
-2. `app.config.json` — set the app name, colors, window size, and bundle metadata.
-3. `app.icon.png` — replace the default app icon.
+1. `src/routes/` — build the starter Home and Demo screens.
+2. `src/routes.ts` and `src/App.tsx` — configure routing and the application shell.
+3. `app.config.json` — set the app name, colors, window size, and bundle metadata.
+4. `app.icon.png` — replace the default app icon.
 
 Changes under `src/` reload while the app is running. Restart `bun run dev` after changing the
 configuration or icon.
+
+### Pixel graphics
+
+`PixelRenderer` is included with the managed SDK. Keep the image in your project and import the
+component directly—there is no component file to copy:
+
+```tsx
+import { PixelRenderer } from "@termweave/sdk";
+import background from "./assets/background.jpg" with { type: "file" };
+
+export function App() {
+  return (
+    <PixelRenderer uri={background}>
+      <box position="absolute" bottom={0} width="100%" height={8}>
+        <text>Overlay content</text>
+      </box>
+    </PixelRenderer>
+  );
+}
+```
+
+`PixelRenderer` accepts GIF, PNG and JPEG/JPG images from bundled project assets, local file paths
+and URLs. Animated GIFs play at 150 milliseconds per frame.
+
+Routes declare their direct `connections` in `src/routes.ts`. The starter preloads only those
+one-hop route images in the background and replaces the retained preload set after navigation, so
+large route graphs do not load every image at startup.
 
 Your project stays small:
 
 ```text
 my-termweave-app/
-├── src/App.tsx
+├── src/
+│   ├── App.tsx
+│   ├── routes.ts
+│   ├── routes/
+│   │   ├── HomeRoute.tsx
+│   │   └── DemoRoute.tsx
+│   ├── components/
+│   └── assets/
 ├── app.config.json
 ├── app.icon.png
 ├── package.json
+├── patches/        Router compatibility patch
 └── termweave/       Managed SDK checkout
 ```
 

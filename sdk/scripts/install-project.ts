@@ -1,10 +1,16 @@
-import { copyFile, cp, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { copyFile, cp, readFile, stat, writeFile } from 'node:fs/promises'
 import { createInterface, type Interface } from 'node:readline/promises'
 import { basename, resolve } from 'node:path'
+import {
+  setManagedSdkDependency,
+  TERMWEAVE_SDK_DEPENDENCY,
+  TERMWEAVE_SDK_TEMPLATE_DEPENDENCY,
+} from './managed-package'
 
 type JsonObject = Record<string, unknown>
 
 const SDK_ROOT = resolve(import.meta.dir, '..')
+const RESERVED_SIDECAR_SOURCE = 'index.tsx'
 
 const SCAFFOLD_CONFLICTS = [
   'src',
@@ -14,6 +20,7 @@ const SCAFFOLD_CONFLICTS = [
   'bun.lock',
   'tsconfig.json',
   'eslint.config.js',
+  'patches',
   '.prettierrc.json',
   '.prettierignore',
 ]
@@ -76,6 +83,14 @@ function setLockfileWorkspaceName(content: string, packageName: string) {
   )
 }
 
+function setLockfileSdkDependency(content: string) {
+  if (!content.includes(TERMWEAVE_SDK_TEMPLATE_DEPENDENCY)) {
+    throw new Error('Template bun.lock does not contain the managed Termweave SDK dependency')
+  }
+
+  return content.replaceAll(TERMWEAVE_SDK_TEMPLATE_DEPENDENCY, TERMWEAVE_SDK_DEPENDENCY)
+}
+
 export async function assertScaffoldAvailable(projectRoot: string) {
   const conflicts: string[] = []
   for (const path of SCAFFOLD_CONFLICTS) {
@@ -103,29 +118,33 @@ export async function createScaffold(
   await assertScaffoldAvailable(projectRoot)
 
   const templateRoot = resolve(sdkRoot, 'templates/project')
-  await mkdir(resolve(projectRoot, 'src'), { recursive: true })
-  await cp(resolve(templateRoot, 'src'), resolve(projectRoot, 'src'), { recursive: true })
+  const sidecarRoot = resolve(sdkRoot, 'sidecar')
+  const sidecarSource = resolve(sidecarRoot, 'src')
+  await cp(sidecarSource, resolve(projectRoot, 'src'), {
+    recursive: true,
+    filter: (source) =>
+      source !== resolve(sidecarSource, RESERVED_SIDECAR_SOURCE) &&
+      basename(source) !== '.DS_Store',
+  })
+  await cp(resolve(templateRoot, 'patches'), resolve(projectRoot, 'patches'), { recursive: true })
 
-  for (const path of [
-    'app.icon.png',
-    'tsconfig.json',
-    'eslint.config.js',
-    '.prettierrc.json',
-    '.prettierignore',
-  ]) {
+  for (const path of ['tsconfig.json', 'eslint.config.js', '.prettierignore']) {
     await copyFile(resolve(templateRoot, path), resolve(projectRoot, path))
   }
+  await copyFile(resolve(sidecarRoot, '.prettierrc.json'), resolve(projectRoot, '.prettierrc.json'))
+  await copyFile(resolve(sdkRoot, 'app.icon.png'), resolve(projectRoot, 'app.icon.png'))
 
   const packageJson = JSON.parse(
     await readFile(resolve(templateRoot, 'package.json'), 'utf8'),
   ) as JsonObject
   packageJson.name = metadata.packageName
   packageJson.description = metadata.description
+  setManagedSdkDependency(packageJson)
   await writeFile(resolve(projectRoot, 'package.json'), `${JSON.stringify(packageJson, null, 2)}\n`)
   const templateLock = await readFile(resolve(templateRoot, 'bun.lock'), 'utf8')
   await writeFile(
     resolve(projectRoot, 'bun.lock'),
-    setLockfileWorkspaceName(templateLock, metadata.packageName),
+    setLockfileSdkDependency(setLockfileWorkspaceName(templateLock, metadata.packageName)),
   )
 
   const appConfig = {

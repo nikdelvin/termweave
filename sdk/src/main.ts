@@ -1,5 +1,6 @@
 import { diagnostic } from './diagnostics'
-import { Terminal } from '@xterm/xterm'
+import { WebglAddon } from '@xterm/addon-webgl'
+import { type IDisposable, Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { invoke } from '@tauri-apps/api/core'
 import { type Child, Command } from '@tauri-apps/plugin-shell'
@@ -21,7 +22,6 @@ import './styles.css'
 const { cols: COLS, rows: ROWS } = TERMINAL_GRID
 const FONT_FAMILY = '"Kreative Square"'
 const FONT_MEASUREMENT_SIZE = 100
-const FONT_FIT_SAFETY = 0.995
 const HANDSHAKE_TIMEOUT_MS = 2_000
 const CONNECTION_RETRY_DELAY_MS = 100
 const STARTUP_CONNECTION_ATTEMPTS = 300
@@ -362,8 +362,10 @@ const terminal = new Terminal({
   scrollback: 0,
   cursorBlink: false,
   convertEol: false,
+  customGlyphs: true,
   fontFamily: FONT_FAMILY,
   fontSize: 10,
+  letterSpacing: 0,
   lineHeight: 1,
   theme: {
     background: THEME_COLOR,
@@ -566,9 +568,71 @@ let resizeObserver: ResizeObserver | undefined
 let resizeFrame: number | undefined
 let focusFrame: number | undefined
 let unlistenWindowFocus: (() => void) | undefined
+let webglAddon: WebglAddon | undefined
+let webglContextLossSubscription: IDisposable | undefined
 let terminalOpened = false
 let disposed = false
 let exitRequested = false
+
+function disposeWebglRenderer(reason: string) {
+  const addon = webglAddon
+  const contextLossSubscription = webglContextLossSubscription
+  webglAddon = undefined
+  webglContextLossSubscription = undefined
+
+  try {
+    contextLossSubscription?.dispose()
+  } catch (error) {
+    diagnostic(
+      'xterm.webgl',
+      'failed to dispose WebGL context-loss subscription',
+      { reason, error },
+      'warn',
+    )
+  }
+
+  if (!addon) return
+
+  try {
+    addon.dispose()
+    diagnostic('xterm.webgl', 'WebGL addon disposed; DOM renderer active', { reason })
+  } catch (error) {
+    diagnostic('xterm.webgl', 'failed to dispose WebGL addon safely', { reason, error }, 'warn')
+  }
+
+  if (!disposed && terminalOpened) fitTerminalToApp()
+}
+
+function enableWebglRenderer() {
+  let addon: WebglAddon | undefined
+
+  try {
+    addon = new WebglAddon()
+    webglAddon = addon
+    webglContextLossSubscription = addon.onContextLoss(() => {
+      diagnostic(
+        'xterm.webgl',
+        'WebGL context lost; falling back to DOM renderer',
+        undefined,
+        'warn',
+      )
+      disposeWebglRenderer('context loss')
+    })
+    terminal.loadAddon(addon)
+    fitTerminalToApp()
+    diagnostic('xterm.webgl', 'WebGL renderer enabled', {
+      customGlyphs: terminal.options.customGlyphs,
+    })
+  } catch (error) {
+    diagnostic(
+      'xterm.webgl',
+      'WebGL renderer initialization failed; continuing with DOM renderer',
+      error,
+      'warn',
+    )
+    if (webglAddon === addon) disposeWebglRenderer('initialization failure')
+  }
+}
 
 async function closeWindowForSidecarExit() {
   if (exitRequested || disposed) return
@@ -608,16 +672,18 @@ function fitTerminalToApp() {
   )
   const cellSize = deviceCellSize / pixelRatio
   const fontMetrics = measureFont()
-  const fontSize =
-    Math.floor(
-      Math.min(cellSize / fontMetrics.widthRatio, cellSize / fontMetrics.heightRatio) *
-        FONT_FIT_SAFETY *
-        1000,
-    ) / 1000
+
+  // Kreative Square has a square em and full-em advance. Keep the font at the exact
+  // integer-aligned cell size: WebGL custom glyphs use the resulting cell dimensions
+  // directly, and any letter spacing would introduce seams between adjacent blocks.
+  const fontSize = cellSize
+  const deviceCharWidth = Math.floor(fontMetrics.widthRatio * fontSize * pixelRatio)
+  const deviceCharHeight = Math.ceil(fontMetrics.heightRatio * fontSize * pixelRatio)
 
   terminalHost.style.width = `${cellSize * COLS}px`
   terminalHost.style.height = `${cellSize * ROWS}px`
   terminal.options.fontSize = fontSize
+  terminal.options.letterSpacing = 0
   if (terminalOpened) terminal.resize(COLS, ROWS)
 
   const fitSignature = [
@@ -635,9 +701,13 @@ function fitTerminalToApp() {
       terminal: `${cellSize * COLS}x${cellSize * ROWS}`,
       pixelRatio,
       deviceCellSize,
+      deviceCharWidth,
+      deviceCharHeight,
       cellSize,
       fontSize,
+      letterSpacing: terminal.options.letterSpacing,
       fontMetrics,
+      renderer: webglAddon === undefined ? 'dom' : 'webgl',
       terminalOpened,
     })
   }
@@ -970,6 +1040,7 @@ function cleanup() {
   inputSubscription?.dispose()
   socket?.close()
   void stopSidecar('frontend cleanup')
+  disposeWebglRenderer('frontend cleanup')
   if (terminalOpened) terminal.dispose()
 }
 
@@ -1016,6 +1087,7 @@ void (async () => {
   })
   terminal.open(terminalHost)
   terminalOpened = true
+  enableWebglRenderer()
   await startLoadingIndicator()
   await appWindow.show()
   diagnostic('tauri', 'window shown after terminal initialization')

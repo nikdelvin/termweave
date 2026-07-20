@@ -13,6 +13,7 @@ import {
   writeFile,
 } from 'node:fs/promises'
 import { basename, dirname, extname, relative, resolve, sep } from 'node:path'
+import { setManagedSdkDependency } from './managed-package'
 
 type SyncManifest = {
   files: string[]
@@ -205,8 +206,9 @@ async function synchronizeSourceTree(projectRoot: string, sdkRoot: string) {
 
   const previous = await readManifest(sdkRoot)
   const currentFiles = new Set(files)
+  const existingSdkFiles = await listSourceFiles(sdkSource)
 
-  for (const staleFile of previous.files) {
+  for (const staleFile of existingSdkFiles) {
     if (staleFile === RESERVED_SIDECAR_FILE || currentFiles.has(staleFile)) continue
     const staleDestination = safeDestination(sdkSource, staleFile)
     await rm(staleDestination, { force: true })
@@ -493,7 +495,13 @@ async function runBuild(projectRoot: string) {
 export function mergeManagedPackage(projectPackage: JsonObject, templatePackage: JsonObject) {
   const merged = structuredClone(projectPackage)
 
-  for (const section of ['scripts', 'dependencies', 'devDependencies', 'overrides'] as const) {
+  for (const section of [
+    'scripts',
+    'dependencies',
+    'devDependencies',
+    'overrides',
+    'patchedDependencies',
+  ] as const) {
     const current =
       typeof merged[section] === 'object' && merged[section] !== null
         ? (merged[section] as JsonObject)
@@ -506,7 +514,7 @@ export function mergeManagedPackage(projectPackage: JsonObject, templatePackage:
     merged[section] = { ...current, ...managed }
   }
 
-  return merged
+  return setManagedSdkDependency(merged)
 }
 
 async function runUpdate(projectRoot: string) {
@@ -536,10 +544,12 @@ async function runUpdate(projectRoot: string) {
   )
 
   const projectPackagePath = resolve(projectRoot, 'package.json')
-  const templatePackagePath = resolve(SDK_ROOT, 'templates/project/package.json')
+  const templateRoot = resolve(SDK_ROOT, 'templates/project')
+  const templatePackagePath = resolve(templateRoot, 'package.json')
   const projectPackage = JSON.parse(await readFile(projectPackagePath, 'utf8')) as JsonObject
   const templatePackage = JSON.parse(await readFile(templatePackagePath, 'utf8')) as JsonObject
   const mergedPackage = mergeManagedPackage(projectPackage, templatePackage)
+  await cp(resolve(templateRoot, 'patches'), resolve(projectRoot, 'patches'), { recursive: true })
   await writeFile(projectPackagePath, `${JSON.stringify(mergedPackage, null, 2)}\n`)
   await runRequired(['bun', 'install'], projectRoot, 'Project dependency installation')
   await runRequired(

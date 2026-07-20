@@ -8,7 +8,7 @@
     "build": "bun scripts/build.ts",
     "build:dev-launcher": "bun scripts/build-dev-launcher.ts",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src scripts",
+    "lint": "eslint src sdk scripts",
     "check": "bun run typecheck && bun run lint && bun run format:check",
     "format": "prettier --write --ignore-unknown .",
     "format:check": "prettier --check --ignore-unknown ."
@@ -27,11 +27,16 @@
     "@babel/preset-typescript": "7.29.7",
     "@opentui/core": "0.4.5",
     "@opentui/solid": "0.4.5",
+    "@solidjs/router": "0.16.2",
+    "@termweave/sdk": "file:./sdk",
     "babel-preset-solid": "1.9.12",
     "solid-js": "1.9.12"
   },
   "overrides": {
     "@babel/core": "7.29.7",
     "@babel/preset-typescript": "7.29.7"
+  },
+  "patchedDependencies": {
+    "@solidjs/router@0.16.2": "patches/@solidjs%2Frouter@0.16.2.patch"
   }
 }

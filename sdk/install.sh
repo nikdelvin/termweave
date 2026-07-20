@@ -42,7 +42,7 @@ if [ -e "$project_root/termweave" ]; then
   exit 1
 fi
 
-for path in src app.config.json app.icon.png package.json bun.lock tsconfig.json eslint.config.js .prettierrc.json .prettierignore; do
+for path in src app.config.json app.icon.png package.json bun.lock tsconfig.json eslint.config.js patches .prettierrc.json .prettierignore; do
   if [ -e "$project_root/$path" ]; then
     echo "Refusing to overwrite existing scaffold path: $path" >&2
     exit 1

@@ -7,7 +7,7 @@
   "authors": ["Nik Delvin"],
   "windowWidth": 1920,
   "windowHeight": 1080,
-  "fontSize": 15,
+  "fontSize": 10,
   "showDiagnostics": false,
   "themeColor": "#0B1020",
   "foregroundColor": "#E6EDF7",

@@ -19,6 +19,8 @@
   "dependencies": {
     "@opentui/core": "0.4.5",
     "@opentui/solid": "0.4.5",
+    "@solidjs/router": "0.16.2",
+    "@termweave/sdk": "file:../../sidecar/sdk",
     "solid-js": "1.9.12"
   },
   "devDependencies": {
@@ -33,6 +35,9 @@
   "overrides": {
     "@babel/core": "7.29.7",
     "@babel/preset-typescript": "7.29.7"
+  },
+  "patchedDependencies": {
+    "@solidjs/router@0.16.2": "patches/@solidjs%2Frouter@0.16.2.patch"
   },
   "description": "A terminal desktop application built with Termweave."
 }
