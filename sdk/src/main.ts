@@ -13,6 +13,7 @@ import {
   THEME_COLOR,
   type SidecarAuthenticate,
   type SidecarAuthenticated,
+  type SidecarExitRequested,
 } from '../shared/terminal-config'
 import './styles.css'
 
@@ -43,6 +44,8 @@ type SidecarDiagnosticMessage = {
   type: 'diagnostic'
   line: string
 }
+
+type SidecarTextMessage = SidecarDiagnosticMessage | SidecarExitRequested
 
 type ReceivedSidecarHello = {
   type: 'hello'
@@ -453,12 +456,14 @@ function terminalSnapshot() {
   }
 }
 
-function getSidecarDiagnostic(data: string): SidecarDiagnosticMessage | undefined {
+function getSidecarTextMessage(data: string): SidecarTextMessage | undefined {
   try {
-    const message = JSON.parse(data) as Partial<SidecarDiagnosticMessage>
+    const message = JSON.parse(data) as Record<string, unknown>
     if (message.type === 'diagnostic' && typeof message.line === 'string') {
-      return message as SidecarDiagnosticMessage
+      return { type: 'diagnostic', line: message.line }
     }
+
+    if (message.type === 'exit-requested') return { type: 'exit-requested' }
   } catch {
     // Non-JSON text remains valid terminal output.
   }
@@ -468,9 +473,14 @@ function getSidecarDiagnostic(data: string): SidecarDiagnosticMessage | undefine
 
 function handleSocketMessage(event: MessageEvent) {
   if (typeof event.data === 'string') {
-    const sidecarDiagnostic = getSidecarDiagnostic(event.data)
-    if (sidecarDiagnostic) {
-      diagnostic('sidecar.ws', sidecarDiagnostic.line)
+    const message = getSidecarTextMessage(event.data)
+    if (message?.type === 'diagnostic') {
+      diagnostic('sidecar.ws', message.line)
+      return
+    }
+
+    if (message?.type === 'exit-requested') {
+      void closeWindowForSidecarExit()
       return
     }
   }
@@ -509,6 +519,21 @@ let focusFrame: number | undefined
 let unlistenWindowFocus: (() => void) | undefined
 let terminalOpened = false
 let disposed = false
+let exitRequested = false
+
+async function closeWindowForSidecarExit() {
+  if (exitRequested || disposed) return
+
+  exitRequested = true
+  diagnostic('frontend', 'sidecar requested application exit')
+
+  try {
+    await appWindow.close()
+  } catch (error) {
+    exitRequested = false
+    diagnostic('tauri', 'failed to close window after sidecar exit request', error, 'error')
+  }
+}
 
 function measureFont() {
   metricsContext.font = `${FONT_MEASUREMENT_SIZE}px ${FONT_FAMILY}`

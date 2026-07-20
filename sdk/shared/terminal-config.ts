@@ -16,7 +16,7 @@ export const TERMINAL_GRID = {
 
 export const SIDECAR_PROTOCOL = {
   name: `${appConfig.bundleIdentifier}/opentui`,
-  version: 2,
+  version: 3,
 } as const
 
 export type SidecarHello = {
@@ -34,4 +34,8 @@ export type SidecarAuthenticate = {
 
 export type SidecarAuthenticated = {
   type: 'authenticated'
+}
+
+export type SidecarExitRequested = {
+  type: 'exit-requested'
 }

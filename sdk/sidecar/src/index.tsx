@@ -8,6 +8,7 @@ import {
   THEME_COLOR,
   type SidecarAuthenticate,
   type SidecarAuthenticated,
+  type SidecarExitRequested,
   type SidecarHello,
 } from '../../shared/terminal-config'
 import { App } from './App'
@@ -169,6 +170,8 @@ let nextConnectionId = 0
 let outputChunkCount = 0
 let outputByteCount = 0
 let hasConnected = false
+let exitRequested = false
+let exitRequestConnectionId: number | undefined
 
 sendSidecarDiagnostic = (line) => {
   if (!activeSocket) return false
@@ -178,6 +181,30 @@ sendSidecarDiagnostic = (line) => {
     return true
   } catch {
     return false
+  }
+}
+
+function sendExitRequest(socket = activeSocket) {
+  if (
+    !exitRequested ||
+    !socket ||
+    !socket.data.authenticated ||
+    exitRequestConnectionId === socket.data.id
+  ) {
+    return
+  }
+
+  const message: SidecarExitRequested = { type: 'exit-requested' }
+
+  try {
+    const sendStatus = socket.send(JSON.stringify(message))
+    if (sendStatus >= 0) exitRequestConnectionId = socket.data.id
+    sidecarLog('host exit requested', {
+      connectionId: socket.data.id,
+      sendStatus,
+    })
+  } catch (error) {
+    sidecarLog('host exit request failed', serializeError(error))
   }
 }
 
@@ -251,6 +278,10 @@ const renderer = await createCliRenderer({
   exitOnCtrlC: false,
   exitSignals: [],
   useKittyKeyboard: null,
+  onDestroy: () => {
+    exitRequested = true
+    sendExitRequest()
+  },
 }).catch((error: unknown) => {
   sidecarLog('OpenTUI renderer creation failed', serializeError(error))
   throw error
@@ -292,6 +323,7 @@ function activateAuthenticatedSocket(socket: Bun.ServerWebSocket<Session>) {
 
   activeSocket?.close(1000, 'Replaced by authenticated client')
   activeSocket = socket
+  sendExitRequest(socket)
 
   sidecarLog('WebSocket client authenticated', {
     connectionId: socket.data.id,
