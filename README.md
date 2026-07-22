@@ -26,6 +26,7 @@ and native packaging.
 
 - Build with OpenTUI and Solid instead of recreating a terminal UI in the browser.
 - Run your app in a native, resizable Tauri window.
+- Present it inside an immersive CRT monitor with animated effects and native ambient audio.
 - Configure the name, colors, window size, and icon in ⚙️ **one config file**.
 - See source changes without restarting the native window.
 - Create a native bundle with ⚡️ **one command**.
@@ -59,11 +60,41 @@ The main places to edit are:
 
 1. `src/routes/` — build the starter Home and Demo screens.
 2. `src/routes.ts` and `src/App.tsx` — configure routing and the application shell.
-3. `app.config.json` — set the app name, colors, window size, and bundle metadata.
+3. `app.config.json` — set the app name, colors, window size, CRT effects, and bundle metadata.
 4. `app.icon.png` — replace the default app icon.
 
 Changes under `src/` reload while the app is running. Restart `bun run dev` after changing the
 configuration or icon.
+
+### CRT display effects
+
+Tune the terminal's animated CRT treatment in the `crtEffects` section of `app.config.json`:
+
+```json
+"crtEffects": {
+  "chromaticAberrationShift": 3,
+  "processedFrameOpacity": 0.3,
+  "noiseVisibility": 0.3,
+  "scanlinesVisibility": 0.3,
+  "flickerVisibility": 0.3,
+  "sweepLineVisibility": 0.3
+}
+```
+
+| Setting                    | Range  | Effect                                                          |
+| -------------------------- | ------ | --------------------------------------------------------------- |
+| `chromaticAberrationShift` | `0–10` | Maximum RGB separation in logical pixels.                       |
+| `processedFrameOpacity`    | `0–1`  | Opacity of the chromatically processed terminal frame.          |
+| `noiseVisibility`          | `0–1`  | Animated CRT grain strength.                                    |
+| `scanlinesVisibility`      | `0–1`  | Horizontal scanline visibility.                                 |
+| `flickerVisibility`        | `0–1`  | Scanline flicker strength; `0` keeps scanlines without flicker. |
+| `sweepLineVisibility`      | `0–1`  | Moving vertical sweep-line strength.                            |
+
+Set an effect to `0` to disable it. The configuration is validated whenever development or a build
+starts, and CRT changes take effect after restarting `bun run dev`.
+
+`windowWidth` and `windowHeight` must use an exact 16:9 aspect ratio. `fontSize` must divide both
+dimensions into a whole-number terminal grid.
 
 ### Pixel graphics
 
