@@ -7,6 +7,7 @@ const sidecarRoot = __TERMWEAVE_SIDECAR_ROOT__
 const sdkRoot = resolve(sidecarRoot, '..')
 const restartSignal = '.termweave-sidecar-restart'
 const restartDelayMs = 50
+const ownerProcessId = process.ppid
 
 let stopping = false
 let restarting = false
@@ -67,6 +68,11 @@ const signalWatcher = watch(sdkRoot, (_event, filename) => {
   if (restartTimer) clearTimeout(restartTimer)
   restartTimer = setTimeout(() => void restartSidecar(), restartDelayMs)
 })
+const ownerProcessWatchdog = setInterval(() => {
+  if (process.ppid === ownerProcessId) return
+  void stop('SIGTERM')
+}, 500)
+ownerProcessWatchdog.unref()
 
 signalWatcher.on('error', (error) => {
   process.stderr.write(`Sidecar restart watcher failed: ${String(error)}\n`)
@@ -83,6 +89,7 @@ async function stop(signal: NodeJS.Signals) {
   if (stopping) return
   stopping = true
   if (restartTimer) clearTimeout(restartTimer)
+  clearInterval(ownerProcessWatchdog)
   signalWatcher.close()
   await stopSidecar(signal)
   finishShutdown?.(0)

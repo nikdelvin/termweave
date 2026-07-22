@@ -18,7 +18,29 @@
       <pre id="diagnostic-log">[HTML] Diagnostic panel rendered.</pre>
     </section>
     <main id="app">
-      <div id="terminal" aria-label="Termweave terminal"></div>
+      <div id="display-stage">
+        <div id="monitor-artboard">
+          <div id="monitor-surround" aria-hidden="true">
+            <div class="monitor-copy monitor-copy--diagonal monitor-copy--top-left"></div>
+            <div class="monitor-copy monitor-copy--vertical monitor-copy--top"></div>
+            <div class="monitor-copy monitor-copy--diagonal monitor-copy--top-right"></div>
+            <div class="monitor-copy monitor-copy--horizontal monitor-copy--left"></div>
+            <div class="monitor-copy monitor-copy--horizontal monitor-copy--right"></div>
+            <div class="monitor-copy monitor-copy--diagonal monitor-copy--bottom-left"></div>
+            <div class="monitor-copy monitor-copy--vertical monitor-copy--bottom"></div>
+            <div class="monitor-copy monitor-copy--diagonal monitor-copy--bottom-right"></div>
+          </div>
+          <div id="terminal" aria-label="Termweave terminal"></div>
+          <div id="crt-effects" aria-hidden="true">
+            <div id="crt-aberration" hidden>
+              <canvas id="crt-aberration-canvas"></canvas>
+            </div>
+            <div id="crt-noise"></div>
+            <div id="crt-sweep"></div>
+          </div>
+          <div id="monitor-overlay" aria-hidden="true"></div>
+        </div>
+      </div>
     </main>
     <script type="module" src="/src/diagnostics.ts"></script>
     <script type="module" src="/src/main.ts"></script>

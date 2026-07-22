@@ -15,6 +15,14 @@ type AppBuilderConfig = {
   showDiagnostics: boolean
   themeColor: string
   foregroundColor: string
+  crtEffects: {
+    chromaticAberrationShift: number
+    processedFrameOpacity: number
+    noiseVisibility: number
+    scanlinesVisibility: number
+    flickerVisibility: number
+    sweepLineVisibility: number
+  }
   icon: string
 }
 
@@ -57,6 +65,13 @@ function requirePositiveNumber(value: unknown, path: string) {
   return value
 }
 
+function requireNumberInRange(value: unknown, path: string, minimum: number, maximum: number) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < minimum || value > maximum) {
+    fail(`${path} must be a number between ${minimum} and ${maximum}`)
+  }
+  return value
+}
+
 function requireBoolean(value: unknown, path: string) {
   if (typeof value !== 'boolean') fail(`${path} must be a boolean`)
   return value
@@ -72,6 +87,7 @@ function requireHexColor(value: unknown, path: string) {
 
 function parseConfig(value: unknown): AppBuilderConfig {
   const config = requireObject(value, 'root')
+  const crtEffects = requireObject(config.crtEffects, 'crtEffects')
 
   const packageName = requireString(config.packageName, 'packageName')
   if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(packageName)) {
@@ -121,6 +137,44 @@ function parseConfig(value: unknown): AppBuilderConfig {
     showDiagnostics: requireBoolean(config.showDiagnostics, 'showDiagnostics'),
     themeColor: requireHexColor(config.themeColor, 'themeColor'),
     foregroundColor: requireHexColor(config.foregroundColor, 'foregroundColor'),
+    crtEffects: {
+      chromaticAberrationShift: requireNumberInRange(
+        crtEffects.chromaticAberrationShift,
+        'crtEffects.chromaticAberrationShift',
+        0,
+        10,
+      ),
+      processedFrameOpacity: requireNumberInRange(
+        crtEffects.processedFrameOpacity,
+        'crtEffects.processedFrameOpacity',
+        0,
+        1,
+      ),
+      noiseVisibility: requireNumberInRange(
+        crtEffects.noiseVisibility,
+        'crtEffects.noiseVisibility',
+        0,
+        1,
+      ),
+      scanlinesVisibility: requireNumberInRange(
+        crtEffects.scanlinesVisibility,
+        'crtEffects.scanlinesVisibility',
+        0,
+        1,
+      ),
+      flickerVisibility: requireNumberInRange(
+        crtEffects.flickerVisibility,
+        'crtEffects.flickerVisibility',
+        0,
+        1,
+      ),
+      sweepLineVisibility: requireNumberInRange(
+        crtEffects.sweepLineVisibility,
+        'crtEffects.sweepLineVisibility',
+        0,
+        1,
+      ),
+    },
     icon: requireString(config.icon, 'icon'),
   }
 }

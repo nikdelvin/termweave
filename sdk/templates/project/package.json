@@ -10,6 +10,7 @@
     "dev": "bun termweave/sdk/scripts/project.ts dev",
     "build": "bun termweave/sdk/scripts/project.ts build",
     "update": "bun termweave/sdk/scripts/project.ts update",
+    "terminate": "bun termweave/sdk/scripts/kill-bun-processes.ts",
     "check": "bun run lint && bun run typecheck && bun run format:check",
     "lint": "eslint src",
     "typecheck": "tsc --noEmit",

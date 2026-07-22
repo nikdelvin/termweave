@@ -93,16 +93,280 @@ body,
 }
 
 #app {
-  display: grid;
-  place-items: center;
+  position: relative;
+  overflow: hidden;
   background: var(--theme-color);
 }
 
-#terminal {
+#display-stage {
+  position: absolute;
+  top: 50%;
+  left: 50%;
   width: 0;
   height: 0;
+  transform: scale(var(--terminal-scale, 1));
+  transform-origin: center;
+}
+
+#monitor-artboard {
+  position: absolute;
+  top: var(--monitor-artboard-top);
+  left: var(--monitor-artboard-left);
+  width: var(--monitor-width);
+  height: var(--monitor-height);
+}
+
+#terminal,
+#crt-effects {
+  position: absolute;
+  top: var(--monitor-screen-top);
+  left: var(--monitor-screen-left);
+  width: var(--monitor-screen-width);
+  height: var(--monitor-screen-height);
+}
+
+#terminal {
+  z-index: 1;
   overflow: hidden;
   background: var(--theme-color);
+  filter: brightness(0.99) contrast(1.025) saturate(1.04);
+}
+
+#crt-effects {
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+#crt-effects::before,
+#crt-effects::after {
+  position: absolute;
+  inset: 0;
+  content: '';
+}
+
+#crt-effects::before {
+  z-index: 3;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(8, 12, 14, 0.01) 0,
+    rgba(8, 12, 14, 0.01) 2px,
+    rgba(0, 0, 0, 0.1) 3px,
+    rgba(0, 0, 0, 0.1) 4px
+  );
+  mix-blend-mode: multiply;
+  opacity: var(--crt-scanlines-opacity, 0.56);
+  animation:
+    crt-scanline-drift 240ms linear infinite,
+    crt-flicker 4.8s steps(2, end) infinite;
+}
+
+#crt-effects::after {
+  z-index: 6;
+  background:
+    linear-gradient(112deg, rgba(185, 222, 229, 0.055), transparent 23% 75%),
+    radial-gradient(ellipse at center, transparent 57%, rgba(0, 0, 0, 0.2) 100%);
+  box-shadow: inset 0 0 34px rgba(4, 11, 13, 0.18);
+}
+
+#crt-aberration,
+#crt-noise,
+#crt-sweep {
+  position: absolute;
+  pointer-events: none;
+}
+
+#crt-aberration {
+  z-index: 1;
+  inset: 0;
+}
+
+#crt-aberration canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  filter: brightness(0.99) contrast(1.025) saturate(1.04);
+  opacity: var(--crt-processed-frame-opacity, 0.82);
+}
+
+#crt-noise {
+  z-index: 2;
+  inset: -12%;
+  background: url('./assets/crt-noise.png') repeat;
+  background-size: 128px 128px;
+  mix-blend-mode: soft-light;
+  opacity: var(--crt-noise-opacity-medium, 0.05);
+  animation: crt-noise-shift 320ms steps(1, end) infinite;
+  will-change: transform, opacity;
+}
+
+#crt-sweep {
+  z-index: 4;
+  top: -12%;
+  left: -2%;
+  width: 104%;
+  height: 12%;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    rgb(178 229 221 / var(--crt-sweep-soft-opacity, 0.025)) 36%,
+    rgb(206 244 237 / var(--crt-sweep-peak-opacity, 0.07)) 50%,
+    rgb(143 202 197 / var(--crt-sweep-trailing-opacity, 0.02)) 64%,
+    transparent
+  );
+  mix-blend-mode: screen;
+  animation: crt-sweep 6.4s linear infinite;
+  will-change: transform;
+}
+
+@keyframes crt-scanline-drift {
+  to {
+    background-position: 0 4px;
+  }
+}
+
+@keyframes crt-noise-shift {
+  0% {
+    opacity: var(--crt-noise-opacity-low, 0.046);
+    transform: translate3d(-3%, 2%, 0);
+  }
+
+  20% {
+    opacity: var(--crt-noise-opacity-high, 0.058);
+    transform: translate3d(4%, -3%, 0);
+  }
+
+  40% {
+    opacity: var(--crt-noise-opacity-medium, 0.05);
+    transform: translate3d(-2%, -4%, 0);
+  }
+
+  60% {
+    opacity: var(--crt-noise-opacity-peak, 0.062);
+    transform: translate3d(3%, 4%, 0);
+  }
+
+  80% {
+    opacity: var(--crt-noise-opacity-medium, 0.05);
+    transform: translate3d(1%, -2%, 0);
+  }
+
+  100% {
+    opacity: var(--crt-noise-opacity-low, 0.046);
+    transform: translate3d(-3%, 2%, 0);
+  }
+}
+
+@keyframes crt-sweep {
+  to {
+    transform: translateY(933.333%);
+  }
+}
+
+#monitor-overlay {
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  background: url('./assets/monitor-overlay.png') center / 100% 100% no-repeat;
+  pointer-events: none;
+  user-select: none;
+}
+
+#monitor-surround {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  pointer-events: none;
+  user-select: none;
+}
+
+.monitor-copy {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  background-position: center;
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+}
+
+.monitor-copy--horizontal {
+  background-image: url('./assets/monitor-mirrored-horizontal.png');
+}
+
+.monitor-copy--vertical {
+  background-image: url('./assets/monitor-mirrored-vertical.png');
+}
+
+.monitor-copy--diagonal {
+  background-image: url('./assets/monitor-mirrored-diagonal.png');
+}
+
+.monitor-copy--left {
+  top: 0;
+  right: 100%;
+}
+
+.monitor-copy--right {
+  top: 0;
+  left: 100%;
+}
+
+.monitor-copy--top {
+  bottom: 100%;
+  left: 0;
+}
+
+.monitor-copy--bottom {
+  top: 100%;
+  left: 0;
+}
+
+.monitor-copy--top-left {
+  right: 100%;
+  bottom: 100%;
+}
+
+.monitor-copy--top-right {
+  bottom: 100%;
+  left: 100%;
+}
+
+.monitor-copy--bottom-left {
+  top: 100%;
+  right: 100%;
+}
+
+.monitor-copy--bottom-right {
+  top: 100%;
+  left: 100%;
+}
+
+@keyframes crt-flicker {
+  0%,
+  91%,
+  100% {
+    opacity: var(--crt-scanlines-opacity, 0.56);
+  }
+
+  92% {
+    opacity: var(--crt-flicker-low-opacity, 0.51);
+  }
+
+  94% {
+    opacity: var(--crt-flicker-high-opacity, 0.59);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #crt-effects::before,
+  #crt-noise,
+  #crt-sweep {
+    animation: none;
+  }
+}
+
+.xterm-char-measure-element {
+  line-height: 1 !important;
 }
 
 .xterm,

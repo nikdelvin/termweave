@@ -5,6 +5,7 @@ export const PRODUCT_DESCRIPTION = appConfig.description
 export const SHOW_DIAGNOSTICS = appConfig.showDiagnostics
 export const THEME_COLOR = appConfig.themeColor
 export const FOREGROUND_COLOR = appConfig.foregroundColor
+export const CRT_EFFECTS = appConfig.crtEffects
 
 export const TERMINAL_GRID = {
   cols: appConfig.windowWidth / appConfig.fontSize,
@@ -16,7 +17,7 @@ export const TERMINAL_GRID = {
 
 export const SIDECAR_PROTOCOL = {
   name: `${appConfig.bundleIdentifier}/opentui`,
-  version: 4,
+  version: 5,
 } as const
 
 export type SidecarHello = {
@@ -38,4 +39,8 @@ export type SidecarAuthenticated = {
 
 export type SidecarExitRequested = {
   type: 'exit-requested'
+}
+
+export type SidecarShutdown = {
+  type: 'shutdown'
 }

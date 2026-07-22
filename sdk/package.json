@@ -35,6 +35,7 @@
     "sidecar:dev-launcher": "cd sidecar && bun run build:dev-launcher",
     "app:check": "bun run check && bun run --cwd sidecar check",
     "app:format": "bun run format && bun run --cwd sidecar format",
+    "app:kill": "bun scripts/kill-bun-processes.ts",
     "app:dev": "bun run app:check && bun run icons:generate && bun run config:sync && bun run sidecar:dev-launcher && tauri dev",
     "app:build": "bun run app:check && bun run icons:generate && bun run config:sync && bun run sidecar:build && bun scripts/build-app.ts"
   },

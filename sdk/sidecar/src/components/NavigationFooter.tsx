@@ -59,7 +59,7 @@ export function NavigationFooter(props: NavigationFooterProps) {
     <box
       position="absolute"
       left={0}
-      bottom={0}
+      bottom={1}
       gap={1}
       width="100%"
       alignItems="center"

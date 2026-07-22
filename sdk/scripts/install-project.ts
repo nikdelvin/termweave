@@ -156,10 +156,18 @@ export async function createScaffold(
     authors: [metadata.author],
     windowWidth: 1920,
     windowHeight: 1080,
-    fontSize: 10,
+    fontSize: 12,
     showDiagnostics: false,
     themeColor: '#181A1B',
     foregroundColor: '#E8E6E3',
+    crtEffects: {
+      chromaticAberrationShift: 3,
+      processedFrameOpacity: 0.3,
+      noiseVisibility: 0.3,
+      scanlinesVisibility: 0.3,
+      flickerVisibility: 0.3,
+      sweepLineVisibility: 0.3,
+    },
     icon: 'app.icon.png',
   }
   await writeFile(

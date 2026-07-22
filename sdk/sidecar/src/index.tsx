@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto'
 import { PassThrough } from 'node:stream'
-import { createCliRenderer } from '@opentui/core'
+import { createCliRenderer, setupAudio, type Audio } from '@opentui/core'
 import { render } from '@opentui/solid'
 import {
   FOREGROUND_COLOR,
@@ -11,6 +11,7 @@ import {
   type SidecarAuthenticated,
   type SidecarExitRequested,
   type SidecarHello,
+  type SidecarShutdown,
 } from '../../shared/terminal-config'
 import {
   MAX_TERMINAL_FRAME_ID,
@@ -19,6 +20,7 @@ import {
   type SidecarFrameAcknowledgement,
 } from '../../shared/terminal-protocol'
 import { App } from './App'
+import crtNoisePath from './assets/crt-noise.mp3' with { type: 'file' }
 
 const startedAt = performance.now()
 const HOST = '127.0.0.1'
@@ -49,6 +51,7 @@ const { cols: COLS, rows: ROWS } = TERMINAL_GRID
 type ClientMessage =
   | SidecarAuthenticate
   | SidecarFrameAcknowledgement
+  | SidecarShutdown
   | { type: 'input'; data: string }
   | { type: 'resize'; cols: number; rows: number }
 
@@ -59,6 +62,7 @@ type Session = {
 }
 
 let sendSidecarDiagnostic: ((line: string) => boolean) | undefined
+let crtNoiseAudio: Audio | undefined
 
 function isMouseMotionInput(data: string) {
   const match = /^\u001b\[<(\d+);\d+;\d+[Mm]$/.exec(data)
@@ -95,6 +99,44 @@ function sidecarLog(message: string, details?: unknown) {
   process.stderr.write(`${line}\n`)
 }
 
+function stopCrtNoiseAudio() {
+  const audio = crtNoiseAudio
+  crtNoiseAudio = undefined
+  audio?.dispose()
+}
+
+async function startCrtNoiseAudio() {
+  if (crtNoiseAudio) return
+
+  let audio: Audio | undefined
+  try {
+    audio = setupAudio({ autoStart: true })
+    crtNoiseAudio = audio
+    audio.on('error', (error, context) => {
+      sidecarLog('OpenTUI audio error', { context, error: serializeError(error) })
+    })
+
+    const sound = await audio.loadSoundFile(crtNoisePath)
+    if (crtNoiseAudio !== audio) return
+    if (sound === null) throw new Error('OpenTUI could not load the CRT noise MP3')
+
+    const voice = audio.play(sound, { loop: true })
+    if (voice === null) throw new Error('OpenTUI could not start the CRT noise loop')
+
+    sidecarLog('CRT noise loop started', {
+      path: crtNoisePath,
+      sound,
+      voice,
+      playbackStarted: audio.isStarted(),
+      mixerStarted: audio.isMixerStarted(),
+    })
+  } catch (error) {
+    if (crtNoiseAudio === audio) stopCrtNoiseAudio()
+    else audio?.dispose()
+    sidecarLog('CRT noise initialization failed', serializeError(error))
+  }
+}
+
 function parseClientMessage(rawMessage: string): ClientMessage | undefined {
   try {
     const message = JSON.parse(rawMessage) as Record<string, unknown>
@@ -110,6 +152,8 @@ function parseClientMessage(rawMessage: string): ClientMessage | undefined {
     if (message.type === 'frame-ack' && isTerminalFrameId(message.frameId)) {
       return { type: 'frame-ack', frameId: message.frameId }
     }
+
+    if (message.type === 'shutdown') return { type: 'shutdown' }
 
     if (
       message.type === 'resize' &&
@@ -146,6 +190,7 @@ sidecarLog('process started', {
 })
 
 process.on('exit', (code) => {
+  stopCrtNoiseAudio()
   sidecarLog('process exiting', { code })
 })
 
@@ -205,6 +250,7 @@ let outputByteCount = 0
 let hasConnected = false
 let exitRequested = false
 let exitRequestConnectionId: number | undefined
+let sidecarShuttingDown = false
 
 if (DIAGNOSTICS_ENABLED) {
   sendSidecarDiagnostic = (line) => {
@@ -479,6 +525,7 @@ const renderer = await createCliRenderer({
   exitSignals: [],
   useKittyKeyboard: null,
   onDestroy: () => {
+    stopCrtNoiseAudio()
     exitRequested = true
     sendExitRequest()
   },
@@ -493,6 +540,7 @@ sidecarLog('OpenTUI renderer created', {
   height: renderer.height,
   screenMode: renderer.screenMode,
 })
+void startCrtNoiseAudio()
 
 outputFrameBoundariesReady = true
 renderer.setFrameCallback(waitForTerminalReady)
@@ -655,6 +703,12 @@ const server = Bun.serve<Session>({
 
       if (socket !== activeSocket || message.type === 'authenticate') return
 
+      if (message.type === 'shutdown') {
+        sidecarLog('authenticated client requested shutdown', { connectionId: socket.data.id })
+        shutdownSidecar('authenticated client requested shutdown')
+        return
+      }
+
       if (message.type === 'frame-ack') {
         acknowledgeOutputFrame(socket, message.frameId)
         return
@@ -723,3 +777,46 @@ sidecarLog('WebSocket server listening', {
   port: server.port,
   url: server.url.toString(),
 })
+
+function shutdownSidecar(reason: string, exitCode = 0) {
+  if (sidecarShuttingDown) return
+  sidecarShuttingDown = true
+  sidecarLog('sidecar shutdown started', { reason, exitCode })
+
+  stopCrtNoiseAudio()
+  clearOutputFlushTimer()
+  clearFrameAcknowledgementTimer()
+
+  const socketToClose = activeSocket
+  activeSocket = undefined
+  try {
+    socketToClose?.close(1000, 'Sidecar shutting down')
+  } catch (error) {
+    sidecarLog('failed to close WebSocket during shutdown', serializeError(error))
+  }
+
+  try {
+    server.stop(true)
+  } catch (error) {
+    sidecarLog('failed to stop WebSocket server during shutdown', serializeError(error))
+  }
+
+  try {
+    renderer.destroy()
+  } catch (error) {
+    sidecarLog('failed to destroy renderer during shutdown', serializeError(error))
+  }
+
+  queueMicrotask(() => process.exit(exitCode))
+}
+
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.once(signal, () => shutdownSidecar(`received ${signal}`))
+}
+
+const ownerProcessId = process.ppid
+const ownerProcessWatchdog = setInterval(() => {
+  if (process.ppid === ownerProcessId) return
+  shutdownSidecar(`owner process ${ownerProcessId} exited`)
+}, 500)
+ownerProcessWatchdog.unref()

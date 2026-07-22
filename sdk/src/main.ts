@@ -7,6 +7,7 @@ import { type Child, Command } from '@tauri-apps/plugin-shell'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import {
+  CRT_EFFECTS,
   FOREGROUND_COLOR,
   SHOW_DIAGNOSTICS,
   SIDECAR_PROTOCOL,
@@ -15,18 +16,50 @@ import {
   type SidecarAuthenticate,
   type SidecarAuthenticated,
   type SidecarExitRequested,
+  type SidecarShutdown,
 } from '../shared/terminal-config'
 import { decodeTerminalFrame, type SidecarFrameAcknowledgement } from '../shared/terminal-protocol'
 import './styles.css'
 
-const { cols: COLS, rows: ROWS } = TERMINAL_GRID
+const {
+  cols: COLS,
+  rows: ROWS,
+  targetWidth: TERMINAL_WIDTH,
+  targetHeight: TERMINAL_HEIGHT,
+  fontSize: TERMINAL_FONT_SIZE,
+} = TERMINAL_GRID
 const FONT_FAMILY = '"Kreative Square"'
 const FONT_MEASUREMENT_SIZE = 100
+const MIN_HORIZONTAL_BEZEL_PX = 64
+const MIN_VERTICAL_BEZEL_PX = 64
+const MONITOR_OVERLAY = {
+  width: 3_000,
+  height: 1_740,
+  aperture: {
+    left: 268,
+    top: 201,
+    width: 2_453,
+    height: 1_380,
+  },
+} as const
+const monitorScaleX = TERMINAL_WIDTH / MONITOR_OVERLAY.aperture.width
+const monitorScaleY = TERMINAL_HEIGHT / MONITOR_OVERLAY.aperture.height
+const MONITOR_LAYOUT = {
+  width: MONITOR_OVERLAY.width * monitorScaleX,
+  height: MONITOR_OVERLAY.height * monitorScaleY,
+  screenLeft: MONITOR_OVERLAY.aperture.left * monitorScaleX,
+  screenTop: MONITOR_OVERLAY.aperture.top * monitorScaleY,
+  screenWidth: TERMINAL_WIDTH,
+  screenHeight: TERMINAL_HEIGHT,
+  screenCenterX: MONITOR_OVERLAY.aperture.left * monitorScaleX + TERMINAL_WIDTH / 2,
+  screenCenterY: MONITOR_OVERLAY.aperture.top * monitorScaleY + TERMINAL_HEIGHT / 2,
+} as const
 const HANDSHAKE_TIMEOUT_MS = 2_000
 const CONNECTION_RETRY_DELAY_MS = 100
 const STARTUP_CONNECTION_ATTEMPTS = 300
 const RECOVERY_RECONNECT_ATTEMPTS = import.meta.env.DEV ? 100 : 20
 const RECOVERY_CYCLE_RETRY_DELAY_MS = 2_000
+const SIDECAR_SHUTDOWN_TIMEOUT_MS = 750
 const appWebview = getCurrentWebview()
 const appWindow = getCurrentWindow()
 
@@ -76,7 +109,45 @@ function getRequiredElement<T extends Element>(selector: string) {
 }
 
 const appHost = getRequiredElement<HTMLElement>('#app')
+const displayStage = getRequiredElement<HTMLDivElement>('#display-stage')
+const monitorArtboard = getRequiredElement<HTMLDivElement>('#monitor-artboard')
 const terminalHost = getRequiredElement<HTMLDivElement>('#terminal')
+const crtEffectsHost = getRequiredElement<HTMLDivElement>('#crt-effects')
+const crtAberrationHost = getRequiredElement<HTMLDivElement>('#crt-aberration')
+const crtAberrationCanvas = getRequiredElement<HTMLCanvasElement>('#crt-aberration-canvas')
+
+const noisePeakOpacity = CRT_EFFECTS.noiseVisibility * 0.1
+const flickerAmplitude = CRT_EFFECTS.flickerVisibility * 0.1
+const sweepPeakOpacity = CRT_EFFECTS.sweepLineVisibility * 0.1
+const crtStyleVariables = {
+  '--crt-processed-frame-opacity': CRT_EFFECTS.processedFrameOpacity,
+  '--crt-noise-opacity-low': noisePeakOpacity * (46 / 62),
+  '--crt-noise-opacity-high': noisePeakOpacity * (58 / 62),
+  '--crt-noise-opacity-medium': noisePeakOpacity * (50 / 62),
+  '--crt-noise-opacity-peak': noisePeakOpacity,
+  '--crt-scanlines-opacity': CRT_EFFECTS.scanlinesVisibility,
+  '--crt-flicker-low-opacity': Math.max(0, CRT_EFFECTS.scanlinesVisibility - flickerAmplitude),
+  '--crt-flicker-high-opacity': Math.min(
+    1,
+    CRT_EFFECTS.scanlinesVisibility + flickerAmplitude * 0.6,
+  ),
+  '--crt-sweep-soft-opacity': sweepPeakOpacity * (25 / 70),
+  '--crt-sweep-peak-opacity': sweepPeakOpacity,
+  '--crt-sweep-trailing-opacity': sweepPeakOpacity * (20 / 70),
+} as const
+
+for (const [property, value] of Object.entries(crtStyleVariables)) {
+  crtEffectsHost.style.setProperty(property, String(value))
+}
+
+monitorArtboard.style.setProperty('--monitor-width', `${MONITOR_LAYOUT.width}px`)
+monitorArtboard.style.setProperty('--monitor-height', `${MONITOR_LAYOUT.height}px`)
+monitorArtboard.style.setProperty('--monitor-artboard-left', `${-MONITOR_LAYOUT.screenCenterX}px`)
+monitorArtboard.style.setProperty('--monitor-artboard-top', `${-MONITOR_LAYOUT.screenCenterY}px`)
+monitorArtboard.style.setProperty('--monitor-screen-left', `${MONITOR_LAYOUT.screenLeft}px`)
+monitorArtboard.style.setProperty('--monitor-screen-top', `${MONITOR_LAYOUT.screenTop}px`)
+monitorArtboard.style.setProperty('--monitor-screen-width', `${MONITOR_LAYOUT.screenWidth}px`)
+monitorArtboard.style.setProperty('--monitor-screen-height', `${MONITOR_LAYOUT.screenHeight}px`)
 
 function getCanvasContext(canvas: HTMLCanvasElement) {
   const context = canvas.getContext('2d')
@@ -364,7 +435,7 @@ const terminal = new Terminal({
   convertEol: false,
   customGlyphs: true,
   fontFamily: FONT_FAMILY,
-  fontSize: 10,
+  fontSize: TERMINAL_FONT_SIZE,
   letterSpacing: 0,
   lineHeight: 1,
   theme: {
@@ -567,18 +638,227 @@ let inputSubscription: { dispose(): void } | undefined
 let resizeObserver: ResizeObserver | undefined
 let resizeFrame: number | undefined
 let focusFrame: number | undefined
+let aberrationFrame: number | undefined
 let unlistenWindowFocus: (() => void) | undefined
+let unlistenWindowCloseRequested: (() => void) | undefined
 let webglAddon: WebglAddon | undefined
 let webglContextLossSubscription: IDisposable | undefined
+let aberrationRenderSubscription: IDisposable | undefined
+let lastAberrationSource: HTMLCanvasElement | undefined
+let aberrationCaptureFailed = false
 let terminalOpened = false
 let disposed = false
 let exitRequested = false
+let cleanupPromise: Promise<void> | undefined
+let windowClosePromise: Promise<void> | undefined
+
+type ChromaticAberrationRenderer = {
+  gl: WebGL2RenderingContext
+  program: WebGLProgram
+  texture: WebGLTexture
+  vertexArray: WebGLVertexArrayObject
+  resolutionLocation: WebGLUniformLocation
+  shiftLocation: WebGLUniformLocation
+}
+
+let chromaticAberrationRenderer: ChromaticAberrationRenderer | undefined
+
+function getTerminalWebglCanvas() {
+  const screen = terminalHost.querySelector<HTMLElement>('.xterm-screen')
+  if (!screen) return undefined
+
+  return Array.from(screen.children).find(
+    (element): element is HTMLCanvasElement =>
+      element instanceof HTMLCanvasElement && element.classList.length === 0,
+  )
+}
+
+function compileCrtShader(gl: WebGL2RenderingContext, type: number, source: string) {
+  const shader = gl.createShader(type)
+  if (!shader) throw new Error('Unable to create CRT shader')
+
+  gl.shaderSource(shader, source)
+  gl.compileShader(shader)
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    const log = gl.getShaderInfoLog(shader)
+    gl.deleteShader(shader)
+    throw new Error(`Unable to compile CRT shader: ${log ?? 'unknown error'}`)
+  }
+
+  return shader
+}
+
+function createChromaticAberrationRenderer(): ChromaticAberrationRenderer {
+  const gl = crtAberrationCanvas.getContext('webgl2', {
+    alpha: false,
+    antialias: false,
+    depth: false,
+    premultipliedAlpha: false,
+  })
+  if (!gl) throw new Error('Unable to create CRT WebGL2 renderer')
+
+  const vertexShader = compileCrtShader(
+    gl,
+    gl.VERTEX_SHADER,
+    `#version 300 es
+      in vec2 a_position;
+      out vec2 v_uv;
+
+      void main() {
+        v_uv = a_position * 0.5 + 0.5;
+        gl_Position = vec4(a_position, 0.0, 1.0);
+      }
+    `,
+  )
+  const fragmentShader = compileCrtShader(
+    gl,
+    gl.FRAGMENT_SHADER,
+    `#version 300 es
+      precision highp float;
+
+      uniform sampler2D u_texture;
+      uniform vec2 u_resolution;
+      uniform vec2 u_max_shift;
+      in vec2 v_uv;
+      out vec4 out_color;
+
+      void main() {
+        vec2 centered = v_uv * 2.0 - 1.0;
+        float distance_from_center = length(centered) / 1.41421356237;
+        float edge_strength = smoothstep(0.16, 1.0, distance_from_center);
+        vec2 direction = centered / max(length(centered), 0.0001);
+        vec2 offset = direction * u_max_shift * edge_strength / u_resolution;
+        vec4 base = texture(u_texture, v_uv);
+        float red = texture(u_texture, clamp(v_uv + offset, 0.0, 1.0)).r;
+        float blue = texture(u_texture, clamp(v_uv - offset, 0.0, 1.0)).b;
+        out_color = vec4(red, base.g, blue, base.a);
+      }
+    `,
+  )
+  const program = gl.createProgram()
+  if (!program) throw new Error('Unable to create CRT shader program')
+
+  gl.attachShader(program, vertexShader)
+  gl.attachShader(program, fragmentShader)
+  gl.linkProgram(program)
+  gl.deleteShader(vertexShader)
+  gl.deleteShader(fragmentShader)
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    throw new Error(`Unable to link CRT shader program: ${gl.getProgramInfoLog(program)}`)
+  }
+
+  const positionLocation = gl.getAttribLocation(program, 'a_position')
+  const resolutionLocation = gl.getUniformLocation(program, 'u_resolution')
+  const shiftLocation = gl.getUniformLocation(program, 'u_max_shift')
+  const textureLocation = gl.getUniformLocation(program, 'u_texture')
+  const vertexArray = gl.createVertexArray()
+  const positionBuffer = gl.createBuffer()
+  const texture = gl.createTexture()
+  if (
+    positionLocation < 0 ||
+    !resolutionLocation ||
+    !shiftLocation ||
+    !textureLocation ||
+    !vertexArray ||
+    !positionBuffer ||
+    !texture
+  ) {
+    throw new Error('Unable to initialize CRT shader resources')
+  }
+
+  gl.bindVertexArray(vertexArray)
+  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer)
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW)
+  gl.enableVertexAttribArray(positionLocation)
+  gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0)
+  gl.bindTexture(gl.TEXTURE_2D, texture)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1)
+  gl.useProgram(program)
+  gl.uniform1i(textureLocation, 0)
+
+  return { gl, program, texture, vertexArray, resolutionLocation, shiftLocation }
+}
+
+function renderChromaticAberration() {
+  const source = getTerminalWebglCanvas()
+  if (!source || source.width === 0 || source.height === 0) {
+    crtAberrationHost.hidden = true
+    lastAberrationSource = undefined
+    return
+  }
+
+  try {
+    const renderer = (chromaticAberrationRenderer ??= createChromaticAberrationRenderer())
+    const { gl } = renderer
+    if (crtAberrationCanvas.width !== source.width) crtAberrationCanvas.width = source.width
+    if (crtAberrationCanvas.height !== source.height) crtAberrationCanvas.height = source.height
+
+    gl.viewport(0, 0, crtAberrationCanvas.width, crtAberrationCanvas.height)
+    gl.useProgram(renderer.program)
+    gl.bindVertexArray(renderer.vertexArray)
+    gl.activeTexture(gl.TEXTURE0)
+    gl.bindTexture(gl.TEXTURE_2D, renderer.texture)
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source)
+    gl.uniform2f(renderer.resolutionLocation, source.width, source.height)
+    gl.uniform2f(
+      renderer.shiftLocation,
+      CRT_EFFECTS.chromaticAberrationShift * (source.width / TERMINAL_WIDTH),
+      CRT_EFFECTS.chromaticAberrationShift * (source.height / TERMINAL_HEIGHT),
+    )
+    gl.drawArrays(gl.TRIANGLES, 0, 3)
+    crtAberrationHost.hidden = false
+    aberrationCaptureFailed = false
+
+    if (source !== lastAberrationSource) {
+      lastAberrationSource = source
+      diagnostic('crt', 'WebGL chromatic aberration connected', {
+        source: `${source.width}x${source.height}`,
+        effect: `${crtAberrationCanvas.width}x${crtAberrationCanvas.height}`,
+        maximumShift: CRT_EFFECTS.chromaticAberrationShift,
+      })
+    }
+  } catch (error) {
+    crtAberrationHost.hidden = true
+    if (!aberrationCaptureFailed) {
+      aberrationCaptureFailed = true
+      diagnostic('crt', 'WebGL chromatic aberration render failed', error, 'warn')
+    }
+  }
+}
+
+function scheduleChromaticAberration() {
+  if (aberrationFrame !== undefined) return
+
+  aberrationFrame = requestAnimationFrame(() => {
+    aberrationFrame = undefined
+    if (!disposed) renderChromaticAberration()
+  })
+}
+
+function clearChromaticAberration() {
+  if (aberrationFrame !== undefined) cancelAnimationFrame(aberrationFrame)
+  aberrationFrame = undefined
+  lastAberrationSource = undefined
+  crtAberrationHost.hidden = true
+  const gl = chromaticAberrationRenderer?.gl
+  if (gl) {
+    gl.clearColor(0, 0, 0, 1)
+    gl.clear(gl.COLOR_BUFFER_BIT)
+  }
+}
+
+aberrationRenderSubscription = terminal.onRender(scheduleChromaticAberration)
 
 function disposeWebglRenderer(reason: string) {
   const addon = webglAddon
   const contextLossSubscription = webglContextLossSubscription
   webglAddon = undefined
   webglContextLossSubscription = undefined
+  clearChromaticAberration()
 
   try {
     contextLossSubscription?.dispose()
@@ -607,7 +887,7 @@ function enableWebglRenderer() {
   let addon: WebglAddon | undefined
 
   try {
-    addon = new WebglAddon()
+    addon = new WebglAddon(true)
     webglAddon = addon
     webglContextLossSubscription = addon.onContextLoss(() => {
       diagnostic(
@@ -620,8 +900,10 @@ function enableWebglRenderer() {
     })
     terminal.loadAddon(addon)
     fitTerminalToApp()
+    scheduleChromaticAberration()
     diagnostic('xterm.webgl', 'WebGL renderer enabled', {
       customGlyphs: terminal.options.customGlyphs,
+      preserveDrawingBuffer: true,
     })
   } catch (error) {
     diagnostic(
@@ -659,56 +941,88 @@ function measureFont() {
   }
 }
 
+function rectSnapshot(rect: DOMRect) {
+  return {
+    x: rect.x,
+    y: rect.y,
+    width: rect.width,
+    height: rect.height,
+  }
+}
+
+function monitorLayoutSnapshot(scale: number) {
+  const artboardRect = monitorArtboard.getBoundingClientRect()
+  const terminalRect = terminalHost.getBoundingClientRect()
+  const expectedScreenRect = {
+    x: artboardRect.x + MONITOR_LAYOUT.screenLeft * scale,
+    y: artboardRect.y + MONITOR_LAYOUT.screenTop * scale,
+    width: MONITOR_LAYOUT.screenWidth * scale,
+    height: MONITOR_LAYOUT.screenHeight * scale,
+  }
+
+  return {
+    source: MONITOR_OVERLAY,
+    normalized: MONITOR_LAYOUT,
+    artboardRect: rectSnapshot(artboardRect),
+    terminalRect: rectSnapshot(terminalRect),
+    expectedScreenRect,
+    alignmentError: {
+      x: terminalRect.x - expectedScreenRect.x,
+      y: terminalRect.y - expectedScreenRect.y,
+      width: terminalRect.width - expectedScreenRect.width,
+      height: terminalRect.height - expectedScreenRect.height,
+    },
+  }
+}
+
 function fitTerminalToApp() {
   const pixelRatio = window.devicePixelRatio || 1
-  const deviceCellSize = Math.max(
-    1,
-    Math.floor(
-      Math.min(
-        (appHost.clientWidth * pixelRatio) / COLS,
-        (appHost.clientHeight * pixelRatio) / ROWS,
-      ),
-    ),
+  const availableTerminalWidth = Math.max(0, appHost.clientWidth - MIN_HORIZONTAL_BEZEL_PX * 2)
+  const availableTerminalHeight = Math.max(0, appHost.clientHeight - MIN_VERTICAL_BEZEL_PX * 2)
+  const scale = Math.max(
+    0,
+    Math.min(availableTerminalWidth / TERMINAL_WIDTH, availableTerminalHeight / TERMINAL_HEIGHT),
   )
-  const cellSize = deviceCellSize / pixelRatio
+  const screenInsetX = (appHost.clientWidth - TERMINAL_WIDTH * scale) / 2
+  const screenInsetY = (appHost.clientHeight - TERMINAL_HEIGHT * scale) / 2
   const fontMetrics = measureFont()
+  const deviceCharWidth = Math.floor(fontMetrics.widthRatio * TERMINAL_FONT_SIZE * pixelRatio)
+  const deviceCharHeight = Math.ceil(fontMetrics.heightRatio * TERMINAL_FONT_SIZE * pixelRatio)
 
-  // Kreative Square has a square em and full-em advance. Keep the font at the exact
-  // integer-aligned cell size: WebGL custom glyphs use the resulting cell dimensions
-  // directly, and any letter spacing would introduce seams between adjacent blocks.
-  const fontSize = cellSize
-  const deviceCharWidth = Math.floor(fontMetrics.widthRatio * fontSize * pixelRatio)
-  const deviceCharHeight = Math.ceil(fontMetrics.heightRatio * fontSize * pixelRatio)
-
-  terminalHost.style.width = `${cellSize * COLS}px`
-  terminalHost.style.height = `${cellSize * ROWS}px`
-  terminal.options.fontSize = fontSize
+  // Keep xterm on one fixed logical surface. Resizing the native window only scales
+  // the complete monitor stage, so OpenTUI's grid, the CRT effects, and the bezel
+  // aperture remain registered at every viewport size and aspect ratio.
+  terminalHost.style.width = `${TERMINAL_WIDTH}px`
+  terminalHost.style.height = `${TERMINAL_HEIGHT}px`
+  displayStage.style.setProperty('--terminal-scale', String(scale))
+  terminal.options.fontSize = TERMINAL_FONT_SIZE
   terminal.options.letterSpacing = 0
-  if (terminalOpened) terminal.resize(COLS, ROWS)
 
-  const fitSignature = [
-    appHost.clientWidth,
-    appHost.clientHeight,
-    pixelRatio,
-    cellSize,
-    fontSize,
-  ].join(':')
+  const fitSignature = [appHost.clientWidth, appHost.clientHeight, pixelRatio, scale].join(':')
 
   if (fitSignature !== lastFitSignature) {
     lastFitSignature = fitSignature
     diagnostic('layout', 'terminal fitted', {
       app: `${appHost.clientWidth}x${appHost.clientHeight}`,
-      terminal: `${cellSize * COLS}x${cellSize * ROWS}`,
+      terminal: `${TERMINAL_WIDTH}x${TERMINAL_HEIGHT}`,
+      displayedTerminal: `${TERMINAL_WIDTH * scale}x${TERMINAL_HEIGHT * scale}`,
+      displayedMonitor: `${MONITOR_LAYOUT.width * scale}x${MONITOR_LAYOUT.height * scale}`,
+      screenInsets: {
+        x: screenInsetX,
+        y: screenInsetY,
+        minimumHorizontalBezel: MIN_HORIZONTAL_BEZEL_PX,
+        minimumVerticalBezel: MIN_VERTICAL_BEZEL_PX,
+      },
       pixelRatio,
-      deviceCellSize,
       deviceCharWidth,
       deviceCharHeight,
-      cellSize,
-      fontSize,
+      scale,
+      fontSize: TERMINAL_FONT_SIZE,
       letterSpacing: terminal.options.letterSpacing,
       fontMetrics,
       renderer: webglAddon === undefined ? 'dom' : 'webgl',
       terminalOpened,
+      monitor: monitorLayoutSnapshot(scale),
     })
   }
 }
@@ -727,6 +1041,7 @@ function scheduleTerminalFit() {
 
 function scheduleTerminalFocus() {
   if (focusFrame !== undefined) cancelAnimationFrame(focusFrame)
+  clearChromaticAberration()
 
   focusFrame = requestAnimationFrame(() => {
     focusFrame = undefined
@@ -848,6 +1163,38 @@ async function spawnSidecar(runtime: BackendDiagnostics, reason: string) {
 async function stopSidecar(reason: string) {
   const processToStop = child
   child = undefined
+
+  const socketToShutdown = socket
+  socket = undefined
+  if (socketToShutdown?.readyState === WebSocket.OPEN) {
+    const shutdown: SidecarShutdown = { type: 'shutdown' }
+    const socketClosed = new Promise<boolean>((resolve) => {
+      let settled = false
+      let timeout: number | undefined
+      const finish = (closed: boolean) => {
+        if (settled) return
+        settled = true
+        if (timeout !== undefined) window.clearTimeout(timeout)
+        socketToShutdown.removeEventListener('close', handleClose)
+        resolve(closed)
+      }
+      const handleClose = () => finish(true)
+
+      socketToShutdown.addEventListener('close', handleClose, { once: true })
+      timeout = window.setTimeout(() => finish(false), SIDECAR_SHUTDOWN_TIMEOUT_MS)
+    })
+
+    try {
+      socketToShutdown.send(JSON.stringify(shutdown))
+      diagnostic('sidecar', 'graceful shutdown requested', { reason })
+      const closedGracefully = await socketClosed
+      diagnostic('sidecar', 'graceful shutdown wait completed', { reason, closedGracefully })
+    } catch (error) {
+      diagnostic('sidecar', 'failed to request graceful shutdown', { reason, error }, 'warn')
+    }
+  }
+  socketToShutdown?.close()
+
   if (!processToStop) return
 
   diagnostic('sidecar', 'stopping process', { pid: processToStop.pid, reason }, 'warn')
@@ -1023,9 +1370,9 @@ async function start(runtime: BackendDiagnostics) {
   sendTerminalResize('initial startup')
 }
 
-function cleanup() {
-  if (disposed) return
-  diagnostic('frontend', 'cleanup started')
+function cleanup(reason: string) {
+  if (cleanupPromise) return cleanupPromise
+  diagnostic('frontend', 'cleanup started', { reason })
   disposed = true
   resizeObserver?.disconnect()
   if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame)
@@ -1037,19 +1384,26 @@ function cleanup() {
   window.removeEventListener('keydown', handleGlobalKeyDown, true)
   document.removeEventListener('visibilitychange', handleVisibilityChange)
   terminalHost.removeEventListener('pointerdown', scheduleTerminalFocus)
+  aberrationRenderSubscription?.dispose()
   inputSubscription?.dispose()
-  socket?.close()
-  void stopSidecar('frontend cleanup')
   disposeWebglRenderer('frontend cleanup')
   if (terminalOpened) terminal.dispose()
+
+  cleanupPromise = stopSidecar(reason).then(() => {
+    diagnostic('frontend', 'cleanup completed', { reason })
+  })
+  return cleanupPromise
 }
 
 window.addEventListener('focus', scheduleTerminalFocus)
 window.addEventListener('keydown', handleGlobalKeyDown, true)
 document.addEventListener('visibilitychange', handleVisibilityChange)
 terminalHost.addEventListener('pointerdown', scheduleTerminalFocus)
-window.addEventListener('beforeunload', cleanup, { once: true })
-import.meta.hot?.dispose(cleanup)
+window.addEventListener('beforeunload', () => void cleanup('window unloading'), { once: true })
+import.meta.hot?.dispose(() => {
+  unlistenWindowCloseRequested?.()
+  void cleanup('hot reload')
+})
 
 void (async () => {
   diagnostic('bootstrap', 'started')
@@ -1066,6 +1420,29 @@ void (async () => {
     diagnostic('tauri', 'native backend diagnostics failed', error, 'error')
     throw error
   }
+
+  unlistenWindowCloseRequested = await appWindow.onCloseRequested((event) => {
+    event.preventDefault()
+    if (windowClosePromise) return
+
+    exitRequested = true
+    windowClosePromise = (async () => {
+      try {
+        await cleanup('window close requested')
+      } finally {
+        unlistenWindowCloseRequested?.()
+        unlistenWindowCloseRequested = undefined
+      }
+
+      try {
+        await appWindow.close()
+      } catch (error) {
+        diagnostic('tauri', 'failed to close window after cleanup', error, 'error')
+        windowClosePromise = undefined
+      }
+    })()
+  })
+  diagnostic('tauri', 'window close interceptor installed')
 
   diagnostic('font', 'loading', { query: `16px ${FONT_FAMILY}` })
   const loadedFonts = await document.fonts.load(`16px ${FONT_FAMILY}`)
@@ -1090,6 +1467,7 @@ void (async () => {
   enableWebglRenderer()
   await startLoadingIndicator()
   await appWindow.show()
+  fitTerminalToApp()
   diagnostic('tauri', 'window shown after terminal initialization')
   const terminalRect = terminalHost.getBoundingClientRect()
   diagnostic('xterm', 'terminal opened', {

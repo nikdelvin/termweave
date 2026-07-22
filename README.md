@@ -113,12 +113,13 @@ my-termweave-app/
 
 ## 🧰 Commands
 
-| Command          | What it does                                     |
-| ---------------- | ------------------------------------------------ |
-| `bun run dev`    | Check the project and start the desktop app.     |
-| `bun run build`  | Build native bundles into `build/`.              |
-| `bun run check`  | Run linting, type checks, and formatting checks. |
-| `bun run update` | Update the managed SDK to the latest `main`.     |
+| Command             | What it does                                         |
+| ------------------- | ---------------------------------------------------- |
+| `bun run dev`       | Check the project and start the desktop app.         |
+| `bun run build`     | Build native bundles into `build/`.                  |
+| `bun run check`     | Run linting, type checks, and formatting checks.     |
+| `bun run update`    | Update the managed SDK to the latest `main`.         |
+| `bun run terminate` | Terminate every active Bun process across all users. |
 
 ## 🍎 Current status
 
