@@ -3,7 +3,9 @@ import { PassThrough } from 'node:stream'
 import { createCliRenderer, setupAudio, type Audio } from '@opentui/core'
 import { render } from '@opentui/solid'
 import {
+  CRT_EFFECTS,
   FOREGROUND_COLOR,
+  SECONDARY_COLOR,
   SIDECAR_PROTOCOL,
   TERMINAL_GRID,
   THEME_COLOR,
@@ -107,6 +109,10 @@ function stopCrtNoiseAudio() {
 
 async function startCrtNoiseAudio() {
   if (crtNoiseAudio) return
+  if (CRT_EFFECTS.soundVolume === 0) {
+    sidecarLog('CRT noise disabled by config')
+    return
+  }
 
   let audio: Audio | undefined
   try {
@@ -120,13 +126,14 @@ async function startCrtNoiseAudio() {
     if (crtNoiseAudio !== audio) return
     if (sound === null) throw new Error('OpenTUI could not load the CRT noise MP3')
 
-    const voice = audio.play(sound, { loop: true })
+    const voice = audio.play(sound, { loop: true, volume: CRT_EFFECTS.soundVolume })
     if (voice === null) throw new Error('OpenTUI could not start the CRT noise loop')
 
     sidecarLog('CRT noise loop started', {
       path: crtNoisePath,
       sound,
       voice,
+      volume: CRT_EFFECTS.soundVolume,
       playbackStarted: audio.isStarted(),
       mixerStarted: audio.isMixerStarted(),
     })
@@ -551,6 +558,7 @@ renderer.on('frame', ({ frameId }: { frameId: number }) => {
 sidecarLog('mounting Solid application')
 process.env.TERMWEAVE_THEME_COLOR = THEME_COLOR
 process.env.TERMWEAVE_FOREGROUND_COLOR = FOREGROUND_COLOR
+process.env.TERMWEAVE_SECONDARY_COLOR = SECONDARY_COLOR
 process.env.TERMWEAVE_TERMINAL_COLS = String(TERMINAL_GRID.cols)
 process.env.TERMWEAVE_TERMINAL_ROWS = String(TERMINAL_GRID.rows)
 render(() => <App />, renderer)

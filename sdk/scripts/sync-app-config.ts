@@ -15,7 +15,10 @@ type AppBuilderConfig = {
   showDiagnostics: boolean
   themeColor: string
   foregroundColor: string
+  secondaryColor: string
+  monitorOverlay: boolean
   crtEffects: {
+    soundVolume: number
     chromaticAberrationShift: number
     processedFrameOpacity: number
     noiseVisibility: number
@@ -85,9 +88,37 @@ function requireHexColor(value: unknown, path: string) {
   return color
 }
 
+function requireCurrentConfigSchema(config: JsonObject, crtEffects: JsonObject) {
+  const missingFields = [
+    config.secondaryColor === undefined ? 'secondaryColor' : undefined,
+    config.monitorOverlay === undefined ? 'monitorOverlay' : undefined,
+    crtEffects.soundVolume === undefined ? 'crtEffects.soundVolume' : undefined,
+  ].filter((field): field is string => field !== undefined)
+
+  if (missingFields.length === 0) return
+
+  const updatedConfig = {
+    ...config,
+    secondaryColor: config.secondaryColor ?? '#80AAD9',
+    monitorOverlay: config.monitorOverlay ?? true,
+    crtEffects: {
+      soundVolume: crtEffects.soundVolume ?? 0.3,
+      ...crtEffects,
+    },
+  }
+
+  fail(
+    `this project uses an outdated configuration schema and is missing ${missingFields.join(', ')}.\n\n` +
+      `Update your project's app.config.json before continuing. Use this updated configuration as a starting point:\n\n` +
+      `${JSON.stringify(updatedConfig, null, 2)}\n\n` +
+      'After saving the configuration, rerun `bun run update` or the command that reported this error.',
+  )
+}
+
 function parseConfig(value: unknown): AppBuilderConfig {
   const config = requireObject(value, 'root')
   const crtEffects = requireObject(config.crtEffects, 'crtEffects')
+  requireCurrentConfigSchema(config, crtEffects)
 
   const packageName = requireString(config.packageName, 'packageName')
   if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(packageName)) {
@@ -137,7 +168,10 @@ function parseConfig(value: unknown): AppBuilderConfig {
     showDiagnostics: requireBoolean(config.showDiagnostics, 'showDiagnostics'),
     themeColor: requireHexColor(config.themeColor, 'themeColor'),
     foregroundColor: requireHexColor(config.foregroundColor, 'foregroundColor'),
+    secondaryColor: requireHexColor(config.secondaryColor, 'secondaryColor'),
+    monitorOverlay: requireBoolean(config.monitorOverlay, 'monitorOverlay'),
     crtEffects: {
+      soundVolume: requireNumberInRange(crtEffects.soundVolume, 'crtEffects.soundVolume', 0, 1),
       chromaticAberrationShift: requireNumberInRange(
         crtEffects.chromaticAberrationShift,
         'crtEffects.chromaticAberrationShift',

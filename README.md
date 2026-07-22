@@ -66,12 +66,15 @@ The main places to edit are:
 Changes under `src/` reload while the app is running. Restart `bun run dev` after changing the
 configuration or icon.
 
-### CRT display effects
+### Get the CRT glow
 
-Tune the terminal's animated CRT treatment in the `crtEffects` section of `app.config.json`:
+Give your app the glow, grain, motion, and low ambient hum of a real CRT. Keep the monitor
+frame for the full retro look, or switch it off and let the terminal fill the window.
 
 ```json
+"monitorOverlay": true,
 "crtEffects": {
+  "soundVolume": 0.3,
   "chromaticAberrationShift": 3,
   "processedFrameOpacity": 0.3,
   "noiseVisibility": 0.3,
@@ -81,25 +84,23 @@ Tune the terminal's animated CRT treatment in the `crtEffects` section of `app.c
 }
 ```
 
-| Setting                    | Range  | Effect                                                          |
-| -------------------------- | ------ | --------------------------------------------------------------- |
-| `chromaticAberrationShift` | `0–10` | Maximum RGB separation in logical pixels.                       |
-| `processedFrameOpacity`    | `0–1`  | Opacity of the chromatically processed terminal frame.          |
-| `noiseVisibility`          | `0–1`  | Animated CRT grain strength.                                    |
-| `scanlinesVisibility`      | `0–1`  | Horizontal scanline visibility.                                 |
-| `flickerVisibility`        | `0–1`  | Scanline flicker strength; `0` keeps scanlines without flicker. |
-| `sweepLineVisibility`      | `0–1`  | Moving vertical sweep-line strength.                            |
+| Option                      | Values         | What it changes                            |
+| --------------------------- | -------------- | ------------------------------------------ |
+| `monitorOverlay`            | `true`/`false` | Shows the monitor frame or goes edge-to-edge. |
+| `soundVolume`               | `0–1`          | Sets the ambient CRT hum.                  |
+| `chromaticAberrationShift`  | `0–10`         | Separates the red, green, and blue edges.  |
+| `processedFrameOpacity`     | `0–1`          | Blends the chromatic frame over the terminal. |
+| `noiseVisibility`           | `0–1`          | Adds animated screen grain.                |
+| `scanlinesVisibility`       | `0–1`          | Adds horizontal scanlines.                 |
+| `flickerVisibility`         | `0–1`          | Controls the subtle screen flicker.        |
+| `sweepLineVisibility`       | `0–1`          | Controls the moving sweep line.            |
 
-Set an effect to `0` to disable it. The configuration is validated whenever development or a build
-starts, and CRT changes take effect after restarting `bun run dev`.
+Use `0` to turn the sound or any visual effect off.
 
-`windowWidth` and `windowHeight` must use an exact 16:9 aspect ratio. `fontSize` must divide both
-dimensions into a whole-number terminal grid.
+### Bring pixels to life
 
-### Pixel graphics
-
-`PixelRenderer` is included with the managed SDK. Keep the image in your project and import the
-component directly—there is no component file to copy:
+A terminal can be more than text. Drop a GIF, PNG, or JPEG into `PixelRenderer`, turn it into a
+living backdrop, then layer your OpenTUI interface right on top.
 
 ```tsx
 import { PixelRenderer } from "@termweave/sdk";
@@ -116,12 +117,7 @@ export function App() {
 }
 ```
 
-`PixelRenderer` accepts GIF, PNG and JPEG/JPG images from bundled project assets, local file paths
-and URLs. Animated GIFs play at 150 milliseconds per frame.
-
-Routes declare their direct `connections` in `src/routes.ts`. The starter preloads only those
-one-hop route images in the background and replaces the retained preload set after navigation, so
-large route graphs do not load every image at startup.
+That is all it takes to turn a terminal screen into your own little world.
 
 Your project stays small:
 

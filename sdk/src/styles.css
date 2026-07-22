@@ -7,8 +7,8 @@
 }
 
 :root {
-  --theme-color: #181a1b;
-  --foreground-color: #e8e6e3;
+  --theme-color: #010416;
+  --foreground-color: #f59b5a;
   font-synthesis: none;
   background: var(--theme-color);
   color: var(--foreground-color);
@@ -215,7 +215,7 @@ body,
     transparent
   );
   mix-blend-mode: screen;
-  animation: crt-sweep 6.4s linear infinite;
+  animation: crt-sweep 24s linear infinite;
   will-change: transform;
 }
 
@@ -258,9 +258,17 @@ body,
 }
 
 @keyframes crt-sweep {
-  to {
+  25%,
+  100% {
     transform: translateY(933.333%);
   }
+}
+
+#monitor-overlay,
+.monitor-copy {
+  filter: brightness(var(--monitor-bezel-brightness)) contrast(var(--monitor-bezel-contrast))
+    sepia(var(--monitor-bezel-sepia)) saturate(var(--monitor-bezel-saturation))
+    hue-rotate(var(--monitor-bezel-hue));
 }
 
 #monitor-overlay {

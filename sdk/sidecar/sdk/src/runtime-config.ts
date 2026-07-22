@@ -5,6 +5,7 @@ export interface TermweaveTerminalGrid {
 
 export interface TermweaveConfig {
   foregroundColor: string
+  secondaryColor: string
   terminalGrid: TermweaveTerminalGrid
   themeColor: string
 }
@@ -28,6 +29,7 @@ function requiredPositiveInteger(name: string) {
 export function getTermweaveConfig(): Readonly<TermweaveConfig> {
   cachedConfig ??= {
     foregroundColor: requiredEnvironment('TERMWEAVE_FOREGROUND_COLOR'),
+    secondaryColor: requiredEnvironment('TERMWEAVE_SECONDARY_COLOR'),
     terminalGrid: {
       cols: requiredPositiveInteger('TERMWEAVE_TERMINAL_COLS'),
       rows: requiredPositiveInteger('TERMWEAVE_TERMINAL_ROWS'),

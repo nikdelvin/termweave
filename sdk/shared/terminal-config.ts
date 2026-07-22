@@ -5,6 +5,8 @@ export const PRODUCT_DESCRIPTION = appConfig.description
 export const SHOW_DIAGNOSTICS = appConfig.showDiagnostics
 export const THEME_COLOR = appConfig.themeColor
 export const FOREGROUND_COLOR = appConfig.foregroundColor
+export const SECONDARY_COLOR = appConfig.secondaryColor
+export const MONITOR_OVERLAY_ENABLED = appConfig.monitorOverlay
 export const CRT_EFFECTS = appConfig.crtEffects
 
 export const TERMINAL_GRID = {
