@@ -99,10 +99,10 @@ function clippedError(message: string) {
 }
 
 function configuredBackgroundColor() {
-  const color = process.env.TERMWEAVE_THEME_COLOR?.trim()
+  const color = process.env.TERMWEAVE_BACKGROUND_COLOR?.trim()
   const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(color ?? '')
   if (!color || !match) {
-    throw new Error('TERMWEAVE_THEME_COLOR must be a six-digit hex color.')
+    throw new Error('TERMWEAVE_BACKGROUND_COLOR must be a six-digit hex color.')
   }
 
   return {

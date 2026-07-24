@@ -20,7 +20,7 @@
         "minimizable": true,
         "resizable": true,
         "maximizable": true,
-        "fullscreen": true,
+        "fullscreen": false,
         "decorations": true,
         "center": true,
         "visible": false,

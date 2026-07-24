@@ -3,12 +3,12 @@ import { PassThrough } from 'node:stream'
 import { createCliRenderer, setupAudio, type Audio } from '@opentui/core'
 import { render } from '@opentui/solid'
 import {
-  CRT_EFFECTS,
+  BACKGROUND_COLOR,
+  CRT_EFFECT_DEFAULTS,
+  CRT_EFFECTS_ENABLED,
   FOREGROUND_COLOR,
-  SECONDARY_COLOR,
   SIDECAR_PROTOCOL,
   TERMINAL_GRID,
-  THEME_COLOR,
   type SidecarAuthenticate,
   type SidecarAuthenticated,
   type SidecarExitRequested,
@@ -70,11 +70,6 @@ type Session = {
 let sendSidecarDiagnostic: ((line: string) => boolean) | undefined
 let crtAudio: Audio | undefined
 
-function isMouseMotionInput(data: string) {
-  const match = /^\u001b\[<(\d+);\d+;\d+[Mm]$/.exec(data)
-  return match ? (Number(match[1]) & 32) !== 0 : false
-}
-
 function serializeError(error: unknown) {
   if (error instanceof Error) {
     return {
@@ -128,8 +123,8 @@ async function waitForCrtTurnOnSound(audio: Audio) {
 
 async function startCrtAudio() {
   if (crtAudio) return
-  if (CRT_EFFECTS.soundVolume === 0) {
-    sidecarLog('CRT audio disabled by config')
+  if (!CRT_EFFECTS_ENABLED) {
+    sidecarLog('CRT effects disabled by config')
     return
   }
 
@@ -172,7 +167,7 @@ async function startCrtAudio() {
 
     const noiseVoice = audio.play(noiseSound, {
       loop: true,
-      volume: CRT_EFFECTS.soundVolume,
+      volume: CRT_EFFECT_DEFAULTS.soundVolume,
     })
     if (noiseVoice === null) throw new Error('OpenTUI could not start the CRT noise loop')
 
@@ -180,7 +175,7 @@ async function startCrtAudio() {
       path: crtNoisePath,
       sound: noiseSound,
       voice: noiseVoice,
-      volume: CRT_EFFECTS.soundVolume,
+      volume: CRT_EFFECT_DEFAULTS.soundVolume,
       playbackStarted: audio.isStarted(),
       mixerStarted: audio.isMixerStarted(),
     })
@@ -574,12 +569,14 @@ const renderer = await createCliRenderer({
   stdout: output as unknown as NodeJS.WriteStream,
   width: COLS,
   height: ROWS,
-  backgroundColor: THEME_COLOR,
+  backgroundColor: BACKGROUND_COLOR,
   screenMode: 'alternate-screen',
   consoleMode: 'disabled',
   exitOnCtrlC: false,
   exitSignals: [],
   useKittyKeyboard: null,
+  useMouse: false,
+  enableMouseMovement: false,
   onDestroy: () => {
     stopCrtAudio()
     exitRequested = true
@@ -604,9 +601,8 @@ renderer.on('frame', ({ frameId }: { frameId: number }) => {
 })
 
 sidecarLog('mounting Solid application')
-process.env.TERMWEAVE_THEME_COLOR = THEME_COLOR
+process.env.TERMWEAVE_BACKGROUND_COLOR = BACKGROUND_COLOR
 process.env.TERMWEAVE_FOREGROUND_COLOR = FOREGROUND_COLOR
-process.env.TERMWEAVE_SECONDARY_COLOR = SECONDARY_COLOR
 process.env.TERMWEAVE_TERMINAL_COLS = String(TERMINAL_GRID.cols)
 process.env.TERMWEAVE_TERMINAL_ROWS = String(TERMINAL_GRID.rows)
 render(() => <App />, renderer)
@@ -770,10 +766,7 @@ const server = Bun.serve<Session>({
         return
       }
 
-      const isMouseMotion =
-        DIAGNOSTICS_ENABLED && message.type === 'input' && isMouseMotionInput(message.data)
-
-      if (DIAGNOSTICS_ENABLED && !isMouseMotion) {
+      if (DIAGNOSTICS_ENABLED) {
         sidecarLog('WebSocket message received', {
           connectionId: socket.data.id,
           kind: typeof rawMessage,
@@ -783,7 +776,7 @@ const server = Bun.serve<Session>({
       }
 
       if (message.type === 'input') {
-        if (DIAGNOSTICS_ENABLED && !isMouseMotion) {
+        if (DIAGNOSTICS_ENABLED) {
           sidecarLog('terminal input forwarded', {
             connectionId: socket.data.id,
             length: message.data.length,

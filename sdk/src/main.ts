@@ -7,13 +7,14 @@ import { type Child, Command } from '@tauri-apps/plugin-shell'
 import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import {
-  CRT_EFFECTS,
+  BACKGROUND_COLOR,
+  CRT_EFFECT_DEFAULTS,
+  CRT_EFFECTS_ENABLED,
   FOREGROUND_COLOR,
   MONITOR_OVERLAY_ENABLED,
   SHOW_DIAGNOSTICS,
   SIDECAR_PROTOCOL,
   TERMINAL_GRID,
-  THEME_COLOR,
   type SidecarAuthenticate,
   type SidecarAuthenticated,
   type SidecarExitRequested,
@@ -152,34 +153,40 @@ const crtEffectsHost = getRequiredElement<HTMLDivElement>('#crt-effects')
 const crtAberrationHost = getRequiredElement<HTMLDivElement>('#crt-aberration')
 const crtAberrationCanvas = getRequiredElement<HTMLCanvasElement>('#crt-aberration-canvas')
 
-const noisePeakOpacity = CRT_EFFECTS.noiseVisibility * 0.1
-const flickerAmplitude = CRT_EFFECTS.flickerVisibility * 0.1
-const sweepPeakOpacity = CRT_EFFECTS.sweepLineVisibility * 0.1
+const noisePeakOpacity = CRT_EFFECT_DEFAULTS.noiseVisibility * 0.1
+const flickerAmplitude = CRT_EFFECT_DEFAULTS.flickerVisibility * 0.1
+const sweepPeakOpacity = CRT_EFFECT_DEFAULTS.sweepLineVisibility * 0.1
 const crtStyleVariables = {
-  '--crt-processed-frame-opacity': CRT_EFFECTS.processedFrameOpacity,
+  '--crt-processed-frame-opacity': CRT_EFFECT_DEFAULTS.processedFrameOpacity,
   '--crt-noise-opacity-low': noisePeakOpacity * (46 / 62),
   '--crt-noise-opacity-high': noisePeakOpacity * (58 / 62),
   '--crt-noise-opacity-medium': noisePeakOpacity * (50 / 62),
   '--crt-noise-opacity-peak': noisePeakOpacity,
-  '--crt-scanlines-opacity': CRT_EFFECTS.scanlinesVisibility,
-  '--crt-flicker-low-opacity': Math.max(0, CRT_EFFECTS.scanlinesVisibility - flickerAmplitude),
+  '--crt-scanlines-opacity': CRT_EFFECT_DEFAULTS.scanlinesVisibility,
+  '--crt-flicker-low-opacity': Math.max(
+    0,
+    CRT_EFFECT_DEFAULTS.scanlinesVisibility - flickerAmplitude,
+  ),
   '--crt-flicker-high-opacity': Math.min(
     1,
-    CRT_EFFECTS.scanlinesVisibility + flickerAmplitude * 0.6,
+    CRT_EFFECT_DEFAULTS.scanlinesVisibility + flickerAmplitude * 0.6,
   ),
   '--crt-sweep-soft-opacity': sweepPeakOpacity * (25 / 70),
   '--crt-sweep-peak-opacity': sweepPeakOpacity,
   '--crt-sweep-trailing-opacity': sweepPeakOpacity * (20 / 70),
 } as const
 
-for (const [property, value] of Object.entries(crtStyleVariables)) {
-  crtEffectsHost.style.setProperty(property, String(value))
+crtEffectsHost.hidden = !CRT_EFFECTS_ENABLED
+if (CRT_EFFECTS_ENABLED) {
+  for (const [property, value] of Object.entries(crtStyleVariables)) {
+    crtEffectsHost.style.setProperty(property, String(value))
+  }
 }
 
 monitorSurround.hidden = !MONITOR_OVERLAY_ENABLED
 monitorOverlay.hidden = !MONITOR_OVERLAY_ENABLED
 
-const monitorBezelStyle = monitorBezelFilter(THEME_COLOR)
+const monitorBezelStyle = monitorBezelFilter(BACKGROUND_COLOR)
 monitorArtboard.style.setProperty(
   '--monitor-bezel-brightness',
   String(monitorBezelStyle.brightness),
@@ -490,7 +497,7 @@ const terminal = new Terminal({
   letterSpacing: 0,
   lineHeight: 1,
   theme: {
-    background: THEME_COLOR,
+    background: BACKGROUND_COLOR,
     foreground: FOREGROUND_COLOR,
     cursor: FOREGROUND_COLOR,
   },
@@ -513,6 +520,10 @@ const loadingRow = Math.floor(ROWS / 2) + 1
 const loadingColumn = Math.max(1, Math.floor((COLS - loadingTextWidth) / 2) + 1)
 let loadingFrame = 0
 let loadingTimer: number | undefined
+let resolveFirstTerminalFrame: (() => void) | undefined
+const firstTerminalFrame = new Promise<void>((resolve) => {
+  resolveFirstTerminalFrame = resolve
+})
 
 function renderLoadingIndicator(onParsed?: () => void) {
   const frame = loadingFrames[loadingFrame % loadingFrames.length]
@@ -656,8 +667,22 @@ function handleSocketMessage(event: MessageEvent) {
     sourceSocket.send(JSON.stringify(acknowledgement))
   }
 
+  const completeFrame = () => {
+    acknowledgeFrame()
+
+    const resolve = resolveFirstTerminalFrame
+    if (!resolve) return
+
+    resolveFirstTerminalFrame = undefined
+    diagnostic('bootstrap', 'first OpenTUI frame parsed', {
+      frameId: frame.frameId,
+      bytes: frame.data.byteLength,
+    })
+    resolve()
+  }
+
   if (!SHOW_DIAGNOSTICS) {
-    terminal.write(frame.data, acknowledgeFrame)
+    terminal.write(frame.data, completeFrame)
     return
   }
 
@@ -680,7 +705,7 @@ function handleSocketMessage(event: MessageEvent) {
         snapshot: terminalSnapshot(),
       })
     } finally {
-      acknowledgeFrame()
+      completeFrame()
     }
   })
 }
@@ -706,6 +731,7 @@ let disposed = false
 let exitRequested = false
 let cleanupPromise: Promise<void> | undefined
 let windowClosePromise: Promise<void> | undefined
+let windowRevealed = false
 
 type ChromaticAberrationRenderer = {
   gl: WebGL2RenderingContext
@@ -861,8 +887,8 @@ function renderChromaticAberration() {
     gl.uniform2f(renderer.resolutionLocation, source.width, source.height)
     gl.uniform2f(
       renderer.shiftLocation,
-      CRT_EFFECTS.chromaticAberrationShift * (source.width / TERMINAL_WIDTH),
-      CRT_EFFECTS.chromaticAberrationShift * (source.height / TERMINAL_HEIGHT),
+      CRT_EFFECT_DEFAULTS.chromaticAberrationShift * (source.width / TERMINAL_WIDTH),
+      CRT_EFFECT_DEFAULTS.chromaticAberrationShift * (source.height / TERMINAL_HEIGHT),
     )
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     crtAberrationHost.hidden = false
@@ -873,7 +899,7 @@ function renderChromaticAberration() {
       diagnostic('crt', 'WebGL chromatic aberration connected', {
         source: `${source.width}x${source.height}`,
         effect: `${crtAberrationCanvas.width}x${crtAberrationCanvas.height}`,
-        maximumShift: CRT_EFFECTS.chromaticAberrationShift,
+        maximumShift: CRT_EFFECT_DEFAULTS.chromaticAberrationShift,
       })
     }
   } catch (error) {
@@ -906,7 +932,9 @@ function clearChromaticAberration() {
   }
 }
 
-aberrationRenderSubscription = terminal.onRender(scheduleChromaticAberration)
+if (CRT_EFFECTS_ENABLED) {
+  aberrationRenderSubscription = terminal.onRender(scheduleChromaticAberration)
+}
 
 function disposeWebglRenderer(reason: string) {
   const addon = webglAddon
@@ -942,7 +970,7 @@ function enableWebglRenderer() {
   let addon: WebglAddon | undefined
 
   try {
-    addon = new WebglAddon(true)
+    addon = new WebglAddon(CRT_EFFECTS_ENABLED)
     webglAddon = addon
     webglContextLossSubscription = addon.onContextLoss(() => {
       diagnostic(
@@ -955,10 +983,10 @@ function enableWebglRenderer() {
     })
     terminal.loadAddon(addon)
     fitTerminalToApp()
-    scheduleChromaticAberration()
+    if (CRT_EFFECTS_ENABLED) scheduleChromaticAberration()
     diagnostic('xterm.webgl', 'WebGL renderer enabled', {
       customGlyphs: terminal.options.customGlyphs,
-      preserveDrawingBuffer: true,
+      preserveDrawingBuffer: CRT_EFFECTS_ENABLED,
     })
   } catch (error) {
     diagnostic(
@@ -1082,6 +1110,17 @@ function fitTerminalToApp() {
   }
 }
 
+async function revealAppWindow(reason: string) {
+  if (windowRevealed || disposed) return
+
+  diagnostic('tauri', 'revealing initialized window', { reason })
+  await appWindow.setFullscreen(true)
+  await appWindow.show()
+  windowRevealed = true
+  fitTerminalToApp()
+  diagnostic('tauri', 'initialized window revealed', { reason })
+}
+
 function scheduleTerminalFit() {
   if (resizeFrame !== undefined) cancelAnimationFrame(resizeFrame)
 
@@ -1124,20 +1163,13 @@ function handleVisibilityChange() {
   if (document.visibilityState === 'visible') scheduleTerminalFocus()
 }
 
-function isMouseMotionInput(data: string) {
-  const match = /^\u001b\[<(\d+);\d+;\d+[Mm]$/.exec(data)
-  return match ? (Number(match[1]) & 32) !== 0 : false
-}
-
 function sendTerminalInput(data: string) {
   if (socket?.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({ type: 'input', data }))
-    if (!isMouseMotionInput(data)) {
-      diagnostic('input', 'sent to sidecar', {
-        length: data.length,
-        escaped: JSON.stringify(data.slice(0, 120)),
-      })
-    }
+    diagnostic('input', 'sent to sidecar', {
+      length: data.length,
+      escaped: JSON.stringify(data.slice(0, 120)),
+    })
     return true
   }
 
@@ -1438,7 +1470,6 @@ function cleanup(reason: string) {
   window.removeEventListener('focus', scheduleTerminalFocus)
   window.removeEventListener('keydown', handleGlobalKeyDown, true)
   document.removeEventListener('visibilitychange', handleVisibilityChange)
-  terminalHost.removeEventListener('pointerdown', scheduleTerminalFocus)
   aberrationRenderSubscription?.dispose()
   inputSubscription?.dispose()
   disposeWebglRenderer('frontend cleanup')
@@ -1453,7 +1484,6 @@ function cleanup(reason: string) {
 window.addEventListener('focus', scheduleTerminalFocus)
 window.addEventListener('keydown', handleGlobalKeyDown, true)
 document.addEventListener('visibilitychange', handleVisibilityChange)
-terminalHost.addEventListener('pointerdown', scheduleTerminalFocus)
 window.addEventListener('beforeunload', () => void cleanup('window unloading'), { once: true })
 import.meta.hot?.dispose(() => {
   unlistenWindowCloseRequested?.()
@@ -1521,9 +1551,6 @@ void (async () => {
   terminalOpened = true
   enableWebglRenderer()
   await startLoadingIndicator()
-  await appWindow.show()
-  fitTerminalToApp()
-  diagnostic('tauri', 'window shown after terminal initialization')
   const terminalRect = terminalHost.getBoundingClientRect()
   diagnostic('xterm', 'terminal opened', {
     cols: terminal.cols,
@@ -1549,12 +1576,28 @@ void (async () => {
   resizeObserver.observe(appHost)
   diagnostic('layout', 'resize observer installed')
 
-  scheduleTerminalFocus()
   await start(backend)
+  diagnostic('bootstrap', 'waiting for first OpenTUI frame')
+  await firstTerminalFrame
+  await revealAppWindow('first OpenTUI frame parsed')
   scheduleTerminalFocus()
   diagnostic('bootstrap', 'completed')
-})().catch((error) => {
+})().catch(async (error) => {
   diagnostic('bootstrap', 'fatal startup error', error, 'error')
   stopLoadingIndicator()
-  terminal.write(`\r\nFailed to start sidecar: ${String(error)}\r\n`)
+  if (!terminalOpened) {
+    fitTerminalToApp()
+    terminal.open(terminalHost)
+    terminalOpened = true
+    enableWebglRenderer()
+  }
+  await new Promise<void>((resolve) => {
+    terminal.write(`\r\nFailed to start sidecar: ${String(error)}\r\n`, resolve)
+  })
+
+  try {
+    await revealAppWindow('fatal startup error')
+  } catch (revealError) {
+    diagnostic('tauri', 'failed to reveal startup error', revealError, 'error')
+  }
 })

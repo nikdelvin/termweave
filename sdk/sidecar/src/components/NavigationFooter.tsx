@@ -12,7 +12,7 @@ export interface NavigationFooterProps {
 const [count, setCount] = createSignal(0)
 
 export function NavigationFooter(props: NavigationFooterProps) {
-  const { foregroundColor, secondaryColor, themeColor } = getTermweaveConfig()
+  const { backgroundColor, foregroundColor } = getTermweaveConfig()
 
   const activeRouteIndex = () => {
     const index = APP_ROUTES.findIndex((route) => route.path === props.activePath)
@@ -77,7 +77,7 @@ export function NavigationFooter(props: NavigationFooterProps) {
         flexDirection="column"
         alignItems="center"
         justifyContent="center"
-        backgroundColor={themeColor}
+        backgroundColor={backgroundColor}
         zIndex={1}
       >
         <text fg={foregroundColor}>A config-driven Tauri and OpenTUI builder</text>
@@ -85,7 +85,7 @@ export function NavigationFooter(props: NavigationFooterProps) {
       </box>
       <box
         border
-        borderColor={secondaryColor}
+        borderColor={foregroundColor}
         title=" SOLID ROUTER + SIGNAL "
         width="auto"
         height={7}
@@ -94,11 +94,11 @@ export function NavigationFooter(props: NavigationFooterProps) {
         flexDirection="column"
         alignItems="center"
         justifyContent="center"
-        backgroundColor={themeColor}
+        backgroundColor={backgroundColor}
         zIndex={1}
       >
-        <text fg={secondaryColor}>Up/Down changes route | [↑/↓] {routeList()}</text>
-        <text fg={secondaryColor}>Left/Right changes value | [&lt;] {count()} [&gt;]</text>
+        <text fg={foregroundColor}>Up/Down changes route | [↑/↓] {routeList()}</text>
+        <text fg={foregroundColor}>Left/Right changes value | [&lt;] {count()} [&gt;]</text>
       </box>
     </box>
   )

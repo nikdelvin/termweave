@@ -13,19 +13,10 @@ type AppBuilderConfig = {
   windowHeight: number
   fontSize: number
   showDiagnostics: boolean
-  themeColor: string
+  backgroundColor: string
   foregroundColor: string
-  secondaryColor: string
   monitorOverlay: boolean
-  crtEffects: {
-    soundVolume: number
-    chromaticAberrationShift: number
-    processedFrameOpacity: number
-    noiseVisibility: number
-    scanlinesVisibility: number
-    flickerVisibility: number
-    sweepLineVisibility: number
-  }
+  crtEffects: boolean
   icon: string
 }
 
@@ -68,13 +59,6 @@ function requirePositiveNumber(value: unknown, path: string) {
   return value
 }
 
-function requireNumberInRange(value: unknown, path: string, minimum: number, maximum: number) {
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < minimum || value > maximum) {
-    fail(`${path} must be a number between ${minimum} and ${maximum}`)
-  }
-  return value
-}
-
 function requireBoolean(value: unknown, path: string) {
   if (typeof value !== 'boolean') fail(`${path} must be a boolean`)
   return value
@@ -88,23 +72,16 @@ function requireHexColor(value: unknown, path: string) {
   return color
 }
 
-function requireCurrentConfigSchema(config: JsonObject, crtEffects: JsonObject) {
-  const missingFields = [
-    config.secondaryColor === undefined ? 'secondaryColor' : undefined,
-    config.monitorOverlay === undefined ? 'monitorOverlay' : undefined,
-    crtEffects.soundVolume === undefined ? 'crtEffects.soundVolume' : undefined,
-  ].filter((field): field is string => field !== undefined)
+function requireCurrentConfigSchema(config: JsonObject) {
+  const missingFields = [config.monitorOverlay === undefined ? 'monitorOverlay' : undefined].filter(
+    (field): field is string => field !== undefined,
+  )
 
   if (missingFields.length === 0) return
 
   const updatedConfig = {
     ...config,
-    secondaryColor: config.secondaryColor ?? '#80AAD9',
     monitorOverlay: config.monitorOverlay ?? true,
-    crtEffects: {
-      soundVolume: crtEffects.soundVolume ?? 0.3,
-      ...crtEffects,
-    },
   }
 
   fail(
@@ -117,8 +94,7 @@ function requireCurrentConfigSchema(config: JsonObject, crtEffects: JsonObject) 
 
 function parseConfig(value: unknown): AppBuilderConfig {
   const config = requireObject(value, 'root')
-  const crtEffects = requireObject(config.crtEffects, 'crtEffects')
-  requireCurrentConfigSchema(config, crtEffects)
+  requireCurrentConfigSchema(config)
 
   const packageName = requireString(config.packageName, 'packageName')
   if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(packageName)) {
@@ -166,49 +142,10 @@ function parseConfig(value: unknown): AppBuilderConfig {
     windowHeight,
     fontSize,
     showDiagnostics: requireBoolean(config.showDiagnostics, 'showDiagnostics'),
-    themeColor: requireHexColor(config.themeColor, 'themeColor'),
+    backgroundColor: requireHexColor(config.backgroundColor, 'backgroundColor'),
     foregroundColor: requireHexColor(config.foregroundColor, 'foregroundColor'),
-    secondaryColor: requireHexColor(config.secondaryColor, 'secondaryColor'),
     monitorOverlay: requireBoolean(config.monitorOverlay, 'monitorOverlay'),
-    crtEffects: {
-      soundVolume: requireNumberInRange(crtEffects.soundVolume, 'crtEffects.soundVolume', 0, 1),
-      chromaticAberrationShift: requireNumberInRange(
-        crtEffects.chromaticAberrationShift,
-        'crtEffects.chromaticAberrationShift',
-        0,
-        10,
-      ),
-      processedFrameOpacity: requireNumberInRange(
-        crtEffects.processedFrameOpacity,
-        'crtEffects.processedFrameOpacity',
-        0,
-        1,
-      ),
-      noiseVisibility: requireNumberInRange(
-        crtEffects.noiseVisibility,
-        'crtEffects.noiseVisibility',
-        0,
-        1,
-      ),
-      scanlinesVisibility: requireNumberInRange(
-        crtEffects.scanlinesVisibility,
-        'crtEffects.scanlinesVisibility',
-        0,
-        1,
-      ),
-      flickerVisibility: requireNumberInRange(
-        crtEffects.flickerVisibility,
-        'crtEffects.flickerVisibility',
-        0,
-        1,
-      ),
-      sweepLineVisibility: requireNumberInRange(
-        crtEffects.sweepLineVisibility,
-        'crtEffects.sweepLineVisibility',
-        0,
-        1,
-      ),
-    },
+    crtEffects: requireBoolean(config.crtEffects, 'crtEffects'),
     icon: requireString(config.icon, 'icon'),
   }
 }
@@ -283,7 +220,8 @@ Object.assign(mainWindow, {
   width: config.windowWidth,
   height: config.windowHeight,
   visible: false,
-  backgroundColor: config.themeColor,
+  fullscreen: false,
+  backgroundColor: config.backgroundColor,
 })
 tauriConfig.bundle.icon = [
   'icons/32x32.png',
@@ -335,13 +273,17 @@ const escapedHtmlTitle = config.name
   .replaceAll('"', '&quot;')
 const updatedHtml = html
   .replace(/<title>.*?<\/title>/, `<title>${escapedHtmlTitle}</title>`)
-  .replace(/(<meta name="theme-color" content=")[^"]*(" \/>)/, `$1${config.themeColor}$2`)
+  .replace(/(<meta name="theme-color" content=")[^"]*(" \/>)/, `$1${config.backgroundColor}$2`)
+  .replace(
+    /(<style id="initial-paint">[\s\S]*?background:\s*)#[0-9A-Fa-f]{6}/,
+    `$1${config.backgroundColor}`,
+  )
   .replace(/(<div id="terminal" aria-label=")[^"]*(")/, `$1${escapedHtmlTitle} terminal$2`)
 
 const cssPath = resolve(root, 'src/styles.css')
 const css = await readFile(cssPath, 'utf8')
 const updatedCss = css
-  .replace(/(--theme-color:\s*)#[0-9A-Fa-f]{6}/, `$1${config.themeColor}`)
+  .replace(/(--background-color:\s*)#[0-9A-Fa-f]{6}/, `$1${config.backgroundColor}`)
   .replace(/(--foreground-color:\s*)#[0-9A-Fa-f]{6}/, `$1${config.foregroundColor}`)
 
 const prettierConfig = (await resolveConfig(configPath)) ?? {}

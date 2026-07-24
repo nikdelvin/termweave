@@ -7,10 +7,10 @@
 }
 
 :root {
-  --theme-color: #010416;
+  --background-color: #010416;
   --foreground-color: #f59b5a;
   font-synthesis: none;
-  background: var(--theme-color);
+  background: var(--background-color);
   color: var(--foreground-color);
 }
 
@@ -95,7 +95,7 @@ body,
 #app {
   position: relative;
   overflow: hidden;
-  background: var(--theme-color);
+  background: var(--background-color);
 }
 
 #display-stage {
@@ -128,7 +128,7 @@ body,
 #terminal {
   z-index: 1;
   overflow: hidden;
-  background: var(--theme-color);
+  background: var(--background-color);
   filter: brightness(0.99) contrast(1.025) saturate(1.04);
 }
 

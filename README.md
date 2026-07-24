@@ -73,29 +73,13 @@ frame for the full retro look, or switch it off and let the terminal fill the wi
 
 ```json
 "monitorOverlay": true,
-"crtEffects": {
-  "soundVolume": 0.3,
-  "chromaticAberrationShift": 3,
-  "processedFrameOpacity": 0.3,
-  "noiseVisibility": 0.3,
-  "scanlinesVisibility": 0.3,
-  "flickerVisibility": 0.3,
-  "sweepLineVisibility": 0.3
-}
+"crtEffects": true
 ```
 
-| Option                      | Values         | What it changes                            |
-| --------------------------- | -------------- | ------------------------------------------ |
-| `monitorOverlay`            | `true`/`false` | Shows the monitor frame or goes edge-to-edge. |
-| `soundVolume`               | `0–1`          | Sets the ambient CRT hum.                  |
-| `chromaticAberrationShift`  | `0–10`         | Separates the red, green, and blue edges.  |
-| `processedFrameOpacity`     | `0–1`          | Blends the chromatic frame over the terminal. |
-| `noiseVisibility`           | `0–1`          | Adds animated screen grain.                |
-| `scanlinesVisibility`       | `0–1`          | Adds horizontal scanlines.                 |
-| `flickerVisibility`         | `0–1`          | Controls the subtle screen flicker.        |
-| `sweepLineVisibility`       | `0–1`          | Controls the moving sweep line.            |
-
-Use `0` to turn the sound or any visual effect off.
+| Option           | Values         | What it changes                                |
+| ---------------- | -------------- | ---------------------------------------------- |
+| `monitorOverlay` | `true`/`false` | Shows the monitor frame or goes edge-to-edge.  |
+| `crtEffects`     | `true`/`false` | Enables or disables all CRT sound and visuals. |
 
 ### Bring pixels to life
 

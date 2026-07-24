@@ -158,19 +158,10 @@ export async function createScaffold(
     windowHeight: 1080,
     fontSize: 12,
     showDiagnostics: false,
-    themeColor: '#010416',
+    backgroundColor: '#010416',
     foregroundColor: '#F59B5A',
-    secondaryColor: '#80AAD9',
     monitorOverlay: true,
-    crtEffects: {
-      soundVolume: 0.3,
-      chromaticAberrationShift: 3,
-      processedFrameOpacity: 0.3,
-      noiseVisibility: 0.3,
-      scanlinesVisibility: 0.3,
-      flickerVisibility: 0.3,
-      sweepLineVisibility: 0.3,
-    },
+    crtEffects: true,
     icon: 'app.icon.png',
   }
   await writeFile(
