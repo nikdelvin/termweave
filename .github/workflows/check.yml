@@ -27,8 +27,8 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Install sidecar dependencies
         run: bun install --cwd sidecar --frozen-lockfile
-      - name: Verify project template lockfile
-        run: bun install --cwd templates/project --frozen-lockfile --lockfile-only
+      - name: Audit locked package versions
+        run: bun scripts/audit-packages.ts
       - name: Verify generated configuration is committed
         run: |
           bun run config:sync
@@ -45,5 +45,3 @@ jobs:
         run: sh -n install.sh
       - name: Check Rust formatting
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
-      - name: Check Cargo manifest and lockfile
-        run: cargo metadata --manifest-path src-tauri/Cargo.toml --no-deps --locked --format-version 1

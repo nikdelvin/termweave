@@ -31,7 +31,7 @@ bun run app:dev
 | `sidecar/`           | OpenTUI + Solid application and sidecar tooling. |
 | `src-tauri/`         | Native Tauri application.                        |
 | `scripts/`           | Configuration, build, install, and update tools. |
-| `templates/project/` | Files generated for a new Termweave application. |
+| `template/`         | Files generated for a new Termweave application. |
 
 ## ✅ Check your work
 
@@ -39,10 +39,10 @@ Run the standard checks before opening a pull request:
 
 ```sh
 bun run app:check
+bun scripts/audit-packages.ts
 bun run build
 sh -n install.sh
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
-cargo metadata --manifest-path src-tauri/Cargo.toml --no-deps --locked --format-version 1
 ```
 
 Use `bun run app:format` to format the SDK and sidecar.

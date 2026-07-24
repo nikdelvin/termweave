@@ -26,7 +26,7 @@
     "lint": "eslint src scripts shared vite.config.ts",
     "deps:check": "bun scripts/update-dependencies.ts --check",
     "sdk:deps:update": "bun scripts/update-dependencies.ts",
-    "sdk:deps:audit": "bun audit && bun audit --cwd sidecar && bun audit --cwd templates/project && cd src-tauri && cargo audit",
+    "sdk:deps:audit": "bun scripts/audit-packages.ts && bun audit && bun audit --cwd sidecar && bun audit --cwd template && cd src-tauri && cargo audit",
     "check": "bun run typecheck && bun run lint && bun run deps:check && bun run format:check",
     "format": "prettier --write --ignore-unknown .",
     "format:check": "prettier --check --ignore-unknown .",
@@ -37,7 +37,7 @@
     "app:format": "bun run format && bun run --cwd sidecar format",
     "app:kill": "bun scripts/kill-bun-processes.ts",
     "app:dev": "bun run app:check && bun run icons:generate && bun run config:sync && bun run sidecar:dev-launcher && tauri dev",
-    "app:build": "bun run app:check && bun run icons:generate && bun run config:sync && bun run sidecar:build && bun scripts/build-app.ts"
+    "app:build": "bun run sdk:deps:audit && bun run app:check && bun run icons:generate && bun run config:sync && bun run sidecar:build && bun scripts/build-app.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "2.11.1",

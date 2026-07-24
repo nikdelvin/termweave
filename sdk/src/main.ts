@@ -524,6 +524,10 @@ function renderLoadingIndicator(onParsed?: () => void) {
 }
 
 function startLoadingIndicator() {
+  if (MONITOR_OVERLAY_ENABLED) {
+    diagnostic('xterm', 'loading indicator skipped for monitor overlay')
+    return Promise.resolve()
+  }
   if (loadingTimer !== undefined) return Promise.resolve()
 
   loadingTimer = window.setInterval(renderLoadingIndicator, 120)

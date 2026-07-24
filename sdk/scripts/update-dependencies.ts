@@ -6,14 +6,17 @@ import {
   TERMWEAVE_SDK_TEMPLATE_DEPENDENCY,
 } from './managed-package'
 
-type DependencySection = 'dependencies' | 'devDependencies' | 'overrides'
+type DependencySection =
+  'dependencies' | 'devDependencies' | 'optionalDependencies' | 'overrides' | 'peerDependencies'
 
 type PackageJson = {
   name?: string
   dependencies?: Record<string, string>
   devDependencies?: Record<string, string>
+  optionalDependencies?: Record<string, string>
   overrides?: Record<string, string>
   patchedDependencies?: Record<string, string>
+  peerDependencies?: Record<string, string>
 }
 
 type Manifest = {
@@ -45,14 +48,20 @@ type StableVersion = {
 
 const SDK_ROOT = resolve(import.meta.dir, '..')
 const CARGO_MANIFEST_PATH = resolve(SDK_ROOT, 'src-tauri/Cargo.toml')
-const DEPENDENCY_SECTIONS: DependencySection[] = ['dependencies', 'devDependencies', 'overrides']
+const DEPENDENCY_SECTIONS: DependencySection[] = [
+  'dependencies',
+  'devDependencies',
+  'optionalDependencies',
+  'overrides',
+  'peerDependencies',
+]
 const EXACT_VERSION =
   /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/
 const MANIFEST_PATHS = [
   { label: 'SDK', path: resolve(SDK_ROOT, 'package.json') },
   { label: 'sidecar', path: resolve(SDK_ROOT, 'sidecar/package.json') },
   { label: 'managed SDK', path: resolve(SDK_ROOT, 'sidecar/sdk/package.json') },
-  { label: 'project template', path: resolve(SDK_ROOT, 'templates/project/package.json') },
+  { label: 'project template', path: resolve(SDK_ROOT, 'template/package.json') },
 ] as const
 const CARGO_DEPENDENCIES = [
   { dependency: 'tauri-build', section: 'build-dependencies' },
@@ -151,6 +160,44 @@ function validatePinnedDependencies(manifests: Manifest[]) {
           manifest: entry.manifest,
           version: entry.version,
         })
+      }
+    }
+  }
+
+  if (errors.length > 0) throw new Error(errors.join('\n'))
+}
+
+function validatePinnedCargoDependencies(contents: string) {
+  const manifest = Bun.TOML.parse(contents) as Record<string, unknown>
+  const errors: string[] = []
+
+  for (const section of ['build-dependencies', 'dependencies', 'dev-dependencies']) {
+    const dependencies = manifest[section]
+    if (dependencies === undefined) continue
+    if (typeof dependencies !== 'object' || dependencies === null || Array.isArray(dependencies)) {
+      errors.push(`Cargo.toml [${section}] must contain a table`)
+      continue
+    }
+
+    for (const [dependency, specifier] of Object.entries(dependencies)) {
+      const constraint =
+        typeof specifier === 'string'
+          ? specifier
+          : typeof specifier === 'object' &&
+              specifier !== null &&
+              !Array.isArray(specifier) &&
+              typeof (specifier as Record<string, unknown>).version === 'string'
+            ? (specifier as Record<string, string>).version
+            : undefined
+
+      if (
+        constraint === undefined ||
+        !constraint.startsWith('=') ||
+        !EXACT_VERSION.test(constraint.slice(1))
+      ) {
+        errors.push(
+          `Cargo.toml ${section}.${dependency} must use an exact version prefixed with =; found ${constraint ?? 'no version'}`,
+        )
       }
     }
   }
@@ -415,6 +462,7 @@ async function main() {
     Promise.all(MANIFEST_PATHS.map(({ label, path }) => readManifest(label, path))),
     readFile(CARGO_MANIFEST_PATH, 'utf8'),
   ])
+  validatePinnedCargoDependencies(originalCargoManifest)
   const cargoDependencies = readCargoDependencies(originalCargoManifest)
 
   validatePinnedDependencies(manifests)
@@ -543,11 +591,11 @@ async function main() {
     'Sidecar dependency installation',
   )
   if (managedSdkChanged) {
-    await rm(resolve(SDK_ROOT, 'templates/project/bun.lock'), { force: true })
+    await rm(resolve(SDK_ROOT, 'template/bun.lock'), { force: true })
   }
   await runRequired(
     ['bun', 'install', '--lockfile-only'],
-    resolve(SDK_ROOT, 'templates/project'),
+    resolve(SDK_ROOT, 'template'),
     'Project template lockfile generation',
   )
   await runRequired(

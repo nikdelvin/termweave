@@ -275,7 +275,7 @@ body,
   position: absolute;
   z-index: 3;
   inset: 0;
-  background: url('./assets/monitor-overlay.png') center / 100% 100% no-repeat;
+  background: url('./assets/monitor-overlay.webp') center / 100% 100% no-repeat;
   pointer-events: none;
   user-select: none;
 }
@@ -298,15 +298,15 @@ body,
 }
 
 .monitor-copy--horizontal {
-  background-image: url('./assets/monitor-mirrored-horizontal.png');
+  background-image: url('./assets/monitor-mirrored-horizontal.webp');
 }
 
 .monitor-copy--vertical {
-  background-image: url('./assets/monitor-mirrored-vertical.png');
+  background-image: url('./assets/monitor-mirrored-vertical.webp');
 }
 
 .monitor-copy--diagonal {
-  background-image: url('./assets/monitor-mirrored-diagonal.png');
+  background-image: url('./assets/monitor-mirrored-diagonal.webp');
 }
 
 .monitor-copy--left {

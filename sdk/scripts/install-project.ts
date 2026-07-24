@@ -117,7 +117,7 @@ export async function createScaffold(
 ) {
   await assertScaffoldAvailable(projectRoot)
 
-  const templateRoot = resolve(sdkRoot, 'templates/project')
+  const templateRoot = resolve(sdkRoot, 'template')
   const sidecarRoot = resolve(sdkRoot, 'sidecar')
   const sidecarSource = resolve(sidecarRoot, 'src')
   await cp(sidecarSource, resolve(projectRoot, 'src'), {

@@ -46,7 +46,7 @@ const RESERVED_ICON_DIRECTORIES = new Set([
   'sidecar',
   'src',
   'src-tauri',
-  'templates',
+  'template',
   'termweave',
 ])
 
@@ -544,7 +544,7 @@ async function runUpdate(projectRoot: string) {
   )
 
   const projectPackagePath = resolve(projectRoot, 'package.json')
-  const templateRoot = resolve(SDK_ROOT, 'templates/project')
+  const templateRoot = resolve(SDK_ROOT, 'template')
   const templatePackagePath = resolve(templateRoot, 'package.json')
   const projectPackage = JSON.parse(await readFile(projectPackagePath, 'utf8')) as JsonObject
   const templatePackage = JSON.parse(await readFile(templatePackagePath, 'utf8')) as JsonObject

@@ -23,11 +23,15 @@ import {
 } from '../../shared/terminal-protocol'
 import { App } from './App'
 import crtNoisePath from './assets/crt-noise.mp3' with { type: 'file' }
+import crtTurnOnPath from './assets/turn-on.mp3' with { type: 'file' }
 
 const startedAt = performance.now()
 const HOST = '127.0.0.1'
 const CLIENT_AUTHENTICATION_TIMEOUT_MS = 5_000
 const FRAME_ACKNOWLEDGEMENT_TIMEOUT_MS = 5_000
+const CRT_TURN_ON_COMPLETION_TIMEOUT_MS = 2_000
+const CRT_TURN_ON_POLL_INTERVAL_MS = 10
+const CRT_TURN_ON_VOLUME = 1
 const MAX_PENDING_OUTPUT_BYTES = 4 * 1024 * 1024
 const INSTANCE_ID = process.env.TUI_SIDECAR_INSTANCE_ID?.trim()
 const configuredClientToken = process.env.TUI_SIDECAR_TOKEN?.trim()
@@ -64,7 +68,7 @@ type Session = {
 }
 
 let sendSidecarDiagnostic: ((line: string) => boolean) | undefined
-let crtNoiseAudio: Audio | undefined
+let crtAudio: Audio | undefined
 
 function isMouseMotionInput(data: string) {
   const match = /^\u001b\[<(\d+);\d+;\d+[Mm]$/.exec(data)
@@ -101,46 +105,89 @@ function sidecarLog(message: string, details?: unknown) {
   process.stderr.write(`${line}\n`)
 }
 
-function stopCrtNoiseAudio() {
-  const audio = crtNoiseAudio
-  crtNoiseAudio = undefined
+function stopCrtAudio() {
+  const audio = crtAudio
+  crtAudio = undefined
   audio?.dispose()
 }
 
-async function startCrtNoiseAudio() {
-  if (crtNoiseAudio) return
+async function waitForCrtTurnOnSound(audio: Audio) {
+  const deadline = performance.now() + CRT_TURN_ON_COMPLETION_TIMEOUT_MS
+  let voiceObserved = false
+
+  while (crtAudio === audio) {
+    const stats = audio.getStats()
+    if (stats && stats.voicesActive > 0) voiceObserved = true
+    if (stats?.voicesActive === 0 && voiceObserved) return true
+    if (performance.now() >= deadline) return false
+    await Bun.sleep(CRT_TURN_ON_POLL_INTERVAL_MS)
+  }
+
+  return false
+}
+
+async function startCrtAudio() {
+  if (crtAudio) return
   if (CRT_EFFECTS.soundVolume === 0) {
-    sidecarLog('CRT noise disabled by config')
+    sidecarLog('CRT audio disabled by config')
     return
   }
 
   let audio: Audio | undefined
   try {
     audio = setupAudio({ autoStart: true })
-    crtNoiseAudio = audio
+    crtAudio = audio
     audio.on('error', (error, context) => {
       sidecarLog('OpenTUI audio error', { context, error: serializeError(error) })
     })
 
-    const sound = await audio.loadSoundFile(crtNoisePath)
-    if (crtNoiseAudio !== audio) return
-    if (sound === null) throw new Error('OpenTUI could not load the CRT noise MP3')
+    const turnOnSound = await audio.loadSoundFile(crtTurnOnPath)
+    if (crtAudio !== audio) return
+    if (turnOnSound === null) throw new Error('OpenTUI could not load the CRT turn-on MP3')
 
-    const voice = audio.play(sound, { loop: true, volume: CRT_EFFECTS.soundVolume })
-    if (voice === null) throw new Error('OpenTUI could not start the CRT noise loop')
+    const turnOnVoice = audio.play(turnOnSound, { volume: CRT_TURN_ON_VOLUME })
+    if (turnOnVoice === null) throw new Error('OpenTUI could not play the CRT turn-on sound')
+
+    sidecarLog('CRT turn-on sound started', {
+      path: crtTurnOnPath,
+      sound: turnOnSound,
+      voice: turnOnVoice,
+      volume: CRT_TURN_ON_VOLUME,
+      playbackStarted: audio.isStarted(),
+      mixerStarted: audio.isMixerStarted(),
+    })
+
+    const [noiseSound, turnOnCompleted] = await Promise.all([
+      audio.loadSoundFile(crtNoisePath),
+      waitForCrtTurnOnSound(audio),
+    ])
+    if (crtAudio !== audio) return
+    if (noiseSound === null) throw new Error('OpenTUI could not load the CRT noise MP3')
+
+    if (!turnOnCompleted) {
+      audio.stopVoice(turnOnVoice)
+      sidecarLog('CRT turn-on completion could not be observed; starting noise after timeout')
+    }
+    audio.unloadSound(turnOnSound)
+
+    const noiseVoice = audio.play(noiseSound, {
+      loop: true,
+      volume: CRT_EFFECTS.soundVolume,
+    })
+    if (noiseVoice === null) throw new Error('OpenTUI could not start the CRT noise loop')
 
     sidecarLog('CRT noise loop started', {
       path: crtNoisePath,
-      sound,
-      voice,
+      sound: noiseSound,
+      voice: noiseVoice,
       volume: CRT_EFFECTS.soundVolume,
       playbackStarted: audio.isStarted(),
       mixerStarted: audio.isMixerStarted(),
     })
   } catch (error) {
-    if (crtNoiseAudio === audio) stopCrtNoiseAudio()
+    if (crtAudio === audio) stopCrtAudio()
     else audio?.dispose()
-    sidecarLog('CRT noise initialization failed', serializeError(error))
+    sidecarLog('CRT audio initialization failed', serializeError(error))
   }
 }
 
@@ -197,13 +244,15 @@ sidecarLog('process started', {
 })
 
 process.on('exit', (code) => {
-  stopCrtNoiseAudio()
+  stopCrtAudio()
   sidecarLog('process exiting', { code })
 })
 
 process.on('warning', (warning) => {
   sidecarLog('process warning', serializeError(warning))
 })
+
+void startCrtAudio()
 
 function terminalInput() {
   const stream = new PassThrough()
@@ -532,7 +581,7 @@ const renderer = await createCliRenderer({
   exitSignals: [],
   useKittyKeyboard: null,
   onDestroy: () => {
-    stopCrtNoiseAudio()
+    stopCrtAudio()
     exitRequested = true
     sendExitRequest()
   },
@@ -547,7 +596,6 @@ sidecarLog('OpenTUI renderer created', {
   height: renderer.height,
   screenMode: renderer.screenMode,
 })
-void startCrtNoiseAudio()
 
 outputFrameBoundariesReady = true
 renderer.setFrameCallback(waitForTerminalReady)
@@ -791,7 +839,7 @@ function shutdownSidecar(reason: string, exitCode = 0) {
   sidecarShuttingDown = true
   sidecarLog('sidecar shutdown started', { reason, exitCode })
 
-  stopCrtNoiseAudio()
+  stopCrtAudio()
   clearOutputFlushTimer()
   clearFrameAcknowledgementTimer()
 

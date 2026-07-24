@@ -21,7 +21,7 @@
     "@opentui/core": "0.4.5",
     "@opentui/solid": "0.4.5",
     "@solidjs/router": "0.16.2",
-    "@termweave/sdk": "file:../../sidecar/sdk",
+    "@termweave/sdk": "file:../sidecar/sdk",
     "solid-js": "1.9.12"
   },
   "devDependencies": {
