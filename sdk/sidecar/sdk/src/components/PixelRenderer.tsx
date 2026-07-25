@@ -11,9 +11,9 @@ import {
   getPixelImageEntry,
   type Dimensions,
   type ImageCells,
+  type PixelImageFrame,
 } from '../helpers/pixel-image'
 
-const GIF_FRAME_DELAY_MS = 150
 const ERROR_LENGTH = 220
 
 export {
@@ -59,7 +59,7 @@ function setRgb(color: RGBA, channels: Uint8Array, offset: number) {
   color.buffer[2] = (color.buffer[2]! & 0xff00) | (channels[offset + 2] ?? 0)
 }
 
-function paintImage(
+export function paintImage(
   buffer: OptimizedBuffer,
   renderable: BoxRenderable,
   image: ImageCells,
@@ -116,18 +116,36 @@ export function PixelRenderer(props: ParentProps<PixelRendererProps>) {
       currentImage = image
       requestRender()
     }
-    const startPlayback = (images: readonly ImageCells[]) => {
+    const startPlayback = (images: readonly PixelImageFrame[]) => {
       if (disposed || images.length === 0) return
 
       let frameIndex = 0
+      const cycleDurationMs = images.reduce((duration, image) => duration + image.delayMs, 0)
+      let nextFrameAt = performance.now() + images[frameIndex]!.delayMs
       showImage(images[frameIndex]!)
+      const scheduleNextFrame = () => {
+        frameTimer = setTimeout(advanceFrame, Math.max(0, nextFrameAt - performance.now()))
+      }
       const advanceFrame = () => {
         if (disposed || images.length < 2) return
-        frameIndex = (frameIndex + 1) % images.length
+
+        const now = performance.now()
+        if (now < nextFrameAt) {
+          scheduleNextFrame()
+          return
+        }
+        if (now - nextFrameAt >= cycleDurationMs) {
+          nextFrameAt += Math.floor((now - nextFrameAt) / cycleDurationMs) * cycleDurationMs
+        }
+        do {
+          frameIndex = (frameIndex + 1) % images.length
+          nextFrameAt += images[frameIndex]!.delayMs
+        } while (nextFrameAt <= now)
+
         showImage(images[frameIndex]!)
-        frameTimer = setTimeout(advanceFrame, GIF_FRAME_DELAY_MS)
+        scheduleNextFrame()
       }
-      if (images.length > 1) frameTimer = setTimeout(advanceFrame, GIF_FRAME_DELAY_MS)
+      if (images.length > 1) scheduleNextFrame()
     }
 
     currentImage = undefined

@@ -10,6 +10,8 @@ const SOURCE_PIXELS_PER_CELL_Y = 2
 // Preserve 2×2 glyph shapes while bounding WebGL styles to an equal 9-bit RGB333 cube.
 const PIXEL_COLOR_LEVELS = [8, 8, 8] as const
 const IMAGE_CACHE_LIMIT = 8
+const DEFAULT_GIF_FRAME_DELAY_MS = 100
+const MINIMUM_GIF_FRAME_DELAY_MS = 10
 const StillImage = createJimp({ formats: [jpeg, png] })
 const QUADRANT_GLYPHS = new Uint32Array([
   0x20, // 0000
@@ -45,6 +47,10 @@ export interface Frame extends Dimensions {
   data: Uint8Array
 }
 
+export interface AnimationFrame extends Frame {
+  delayMs: number
+}
+
 interface GifFrameDimensions extends Dimensions {
   left: number
   top: number
@@ -56,11 +62,15 @@ export interface ImageCells extends Dimensions {
   glyphs: Uint32Array
 }
 
+export interface PixelImageFrame extends ImageCells {
+  delayMs: number
+}
+
 export interface ImageCacheEntry {
   complete: boolean
-  images: ImageCells[]
-  listeners: Set<(image: ImageCells) => void>
-  promise: Promise<readonly ImageCells[]>
+  images: PixelImageFrame[]
+  listeners: Set<(image: PixelImageFrame) => void>
+  promise: Promise<readonly PixelImageFrame[]>
 }
 
 const imageCache = new Map<string, ImageCacheEntry>()
@@ -131,6 +141,11 @@ function gifSignature(bytes: Uint8Array) {
     (bytes[4] === 0x37 || bytes[4] === 0x39) &&
     bytes[5] === 0x61
   )
+}
+
+export function normalizedGifFrameDelay(delayMs: number) {
+  if (!Number.isFinite(delayMs) || delayMs <= 0) return DEFAULT_GIF_FRAME_DELAY_MS
+  return Math.max(MINIMUM_GIF_FRAME_DELAY_MS, Math.round(delayMs))
 }
 
 function clearFrameArea(data: Uint8Array, canvas: Dimensions, area: GifFrameDimensions) {
@@ -231,10 +246,10 @@ export function resizeFrame(source: Frame, target: Dimensions): Frame {
   return { ...target, data }
 }
 
-function gifFrameIterator(
+export function gifFrameIterator(
   bytes: Uint8Array,
   maximum: Dimensions,
-): IterableIterator<Frame> | undefined {
+): IterableIterator<AnimationFrame> | undefined {
   if (!gifSignature(bytes)) return undefined
 
   const gif = parseGIF(copiedArrayBuffer(bytes))
@@ -261,7 +276,10 @@ function gifFrameIterator(
       const restoreData = frame.disposalType === 3 ? canvas.slice() : undefined
       drawGifPatch(canvas, source, frame)
       frameCount += 1
-      yield resizeFrame({ ...source, data: canvas }, target)
+      yield {
+        ...resizeFrame({ ...source, data: canvas }, target),
+        delayMs: normalizedGifFrameDelay(frame.delay),
+      }
 
       if (frame.disposalType === 2) {
         clearFrameArea(canvas, source, frame.dims)
@@ -302,7 +320,7 @@ async function* loadImageFrames(uri: string, maximum: Dimensions) {
     return
   }
 
-  yield await loadStillFrame(bytes, maximum)
+  yield { ...(await loadStillFrame(bytes, maximum)), delayMs: 0 }
 }
 
 function imageCacheKey(uri: string, maximum: Dimensions, background: Rgb) {
@@ -499,7 +517,7 @@ function getImageEntry(uri: string, maximum: Dimensions, background: Rgb) {
 
   entry.promise = (async () => {
     for await (const frame of loadImageFrames(uri, maximum)) {
-      const image = createImageCells(frame, background)
+      const image = { ...createImageCells(frame, background), delayMs: frame.delayMs }
       entry.images.push(image)
       for (const listener of entry.listeners) listener(image)
       await yieldToRenderer()

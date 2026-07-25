@@ -8,7 +8,7 @@ export function validAppConfig(overrides: Partial<AppBuilderConfig> = {}): AppBu
     bundleIdentifier: 'com.example.app',
     version: '1.2.3',
     authors: ['Example Author'],
-    fontSize: 8,
+    fontSize: 20,
     showDiagnostics: false,
     backgroundColor: '#010416',
     foregroundColor: '#F59B5A',

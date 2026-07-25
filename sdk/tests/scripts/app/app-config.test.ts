@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { parseAppConfig, resolveAppIcon } from '../../../scripts/app/app-config'
+import { TERMINAL_SURFACE } from '../../../shared/terminal-config'
 import { validAppConfig } from '../../helpers/app-config'
 
 describe('app config', () => {
@@ -14,8 +15,9 @@ describe('app config', () => {
   })
 
   test('requires font size to produce an integer grid on the fixed terminal surface', () => {
-    expect(() => parseAppConfig(validAppConfig({ fontSize: 11 }))).toThrow(
-      'fixed 1280x720 terminal surface',
+    const invalidFontSize = Math.max(TERMINAL_SURFACE.width, TERMINAL_SURFACE.height) + 1
+    expect(() => parseAppConfig(validAppConfig({ fontSize: invalidFontSize }))).toThrow(
+      `fixed ${TERMINAL_SURFACE.width}x${TERMINAL_SURFACE.height} terminal surface`,
     )
   })
 

@@ -4,6 +4,8 @@ import {
   createImageCells,
   fittedDimensions,
   FULL_BLOCK,
+  gifFrameIterator,
+  normalizedGifFrameDelay,
   resizeFrame,
   type Frame,
 } from '../../sdk/src/helpers/pixel-image'
@@ -86,5 +88,30 @@ describe('pixel image conversion', () => {
     expect([...image.glyphs]).toEqual([0x2598])
     expect([...image.foregrounds]).toEqual([255, 0, 0])
     expect([...image.backgrounds]).toEqual([0, 0, 255])
+  })
+})
+
+describe('GIF animation timing', () => {
+  test('uses a safe browser-compatible delay when GIF timing is absent', () => {
+    expect(normalizedGifFrameDelay(0)).toBe(100)
+    expect(normalizedGifFrameDelay(Number.NaN)).toBe(100)
+  })
+
+  test('keeps the delay metadata attached to each decoded frame', async () => {
+    const uri = new URL('../../src/assets/campfire.gif', import.meta.url)
+    const bytes = Uint8Array.from(await Bun.file(uri).bytes())
+
+    for (let offset = 0; offset < bytes.length - 7; offset += 1) {
+      if (bytes[offset] === 0x21 && bytes[offset + 1] === 0xf9 && bytes[offset + 2] === 0x04) {
+        bytes[offset + 4] = 2
+        bytes[offset + 5] = 0
+        break
+      }
+    }
+
+    const frames = [...gifFrameIterator(bytes, { width: 2, height: 2 })!]
+
+    expect(frames[0]?.delayMs).toBe(20)
+    expect(frames[1]?.delayMs).toBe(150)
   })
 })

@@ -5,7 +5,7 @@
   "bundleIdentifier": "com.nikdelvin.termweave",
   "version": "0.1.0",
   "authors": ["Nik Delvin"],
-  "fontSize": 10,
+  "fontSize": 20,
   "showDiagnostics": false,
   "backgroundColor": "#010416",
   "foregroundColor": "#F59B5A",
