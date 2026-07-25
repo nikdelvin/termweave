@@ -20,11 +20,6 @@ import {
 } from '../../src/runtime/sidecar-protocol'
 
 const runtime: FrontendRuntime = {
-  debugBuild: false,
-  os: 'macos',
-  arch: 'aarch64',
-  executable: '/app',
-  currentDirectory: '/project',
   instanceId: 'instance-1',
   sidecarToken: 'secret',
   sidecarPort: 4312,
@@ -95,15 +90,11 @@ describe('frontend sidecar protocol', () => {
     expect(sidecarIdentityMatches(hello!, runtime)).toBeFalse()
   })
 
-  test('parses authenticated and supported text messages', () => {
+  test('parses authentication and the host exit request', () => {
     expect(parseSidecarAuthenticated('{"type":"authenticated"}')).toEqual({
       type: 'authenticated',
     })
     expect(parseSidecarAuthenticated('{"type":"other"}')).toBeUndefined()
-    expect(parseSidecarTextMessage('{"type":"diagnostic","line":"ready"}')).toEqual({
-      type: 'diagnostic',
-      line: 'ready',
-    })
     expect(parseSidecarTextMessage('{"type":"exit-requested"}')).toEqual({
       type: 'exit-requested',
     })

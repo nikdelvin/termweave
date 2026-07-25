@@ -45,11 +45,6 @@ impl SidecarRuntime {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct FrontendRuntime {
-    debug_build: bool,
-    os: String,
-    arch: String,
-    executable: String,
-    current_directory: String,
     instance_id: String,
     sidecar_token: String,
     sidecar_port: u16,
@@ -57,30 +52,11 @@ struct FrontendRuntime {
 
 #[tauri::command]
 fn frontend_runtime(runtime: tauri::State<'_, SidecarRuntime>) -> FrontendRuntime {
-    let frontend_runtime = FrontendRuntime {
-        debug_build: cfg!(debug_assertions),
-        os: std::env::consts::OS.to_owned(),
-        arch: std::env::consts::ARCH.to_owned(),
-        executable: std::env::current_exe()
-            .map(|path| path.display().to_string())
-            .unwrap_or_else(|error| format!("<unavailable: {error}>")),
-        current_directory: std::env::current_dir()
-            .map(|path| path.display().to_string())
-            .unwrap_or_else(|error| format!("<unavailable: {error}>")),
+    FrontendRuntime {
         instance_id: runtime.instance_id.clone(),
         sidecar_token: runtime.sidecar_token.clone(),
         sidecar_port: runtime.sidecar_port,
-    };
-
-    #[cfg(debug_assertions)]
-    eprintln!(
-        "[tauri] frontend runtime requested: os={} arch={} instance_id={} sidecar_port={}",
-        frontend_runtime.os,
-        frontend_runtime.arch,
-        frontend_runtime.instance_id,
-        frontend_runtime.sidecar_port,
-    );
-    frontend_runtime
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -90,16 +66,6 @@ pub fn run() {
     tauri::Builder::default()
         .manage(runtime)
         .plugin(tauri_plugin_shell::init())
-        .setup(|_| {
-            #[cfg(debug_assertions)]
-            eprintln!(
-                "[tauri] application setup completed: debug_build={} os={} arch={}",
-                cfg!(debug_assertions),
-                std::env::consts::OS,
-                std::env::consts::ARCH,
-            );
-            Ok(())
-        })
         .invoke_handler(tauri::generate_handler![frontend_runtime])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

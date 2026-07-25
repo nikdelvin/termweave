@@ -2,7 +2,6 @@ import appConfig from '../app.config.json'
 
 export const PRODUCT_NAME = appConfig.name
 export const PRODUCT_DESCRIPTION = appConfig.description
-export const SHOW_DIAGNOSTICS = appConfig.showDiagnostics
 export const BACKGROUND_COLOR = appConfig.backgroundColor
 export const FOREGROUND_COLOR = appConfig.foregroundColor
 export const MONITOR_OVERLAY_ENABLED = appConfig.monitorOverlay
@@ -32,7 +31,7 @@ export const TERMINAL_GRID = {
 
 export const SIDECAR_PROTOCOL = {
   name: `${appConfig.bundleIdentifier}/opentui`,
-  version: 5,
+  version: 6,
 } as const
 
 export type SidecarHello = {

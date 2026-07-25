@@ -1,7 +1,5 @@
 import { type Child, Command } from '@tauri-apps/plugin-shell'
 import {
-  SHOW_DIAGNOSTICS,
-  SIDECAR_PROTOCOL,
   TERMINAL_GRID,
   type SidecarAuthenticate,
   type SidecarShutdown,
@@ -11,7 +9,6 @@ import {
   type SidecarFrameAcknowledgement,
   type TerminalFrame,
 } from '../../shared/terminal-protocol'
-import { diagnostic } from '../diagnostics'
 import {
   parseSidecarAuthenticated,
   parseSidecarHello,
@@ -55,35 +52,17 @@ export function createSidecarClient(runtime: FrontendRuntime, options: SidecarCl
 
     if (typeof event.data === 'string') {
       const message = parseSidecarTextMessage(event.data)
-      if (message?.type === 'diagnostic') {
-        diagnostic('sidecar.ws', message.line)
-      } else if (message?.type === 'exit-requested') {
-        options.onExitRequested()
-      } else {
-        diagnostic('websocket', 'unexpected text message ignored', { data: event.data }, 'warn')
-      }
+      if (message?.type === 'exit-requested') options.onExitRequested()
       return
     }
 
     if (!(event.data instanceof ArrayBuffer)) {
-      diagnostic(
-        'websocket',
-        'unexpected terminal frame payload ignored',
-        { dataType: event.data?.constructor?.name ?? typeof event.data },
-        'error',
-      )
       sourceSocket?.close(1002, 'Unexpected terminal frame payload')
       return
     }
 
     const frame = decodeTerminalFrame(event.data)
     if (!frame) {
-      diagnostic(
-        'websocket',
-        'invalid terminal frame ignored',
-        { bytes: event.data.byteLength },
-        'error',
-      )
       sourceSocket?.close(1002, 'Invalid terminal frame')
       return
     }
@@ -100,13 +79,10 @@ export function createSidecarClient(runtime: FrontendRuntime, options: SidecarCl
 
   const openSocket = (url: string, attempt: number) =>
     new Promise<WebSocket>((resolve, reject) => {
-      const attemptStartedAt = performance.now()
       let settled = false
       let accepted = false
       let identityAccepted = false
       let handshakeTimer: number | undefined
-      diagnostic('websocket', 'connection attempt started', { attempt, url })
-
       const nextSocket = new WebSocket(url)
       nextSocket.binaryType = 'arraybuffer'
 
@@ -119,8 +95,8 @@ export function createSidecarClient(runtime: FrontendRuntime, options: SidecarCl
         if (closeSocket && nextSocket.readyState < WebSocket.CLOSING) {
           try {
             nextSocket.close(1008, 'Sidecar authentication failed')
-          } catch (closeError) {
-            diagnostic('websocket', 'failed to close rejected connection', closeError, 'warn')
+          } catch {
+            // The connection is already unusable.
           }
         }
 
@@ -130,15 +106,6 @@ export function createSidecarClient(runtime: FrontendRuntime, options: SidecarCl
       const handleHandshake = (event: MessageEvent) => {
         if (identityAccepted) {
           if (!parseSidecarAuthenticated(event.data)) {
-            diagnostic(
-              'websocket',
-              'sidecar sent data before client authentication completed',
-              {
-                attempt,
-                dataType: event.data?.constructor?.name ?? typeof event.data,
-              },
-              'error',
-            )
             rejectConnection(
               new SidecarIdentityError('Sidecar client authentication was not acknowledged'),
               true,
@@ -151,46 +118,17 @@ export function createSidecarClient(runtime: FrontendRuntime, options: SidecarCl
           if (handshakeTimer !== undefined) window.clearTimeout(handshakeTimer)
           nextSocket.removeEventListener('message', handleHandshake)
           nextSocket.addEventListener('message', handleSocketMessage)
-          diagnostic('websocket', 'mutual sidecar authentication completed', {
-            attempt,
-            elapsedMs: performance.now() - attemptStartedAt,
-          })
           resolve(nextSocket)
           return
         }
 
         const hello = parseSidecarHello(event.data)
         if (!hello) {
-          diagnostic(
-            'websocket',
-            'sidecar sent data before identity handshake',
-            {
-              attempt,
-              dataType: event.data?.constructor?.name ?? typeof event.data,
-            },
-            'error',
-          )
           rejectConnection(new SidecarIdentityError('Sidecar identity handshake was missing'), true)
           return
         }
 
         if (!sidecarIdentityMatches(hello, runtime)) {
-          diagnostic(
-            'websocket',
-            'sidecar identity rejected',
-            {
-              attempt,
-              expectedProtocol: SIDECAR_PROTOCOL,
-              receivedProtocol: {
-                name: hello.protocol,
-                version: hello.version,
-              },
-              expectedPort: runtime.sidecarPort,
-              receivedPort: hello.port,
-              instanceMatches: hello.instanceId === runtime.instanceId,
-            },
-            'error',
-          )
           rejectConnection(
             new SidecarIdentityError('Sidecar identity did not match this app instance'),
             true,
@@ -204,50 +142,13 @@ export function createSidecarClient(runtime: FrontendRuntime, options: SidecarCl
           token: runtime.sidecarToken,
         }
         nextSocket.send(JSON.stringify(authentication))
-        diagnostic('websocket', 'sidecar identity accepted; client authentication sent', {
-          attempt,
-          protocol: hello.protocol,
-          version: hello.version,
-          port: hello.port,
-          elapsedMs: performance.now() - attemptStartedAt,
-        })
       }
 
       nextSocket.addEventListener('message', handleHandshake)
-      nextSocket.onopen = () => {
-        diagnostic('websocket', 'transport opened; awaiting identity', {
-          attempt,
-          elapsedMs: performance.now() - attemptStartedAt,
-          protocol: nextSocket.protocol,
-          extensions: nextSocket.extensions,
-        })
-      }
       nextSocket.onerror = () => {
-        diagnostic(
-          'websocket',
-          'connection error',
-          {
-            attempt,
-            elapsedMs: performance.now() - attemptStartedAt,
-            readyState: nextSocket.readyState,
-          },
-          'error',
-        )
         if (!accepted) rejectConnection(new Error(`WebSocket attempt ${attempt} failed`), true)
       }
-      nextSocket.onclose = (event) => {
-        diagnostic(
-          'websocket',
-          'connection closed',
-          {
-            attempt,
-            elapsedMs: performance.now() - attemptStartedAt,
-            code: event.code,
-            reason: event.reason,
-            clean: event.wasClean,
-          },
-          event.wasClean ? 'info' : 'warn',
-        )
+      nextSocket.onclose = () => {
         if (!accepted) {
           rejectConnection(
             new Error(`WebSocket attempt ${attempt} closed before authentication completed`),
@@ -257,15 +158,6 @@ export function createSidecarClient(runtime: FrontendRuntime, options: SidecarCl
       }
 
       handshakeTimer = window.setTimeout(() => {
-        diagnostic(
-          'websocket',
-          'sidecar authentication handshake timed out',
-          {
-            attempt,
-            timeoutMs: HANDSHAKE_TIMEOUT_MS,
-          },
-          'error',
-        )
         rejectConnection(
           new SidecarIdentityError('Sidecar authentication handshake timed out'),
           true,
@@ -281,31 +173,7 @@ export function createSidecarClient(runtime: FrontendRuntime, options: SidecarCl
       try {
         return await openSocket(url, socketAttempt)
       } catch (error) {
-        if (error instanceof SidecarIdentityError) {
-          diagnostic(
-            'websocket',
-            'connection rejected without retry',
-            {
-              attempt: socketAttempt,
-              purpose,
-              error,
-            },
-            'error',
-          )
-          throw error
-        }
-
-        diagnostic(
-          'websocket',
-          'attempt will retry',
-          {
-            attempt: socketAttempt,
-            purpose,
-            remaining: maxAttempts - attempt,
-            error,
-          },
-          'warn',
-        )
+        if (error instanceof SidecarIdentityError) throw error
         if (attempt < maxAttempts) await delay(CONNECTION_RETRY_DELAY_MS)
       }
     }
@@ -313,50 +181,18 @@ export function createSidecarClient(runtime: FrontendRuntime, options: SidecarCl
     throw new Error(`OpenTUI sidecar connection failed during ${purpose}`)
   }
 
-  const spawnSidecar = async (reason: string) => {
-    diagnostic('sidecar', 'configuring command', {
-      reason,
-      port: runtime.sidecarPort,
-    })
-
+  const spawnSidecar = async () => {
     const command = Command.sidecar('binaries/opentui-sidecar', [], {
       env: {
         TUI_SIDECAR_INSTANCE_ID: runtime.instanceId,
         TUI_SIDECAR_PORT: String(runtime.sidecarPort),
         TUI_SIDECAR_TOKEN: runtime.sidecarToken,
-        TUI_SIDECAR_DIAGNOSTICS: SHOW_DIAGNOSTICS ? '1' : '0',
       },
     })
-    command.stdout.on('data', (data) => {
-      diagnostic('sidecar.stdout', 'data', data)
-    })
-    command.stderr.on('data', (data) => {
-      for (const line of data.split(/\r?\n/)) {
-        if (line) diagnostic('sidecar.stderr', line)
-      }
-    })
-    command.on('error', (error) => {
-      diagnostic('sidecar', 'process error', error, 'error')
-    })
-    command.on('close', ({ code, signal }) => {
-      diagnostic(
-        'sidecar',
-        'process closed',
-        { code, signal },
-        code === 0 || disposed ? 'info' : 'error',
-      )
-    })
-
-    diagnostic('sidecar', 'spawning process', {
-      program: 'binaries/opentui-sidecar',
-      reason,
-      port: runtime.sidecarPort,
-    })
     child = await command.spawn()
-    diagnostic('sidecar', 'process spawned', { pid: child.pid, reason })
   }
 
-  const stopSidecar = async (reason: string) => {
+  const stopSidecar = async () => {
     const processToStop = child
     child = undefined
 
@@ -382,32 +218,23 @@ export function createSidecarClient(runtime: FrontendRuntime, options: SidecarCl
 
       try {
         socketToShutdown.send(JSON.stringify(shutdown))
-        diagnostic('sidecar', 'graceful shutdown requested', { reason })
-        const closedGracefully = await socketClosed
-        diagnostic('sidecar', 'graceful shutdown wait completed', { reason, closedGracefully })
-      } catch (error) {
-        diagnostic('sidecar', 'failed to request graceful shutdown', { reason, error }, 'warn')
+        await socketClosed
+      } catch {
+        // Fall through to force-closing the socket and process.
       }
     }
     socketToShutdown?.close()
 
     if (!processToStop) return
 
-    diagnostic('sidecar', 'stopping process', { pid: processToStop.pid, reason }, 'warn')
     try {
       await processToStop.kill()
-      diagnostic('sidecar', 'process stopped', { pid: processToStop.pid, reason })
-    } catch (error) {
-      diagnostic(
-        'sidecar',
-        'failed to stop process',
-        { pid: processToStop.pid, reason, error },
-        'warn',
-      )
+    } catch {
+      // The process may have already exited.
     }
   }
 
-  const sendResize = (reason: string) => {
+  const sendResize = () => {
     if (socket?.readyState !== WebSocket.OPEN) return
 
     socket.send(
@@ -417,42 +244,19 @@ export function createSidecarClient(runtime: FrontendRuntime, options: SidecarCl
         rows: TERMINAL_GRID.rows,
       }),
     )
-    diagnostic('websocket', 'terminal resize sent', {
-      cols: TERMINAL_GRID.cols,
-      rows: TERMINAL_GRID.rows,
-      reason,
-    })
   }
 
   const sendInput = (data: string) => {
     if (socket?.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ type: 'input', data }))
-      diagnostic('input', 'sent to sidecar', {
-        length: data.length,
-        escaped: JSON.stringify(data.slice(0, 120)),
-      })
       return true
     }
 
-    diagnostic(
-      'input',
-      'discarded because socket is not open',
-      {
-        readyState: socket?.readyState,
-      },
-      'warn',
-    )
     return false
   }
 
   const activateSocket = (nextSocket: WebSocket, reason: string) => {
     if (disposed) {
-      diagnostic(
-        'frontend',
-        'disposed before socket activation; closing socket',
-        { reason },
-        'warn',
-      )
       nextSocket.close()
       return false
     }
@@ -468,41 +272,16 @@ export function createSidecarClient(runtime: FrontendRuntime, options: SidecarCl
         if (disposed || socket !== nextSocket) return
 
         socket = undefined
-        diagnostic(
-          'recovery',
-          'active sidecar connection was lost',
-          {
-            reason,
-            port: runtime.sidecarPort,
-          },
-          'warn',
-        )
         requestRecovery()
       },
       { once: true },
     )
     if (previousSocket && previousSocket !== nextSocket) previousSocket.close()
-
-    diagnostic('frontend', 'sidecar WebSocket activated', {
-      attempt: socketAttempt,
-      readyState: nextSocket.readyState,
-      reason,
-      port: runtime.sidecarPort,
-    })
     return true
   }
 
   const recover = async () => {
     if (disposed) return
-
-    diagnostic(
-      'recovery',
-      'automatic sidecar recovery started',
-      {
-        port: runtime.sidecarPort,
-      },
-      'warn',
-    )
 
     try {
       const reconnectedSocket = await connectWithRetry(
@@ -510,23 +289,20 @@ export function createSidecarClient(runtime: FrontendRuntime, options: SidecarCl
         'recovery reconnect',
       )
       if (!activateSocket(reconnectedSocket, 'recovery reconnect')) return
-      sendResize('recovery reconnect')
+      sendResize()
       options.onRecovered()
-      diagnostic('recovery', 'reconnected to the existing sidecar process')
       return
     } catch (error) {
       if (error instanceof SidecarIdentityError) throw error
       if (disposed) return
-      diagnostic('recovery', 'existing sidecar did not recover; restarting it', error, 'warn')
     }
 
-    await stopSidecar('recovery reconnect grace period expired')
-    await spawnSidecar('automatic crash recovery')
+    await stopSidecar()
+    await spawnSidecar()
     const restartedSocket = await connectWithRetry(STARTUP_CONNECTION_ATTEMPTS, 'sidecar restart')
     if (!activateSocket(restartedSocket, 'sidecar restart')) return
-    sendResize('sidecar restart')
+    sendResize()
     options.onRecovered()
-    diagnostic('recovery', 'sidecar restarted and reconnected')
   }
 
   const requestRecovery = () => {
@@ -534,21 +310,12 @@ export function createSidecarClient(runtime: FrontendRuntime, options: SidecarCl
 
     recoveryPromise = recover()
       .catch((error: unknown) => {
-        diagnostic('recovery', 'automatic sidecar recovery failed', error, 'error')
         if (!disposed) options.onRecoveryError(error)
       })
       .finally(() => {
         recoveryPromise = undefined
 
         if (!disposed && !socket) {
-          diagnostic(
-            'recovery',
-            'scheduling another recovery cycle',
-            {
-              delayMs: RECOVERY_CYCLE_RETRY_DELAY_MS,
-            },
-            'warn',
-          )
           recoveryTimer = window.setTimeout(() => {
             recoveryTimer = undefined
             requestRecovery()
@@ -562,38 +329,31 @@ export function createSidecarClient(runtime: FrontendRuntime, options: SidecarCl
       if (disposed) return
 
       const url = sidecarSocketUrl(runtime)
-      diagnostic('sidecar', 'probing for this app instance sidecar', {
-        port: runtime.sidecarPort,
-        protocol: SIDECAR_PROTOCOL,
-      })
       socketAttempt = 0
 
       let connectedSocket: WebSocket
       try {
         connectedSocket = await openSocket(url, socketAttempt)
-        diagnostic('sidecar', 'reusing verified existing process')
       } catch (error) {
         if (error instanceof SidecarIdentityError) throw error
         if (disposed) return
-        diagnostic('sidecar', 'no verified existing process found', error, 'warn')
-        await spawnSidecar('initial startup')
+        await spawnSidecar()
         connectedSocket = await connectWithRetry(STARTUP_CONNECTION_ATTEMPTS, 'initial startup')
       }
 
       if (!activateSocket(connectedSocket, 'initial startup')) return
       inputSubscription = options.subscribeInput(sendInput)
-      diagnostic('xterm', 'input subscription installed')
-      sendResize('initial startup')
+      sendResize()
     },
 
     sendInput,
 
-    async stop(reason: string) {
+    async stop() {
       if (disposed) return
       disposed = true
       if (recoveryTimer !== undefined) window.clearTimeout(recoveryTimer)
       inputSubscription?.dispose()
-      await stopSidecar(reason)
+      await stopSidecar()
     },
   }
 }

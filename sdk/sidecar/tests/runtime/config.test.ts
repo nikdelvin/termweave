@@ -2,7 +2,6 @@ import { describe, expect, test } from 'bun:test'
 import { readSidecarRuntimeConfig } from '../../src/runtime/config'
 
 const validEnvironment = {
-  TUI_SIDECAR_DIAGNOSTICS: '1',
   TUI_SIDECAR_INSTANCE_ID: ' instance-1 ',
   TUI_SIDECAR_PORT: '4312',
   TUI_SIDECAR_TOKEN: ' secret ',
@@ -12,7 +11,6 @@ describe('sidecar runtime config', () => {
   test('reads and validates the sidecar environment', () => {
     expect(readSidecarRuntimeConfig(validEnvironment)).toEqual({
       clientToken: 'secret',
-      diagnosticsEnabled: true,
       instanceId: 'instance-1',
       port: 4312,
     })

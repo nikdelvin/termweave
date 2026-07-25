@@ -1,6 +1,5 @@
 import { PassThrough } from 'node:stream'
 import { MAX_TERMINAL_FRAME_ID, encodeTerminalFrame } from '../../../shared/terminal-protocol'
-import { serializeError, type SidecarLog } from './diagnostics'
 import type { Session } from './protocol'
 
 const FRAME_ACKNOWLEDGEMENT_TIMEOUT_MS = 5_000
@@ -18,8 +17,6 @@ interface InFlightOutputFrame extends QueuedOutputFrame {
 
 interface TerminalOutputOptions {
   cols: number
-  diagnosticsEnabled: boolean
-  log: SidecarLog
   rows: number
 }
 
@@ -44,7 +41,7 @@ function terminalOutput(cols: number, rows: number) {
 }
 
 export function createTerminalOutput(options: TerminalOutputOptions) {
-  const { cols, diagnosticsEnabled, log, rows } = options
+  const { cols, rows } = options
   const input = terminalInput()
   const output = terminalOutput(cols, rows)
   const outputChunks: Uint8Array[] = []
@@ -55,9 +52,7 @@ export function createTerminalOutput(options: TerminalOutputOptions) {
   let flushTimer: ReturnType<typeof setTimeout> | undefined
   let inFlightFrame: InFlightOutputFrame | undefined
   let nextFrameId = 0
-  let outputByteCount = 0
   let outputChunkBytes = 0
-  let outputChunkCount = 0
   let queuedOutputBytes = 0
   let readyPromise: Promise<void> | undefined
   let releaseReady: (() => void) | undefined
@@ -129,11 +124,6 @@ export function createTerminalOutput(options: TerminalOutputOptions) {
     try {
       const sendStatus = socket.send(frame.message)
       if (sendStatus === 0) {
-        log('terminal frame dropped by WebSocket transport', {
-          connectionId: socket.data.id,
-          frameId: frame.frameId,
-          bytes: frame.contentBytes,
-        })
         abandonUntilFullRepaint()
         socket.close(1011, 'Terminal frame delivery failed')
         return
@@ -149,24 +139,10 @@ export function createTerminalOutput(options: TerminalOutputOptions) {
           return
         }
 
-        log('terminal frame acknowledgement timed out', {
-          connectionId: socket.data.id,
-          frameId: frame.frameId,
-          timeoutMs: FRAME_ACKNOWLEDGEMENT_TIMEOUT_MS,
-        })
         abandonUntilFullRepaint()
         socket.close(1011, 'Terminal frame acknowledgement timed out')
       }, FRAME_ACKNOWLEDGEMENT_TIMEOUT_MS)
-
-      log('terminal frame sent', {
-        connectionId: socket.data.id,
-        frameId: frame.frameId,
-        bytes: frame.contentBytes,
-        messageBytes: frame.message.byteLength,
-        sendStatus,
-      })
-    } catch (error) {
-      log('terminal frame send failed', serializeError(error))
+    } catch {
       abandonUntilFullRepaint()
       socket.close(1011, 'Terminal frame send failed')
     }
@@ -178,11 +154,6 @@ export function createTerminalOutput(options: TerminalOutputOptions) {
     queuedOutputBytes += frame.contentBytes
 
     if (!activeSocket && queuedOutputBytes > MAX_PENDING_OUTPUT_BYTES) {
-      log('pending terminal output exceeded buffer limit', {
-        pendingFrames: queuedFrames.length,
-        pendingBytes: queuedOutputBytes,
-        limitBytes: MAX_PENDING_OUTPUT_BYTES,
-      })
       abandonUntilFullRepaint()
       return
     }
@@ -190,7 +161,7 @@ export function createTerminalOutput(options: TerminalOutputOptions) {
     sendNextFrame()
   }
 
-  const flushFrame = (reason: string, openTuiFrameId?: number) => {
+  const flushFrame = () => {
     clearFlushTimer()
     if (outputChunkBytes === 0) return
 
@@ -199,49 +170,24 @@ export function createTerminalOutput(options: TerminalOutputOptions) {
     outputChunkBytes = 0
 
     if (fullRepaintRequired && !activeSocket) {
-      log('terminal output discarded while awaiting full repaint', {
-        reason,
-        bytes: contentBytes,
-      })
       return
     }
 
     const frameId = allocateFrameId()
     const message = encodeTerminalFrame(frameId, chunks, contentBytes)
-    log('terminal output coalesced', {
-      reason,
-      openTuiFrameId,
-      frameId,
-      chunks: chunks.length,
-      bytes: contentBytes,
-    })
     queueFrame({ contentBytes, frameId, message })
   }
 
   const scheduleFlush = () => {
     if (!frameBoundariesReady) return
     if (flushTimer) clearTimeout(flushTimer)
-    flushTimer = setTimeout(() => flushFrame('non-render output'), 0)
+    flushTimer = setTimeout(flushFrame, 0)
   }
 
   output.on('data', (chunk: Buffer) => {
     const data = Uint8Array.from(chunk)
     outputChunks.push(data)
     outputChunkBytes += data.byteLength
-
-    if (diagnosticsEnabled) {
-      outputChunkCount += 1
-      outputByteCount += data.byteLength
-      log('terminal output produced', {
-        chunk: outputChunkCount,
-        bytes: data.byteLength,
-        totalBytes: outputByteCount,
-        destination: 'OpenTUI frame buffer',
-        pendingChunks: outputChunks.length,
-        pendingBytes: outputChunkBytes,
-        preview: chunk.toString('utf8').slice(0, 240),
-      })
-    }
 
     scheduleFlush()
   })
@@ -252,23 +198,10 @@ export function createTerminalOutput(options: TerminalOutputOptions) {
 
     acknowledgeFrame(socket: Bun.ServerWebSocket<Session>, frameId: number) {
       const frame = inFlightFrame
-      if (!frame || frame.connectionId !== socket.data.id || frame.frameId !== frameId) {
-        log('stale terminal frame acknowledgement ignored', {
-          connectionId: socket.data.id,
-          frameId,
-          expectedConnectionId: frame?.connectionId,
-          expectedFrameId: frame?.frameId,
-        })
-        return
-      }
+      if (!frame || frame.connectionId !== socket.data.id || frame.frameId !== frameId) return
 
       clearAcknowledgementTimer()
       inFlightFrame = undefined
-      log('terminal frame acknowledged', {
-        connectionId: socket.data.id,
-        frameId,
-        bytes: frame.contentBytes,
-      })
 
       sendNextFrame()
       if (!inFlightFrame && queuedFrames.length === 0 && !fullRepaintRequired) {
@@ -277,10 +210,8 @@ export function createTerminalOutput(options: TerminalOutputOptions) {
     },
 
     activateSocket(socket: Bun.ServerWebSocket<Session>) {
-      const isReconnect = hasConnected
       const previousSocket = activeSocket
-      const pendingBytes = outputChunkBytes + queuedOutputBytes + (inFlightFrame?.contentBytes ?? 0)
-      const needsFullRepaint = isReconnect || fullRepaintRequired
+      const needsFullRepaint = hasConnected || fullRepaintRequired
 
       if (needsFullRepaint) resetForFullRepaint()
       activeSocket = socket
@@ -288,10 +219,7 @@ export function createTerminalOutput(options: TerminalOutputOptions) {
       hasConnected = true
 
       return {
-        isReconnect,
         needsFullRepaint,
-        pendingBytes,
-        replacingConnectionId: previousSocket?.data.id,
       }
     },
 
@@ -312,27 +240,8 @@ export function createTerminalOutput(options: TerminalOutputOptions) {
       return activeSocket
     },
 
-    getStats() {
-      return {
-        inFlightFrameId: inFlightFrame?.frameId,
-        pendingBytes: outputChunkBytes + queuedOutputBytes,
-        pendingChunks: outputChunks.length,
-        pendingFrames: queuedFrames.length,
-      }
-    },
-
     isActiveSocket(socket: Bun.ServerWebSocket<Session>) {
       return activeSocket === socket
-    },
-
-    sendDiagnostic(line: string) {
-      if (!activeSocket) return false
-      try {
-        activeSocket.send(JSON.stringify({ type: 'diagnostic', line }))
-        return true
-      } catch {
-        return false
-      }
     },
 
     sendNextFrame,

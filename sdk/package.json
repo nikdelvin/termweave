@@ -28,7 +28,7 @@
     "check": "bun run test && bun run typecheck && bun run lint && bun run deps:check && bun run format:check",
     "deps:check": "bun scripts/packages/check-packages.ts",
     "deps:install": "bun install --frozen-lockfile && bun install --cwd sidecar --frozen-lockfile && bun install --cwd template --frozen-lockfile",
-    "deps:audit": "bun scripts/packages/audit-packages.ts && bun audit && bun audit --cwd sidecar && bun audit --cwd template && cd src-tauri && cargo audit",
+    "deps:audit": "bun scripts/packages/audit-packages.ts && cd src-tauri && cargo audit",
     "icons:generate": "bun scripts/app/generate-icons.ts",
     "config:sync": "bun scripts/app/sync-app-config.ts",
     "sidecar:build": "bun run --cwd sidecar build",

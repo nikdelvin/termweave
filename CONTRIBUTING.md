@@ -26,7 +26,7 @@ bun run app:dev
 
 | Path         | What lives there                                      |
 | ------------ | ----------------------------------------------------- |
-| `src/`       | Webview entry point, diagnostics, and UI runtime.     |
+| `src/`       | Webview entry point and UI runtime.                   |
 | `sidecar/`   | OpenTUI app, public SDK package, and sidecar tooling. |
 | `src-tauri/` | Native Tauri application.                             |
 | `scripts/`   | App, package, and project tooling.                    |

@@ -30,15 +30,13 @@ function fakeSocket(id: number) {
 test('queues terminal output until it is acknowledged', async () => {
   const terminal = createTerminalOutput({
     cols: 80,
-    diagnosticsEnabled: false,
-    log: () => {},
     rows: 24,
   })
   const socket = fakeSocket(1)
 
   terminal.output.write('hello')
   terminal.enableFrameBoundaries()
-  terminal.flushFrame('test')
+  terminal.flushFrame()
   const renderingReady = terminal.waitForReady()
   terminal.activateSocket(socket)
   terminal.sendNextFrame()
@@ -57,8 +55,6 @@ test('queues terminal output until it is acknowledged', async () => {
 test('requires a full repaint when replacing an authenticated connection', () => {
   const terminal = createTerminalOutput({
     cols: 80,
-    diagnosticsEnabled: false,
-    log: () => {},
     rows: 24,
   })
   const firstSocket = fakeSocket(1)

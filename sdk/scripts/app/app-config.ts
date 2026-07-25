@@ -10,7 +10,6 @@ export type AppBuilderConfig = {
   version: string
   authors: string[]
   fontSize: number
-  showDiagnostics: boolean
   backgroundColor: string
   foregroundColor: string
   monitorOverlay: boolean
@@ -131,7 +130,6 @@ export function parseAppConfig(value: unknown): AppBuilderConfig {
     version,
     authors,
     fontSize,
-    showDiagnostics: requireBoolean(config.showDiagnostics, 'showDiagnostics'),
     backgroundColor: requireHexColor(config.backgroundColor, 'backgroundColor'),
     foregroundColor: requireHexColor(config.foregroundColor, 'foregroundColor'),
     monitorOverlay: requireBoolean(config.monitorOverlay, 'monitorOverlay'),

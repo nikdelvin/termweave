@@ -5,7 +5,6 @@ import {
   CRT_EFFECTS_ENABLED,
   TERMINAL_GRID,
 } from '../../shared/terminal-config'
-import { diagnostic } from '../diagnostics'
 
 interface ChromaticAberrationRenderer {
   gl: WebGL2RenderingContext
@@ -34,11 +33,9 @@ export function createCrtRenderer(options: CrtRendererOptions) {
     terminal,
     terminalHost,
   } = options
-  let aberrationCaptureFailed = false
   let aberrationFrame: number | undefined
   let chromaticRenderer: ChromaticAberrationRenderer | undefined
   let contextLossSubscription: IDisposable | undefined
-  let lastAberrationSource: HTMLCanvasElement | undefined
   let webglAddon: WebglAddon | undefined
 
   const noisePeakOpacity = CRT_EFFECT_DEFAULTS.noiseVisibility * 0.1
@@ -193,7 +190,6 @@ export function createCrtRenderer(options: CrtRendererOptions) {
     const source = terminalWebglCanvas()
     if (!source || source.width === 0 || source.height === 0) {
       aberrationHost.hidden = true
-      lastAberrationSource = undefined
       return
     }
 
@@ -217,22 +213,8 @@ export function createCrtRenderer(options: CrtRendererOptions) {
       )
       gl.drawArrays(gl.TRIANGLES, 0, 3)
       aberrationHost.hidden = false
-      aberrationCaptureFailed = false
-
-      if (source !== lastAberrationSource) {
-        lastAberrationSource = source
-        diagnostic('crt', 'WebGL chromatic aberration connected', {
-          source: `${source.width}x${source.height}`,
-          effect: `${aberrationCanvas.width}x${aberrationCanvas.height}`,
-          maximumShift: CRT_EFFECT_DEFAULTS.chromaticAberrationShift,
-        })
-      }
-    } catch (error) {
+    } catch {
       aberrationHost.hidden = true
-      if (!aberrationCaptureFailed) {
-        aberrationCaptureFailed = true
-        diagnostic('crt', 'WebGL chromatic aberration render failed', error, 'warn')
-      }
     }
   }
 
@@ -247,7 +229,6 @@ export function createCrtRenderer(options: CrtRendererOptions) {
   const clearAberration = () => {
     if (aberrationFrame !== undefined) cancelAnimationFrame(aberrationFrame)
     aberrationFrame = undefined
-    lastAberrationSource = undefined
     aberrationHost.hidden = true
     const gl = chromaticRenderer?.gl
     if (gl) {
@@ -256,7 +237,7 @@ export function createCrtRenderer(options: CrtRendererOptions) {
     }
   }
 
-  const disposeWebgl = (reason: string) => {
+  const disposeWebgl = () => {
     const addon = webglAddon
     const subscription = contextLossSubscription
     webglAddon = undefined
@@ -265,21 +246,15 @@ export function createCrtRenderer(options: CrtRendererOptions) {
 
     try {
       subscription?.dispose()
-    } catch (error) {
-      diagnostic(
-        'xterm.webgl',
-        'failed to dispose WebGL context-loss subscription',
-        { reason, error },
-        'warn',
-      )
+    } catch {
+      // Continue disposing the renderer.
     }
     if (!addon) return
 
     try {
       addon.dispose()
-      diagnostic('xterm.webgl', 'WebGL addon disposed; DOM renderer active', { reason })
-    } catch (error) {
-      diagnostic('xterm.webgl', 'failed to dispose WebGL addon safely', { reason, error }, 'warn')
+    } catch {
+      // The fallback renderer can still take over.
     }
     onRendererChanged()
   }
@@ -291,9 +266,9 @@ export function createCrtRenderer(options: CrtRendererOptions) {
   return {
     clearAberration,
 
-    dispose(reason: string) {
+    dispose() {
       aberrationRenderSubscription?.dispose()
-      disposeWebgl(reason)
+      disposeWebgl()
     },
 
     enable() {
@@ -302,34 +277,14 @@ export function createCrtRenderer(options: CrtRendererOptions) {
         addon = new WebglAddon(true)
         webglAddon = addon
         contextLossSubscription = addon.onContextLoss(() => {
-          diagnostic(
-            'xterm.webgl',
-            'WebGL context lost; falling back to DOM renderer',
-            undefined,
-            'warn',
-          )
-          disposeWebgl('context loss')
+          disposeWebgl()
         })
         terminal.loadAddon(addon)
         onRendererChanged()
         if (CRT_EFFECTS_ENABLED) scheduleAberration()
-        diagnostic('xterm.webgl', 'WebGL renderer enabled', {
-          customGlyphs: terminal.options.customGlyphs,
-          preserveDrawingBuffer: true,
-        })
-      } catch (error) {
-        diagnostic(
-          'xterm.webgl',
-          'WebGL renderer initialization failed; continuing with DOM renderer',
-          error,
-          'warn',
-        )
-        if (webglAddon === addon) disposeWebgl('initialization failure')
+      } catch {
+        if (webglAddon === addon) disposeWebgl()
       }
-    },
-
-    rendererName() {
-      return webglAddon === undefined ? 'dom' : 'webgl'
     },
   }
 }

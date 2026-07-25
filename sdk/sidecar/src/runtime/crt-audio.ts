@@ -2,13 +2,12 @@ import { setupAudio, type Audio } from '@opentui/core'
 import { CRT_EFFECT_DEFAULTS, CRT_EFFECTS_ENABLED } from '../../../shared/terminal-config'
 import crtNoisePath from '../assets/crt-noise.mp3' with { type: 'file' }
 import crtTurnOnPath from '../assets/turn-on.mp3' with { type: 'file' }
-import { serializeError, type SidecarLog } from './diagnostics'
 
 const TURN_ON_COMPLETION_TIMEOUT_MS = 2_000
 const TURN_ON_POLL_INTERVAL_MS = 10
 const TURN_ON_VOLUME = 1
 
-export function createCrtAudio(log: SidecarLog) {
+export function createCrtAudio() {
   let activeAudio: Audio | undefined
 
   const stop = () => {
@@ -34,18 +33,13 @@ export function createCrtAudio(log: SidecarLog) {
 
   const start = async () => {
     if (activeAudio) return
-    if (!CRT_EFFECTS_ENABLED) {
-      log('CRT effects disabled by config')
-      return
-    }
+    if (!CRT_EFFECTS_ENABLED) return
 
     let audio: Audio | undefined
     try {
       audio = setupAudio({ autoStart: true })
       activeAudio = audio
-      audio.on('error', (error, context) => {
-        log('OpenTUI audio error', { context, error: serializeError(error) })
-      })
+      audio.on('error', () => {})
 
       const turnOnSound = await audio.loadSoundFile(crtTurnOnPath)
       if (activeAudio !== audio) return
@@ -53,15 +47,6 @@ export function createCrtAudio(log: SidecarLog) {
 
       const turnOnVoice = audio.play(turnOnSound, { volume: TURN_ON_VOLUME })
       if (turnOnVoice === null) throw new Error('OpenTUI could not play the CRT turn-on sound')
-
-      log('CRT turn-on sound started', {
-        path: crtTurnOnPath,
-        sound: turnOnSound,
-        voice: turnOnVoice,
-        volume: TURN_ON_VOLUME,
-        playbackStarted: audio.isStarted(),
-        mixerStarted: audio.isMixerStarted(),
-      })
 
       const [noiseSound, turnOnCompleted] = await Promise.all([
         audio.loadSoundFile(crtNoisePath),
@@ -72,7 +57,6 @@ export function createCrtAudio(log: SidecarLog) {
 
       if (!turnOnCompleted) {
         audio.stopVoice(turnOnVoice)
-        log('CRT turn-on completion could not be observed; starting noise after timeout')
       }
       audio.unloadSound(turnOnSound)
 
@@ -81,19 +65,9 @@ export function createCrtAudio(log: SidecarLog) {
         volume: CRT_EFFECT_DEFAULTS.soundVolume,
       })
       if (noiseVoice === null) throw new Error('OpenTUI could not start the CRT noise loop')
-
-      log('CRT noise loop started', {
-        path: crtNoisePath,
-        sound: noiseSound,
-        voice: noiseVoice,
-        volume: CRT_EFFECT_DEFAULTS.soundVolume,
-        playbackStarted: audio.isStarted(),
-        mixerStarted: audio.isMixerStarted(),
-      })
-    } catch (error) {
+    } catch {
       if (activeAudio === audio) stop()
       else audio?.dispose()
-      log('CRT audio initialization failed', serializeError(error))
     }
   }
 

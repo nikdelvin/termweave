@@ -5,11 +5,6 @@ import {
 } from '../../shared/terminal-config'
 
 export interface FrontendRuntime {
-  debugBuild: boolean
-  os: string
-  arch: string
-  executable: string
-  currentDirectory: string
   instanceId: string
   sidecarToken: string
   sidecarPort: number
@@ -23,7 +18,7 @@ export interface ReceivedSidecarHello {
   port: number
 }
 
-export type SidecarTextMessage = { type: 'diagnostic'; line: string } | SidecarExitRequested
+export type SidecarTextMessage = SidecarExitRequested
 
 export class SidecarIdentityError extends Error {
   override name = 'SidecarIdentityError'
@@ -85,9 +80,6 @@ export function parseSidecarAuthenticated(data: unknown): SidecarAuthenticated |
 export function parseSidecarTextMessage(data: string): SidecarTextMessage | undefined {
   try {
     const message = JSON.parse(data) as Record<string, unknown>
-    if (message.type === 'diagnostic' && typeof message.line === 'string') {
-      return { type: 'diagnostic', line: message.line }
-    }
     if (message.type === 'exit-requested') return { type: 'exit-requested' }
   } catch {
     // Non-JSON text remains valid terminal output.

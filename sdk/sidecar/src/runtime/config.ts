@@ -1,6 +1,5 @@
 export interface SidecarRuntimeConfig {
   clientToken: string
-  diagnosticsEnabled: boolean
   instanceId: string
   port: number
 }
@@ -23,7 +22,6 @@ export function readSidecarRuntimeConfig(
 
   return {
     clientToken,
-    diagnosticsEnabled: environment.TUI_SIDECAR_DIAGNOSTICS === '1',
     instanceId,
     port,
   }

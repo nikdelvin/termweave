@@ -9,7 +9,6 @@ export function validAppConfig(overrides: Partial<AppBuilderConfig> = {}): AppBu
     version: '1.2.3',
     authors: ['Example Author'],
     fontSize: 20,
-    showDiagnostics: false,
     backgroundColor: '#010416',
     foregroundColor: '#F59B5A',
     monitorOverlay: true,
