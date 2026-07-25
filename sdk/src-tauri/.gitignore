@@ -6,6 +6,9 @@
 # will have schema files for capabilities auto-completion
 /gen/schemas
 
+# Hide gen for now for desktop-only approach
+/gen/
+
 # Generated from the root app icon and sidecar source.
 /icons/
 /binaries/
