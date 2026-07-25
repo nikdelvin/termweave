@@ -8,7 +8,7 @@ export default tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ['src/**/*.{ts,tsx}', 'sdk/**/*.{ts,tsx}', 'scripts/**/*.ts'],
+    files: ['src/**/*.{ts,tsx}', 'sdk/**/*.{ts,tsx}', 'scripts/**/*.ts', 'tests/**/*.ts'],
     languageOptions: {
       parserOptions: {
         ecmaFeatures: { jsx: true },

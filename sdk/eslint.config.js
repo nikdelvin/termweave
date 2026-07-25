@@ -8,7 +8,13 @@ export default tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ['src/**/*.{ts,tsx}', 'scripts/**/*.ts', 'shared/**/*.ts', 'vite.config.ts'],
+    files: [
+      'src/**/*.{ts,tsx}',
+      'scripts/**/*.ts',
+      'shared/**/*.ts',
+      'tests/**/*.ts',
+      'vite.config.ts',
+    ],
     languageOptions: {
       parserOptions: {
         ecmaFeatures: { jsx: true },

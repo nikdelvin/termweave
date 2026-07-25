@@ -1,4 +1,5 @@
 import { resolve } from 'node:path'
+import { runCli, runRequired } from '../lib/process'
 
 type Audit = {
   command: string[]
@@ -7,11 +8,11 @@ type Audit = {
   stdout?: 'ignore' | 'inherit'
 }
 
-const SDK_ROOT = resolve(import.meta.dir, '..')
+const SDK_ROOT = resolve(import.meta.dir, '../..')
 const CARGO_MANIFEST_PATH = resolve(SDK_ROOT, 'src-tauri/Cargo.toml')
 const audits: Audit[] = [
   {
-    command: ['bun', 'scripts/update-dependencies.ts', '--check'],
+    command: ['bun', 'scripts/packages/check-packages.ts'],
     cwd: SDK_ROOT,
     label: 'Direct package versions',
   },
@@ -49,15 +50,7 @@ const audits: Audit[] = [
 
 async function runAudit({ command, cwd, label, stdout = 'inherit' }: Audit) {
   process.stdout.write(`Auditing ${label}...\n`)
-  const subprocess = Bun.spawn(command, {
-    cwd,
-    env: process.env,
-    stdin: 'inherit',
-    stdout,
-    stderr: 'inherit',
-  })
-  const exitCode = await subprocess.exited
-  if (exitCode !== 0) throw new Error(`${label} audit failed with exit code ${exitCode}`)
+  await runRequired(command, cwd, `${label} audit`, { stdout })
 }
 
 async function main() {
@@ -65,9 +58,4 @@ async function main() {
   process.stdout.write('All Tauri, sidecar, and project template package versions are locked.\n')
 }
 
-if (import.meta.main) {
-  void main().catch((error) => {
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
-    process.exitCode = 1
-  })
-}
+if (import.meta.main) runCli(main)

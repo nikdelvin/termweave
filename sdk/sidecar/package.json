@@ -5,11 +5,12 @@
   "private": true,
   "scripts": {
     "dev": "bun run --watch --no-clear-screen src/index.tsx",
-    "build": "bun scripts/build.ts",
-    "build:dev-launcher": "bun scripts/build-dev-launcher.ts",
+    "build": "bun scripts/build-sidecar.ts production",
+    "build:dev-launcher": "bun scripts/build-sidecar.ts development",
+    "test": "bun test ./tests/",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src sdk scripts",
-    "check": "bun run typecheck && bun run lint && bun run format:check",
+    "lint": "eslint src sdk scripts tests",
+    "check": "bun run test && bun run typecheck && bun run lint && bun run format:check",
     "format": "prettier --write --ignore-unknown .",
     "format:check": "prettier --check --ignore-unknown ."
   },

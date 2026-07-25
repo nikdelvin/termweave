@@ -1,17 +1,17 @@
 import { copyFile, cp, readFile, stat, writeFile } from 'node:fs/promises'
+import { basename, relative, resolve } from 'node:path'
 import { createInterface, type Interface } from 'node:readline/promises'
-import { basename, resolve } from 'node:path'
+import { parseAppConfig } from '../app/app-config'
+import { runCli, runRequired } from '../lib/process'
 import {
   setManagedSdkDependency,
   TERMWEAVE_SDK_DEPENDENCY,
   TERMWEAVE_SDK_TEMPLATE_DEPENDENCY,
-} from './managed-package'
+  type JsonObject,
+} from '../packages/managed-package'
+import { isSdkManagedSidecarSource } from './source-sync'
 
-type JsonObject = Record<string, unknown>
-
-const SDK_ROOT = resolve(import.meta.dir, '..')
-const RESERVED_SIDECAR_SOURCE = 'index.tsx'
-
+const SDK_ROOT = resolve(import.meta.dir, '../..')
 const SCAFFOLD_CONFLICTS = [
   'src',
   'app.config.json',
@@ -41,7 +41,7 @@ export function slugify(value: string) {
     .replace(/^[^a-z]+/, '')
 }
 
-function titleFromSlug(slug: string) {
+export function titleFromSlug(slug: string) {
   return slug
     .split('-')
     .filter(Boolean)
@@ -59,8 +59,8 @@ function getGitAuthor(projectRoot: string) {
 }
 
 async function appendIgnoreRules(projectRoot: string) {
-  const path = resolve(projectRoot, '.gitignore')
-  const existing = await readFile(path, 'utf8').catch(() => '')
+  const ignorePath = resolve(projectRoot, '.gitignore')
+  const existing = await readFile(ignorePath, 'utf8').catch(() => '')
   const rules = ['/termweave/', '/node_modules/', '/build/']
   const lines = new Set(existing.split(/\r?\n/))
   const additions = rules.filter((rule) => !lines.has(rule))
@@ -68,34 +68,38 @@ async function appendIgnoreRules(projectRoot: string) {
 
   const separator = existing.length === 0 || existing.endsWith('\n') ? '' : '\n'
   const heading = existing.includes('# Termweave') ? '' : '# Termweave\n'
-  await writeFile(path, `${existing}${separator}${heading}${additions.join('\n')}\n`)
+  await writeFile(ignorePath, `${existing}${separator}${heading}${additions.join('\n')}\n`)
 }
 
-function setLockfileWorkspaceName(content: string, packageName: string) {
+export function setLockfileWorkspaceName(content: string, packageName: string) {
   const rootWorkspaceName = /("workspaces"\s*:\s*\{\s*""\s*:\s*\{\s*"name"\s*:\s*)"(?:[^"\\]|\\.)*"/
   if (!rootWorkspaceName.test(content)) {
     throw new Error('Template bun.lock does not contain a root workspace name')
   }
-
   return content.replace(
     rootWorkspaceName,
     (_, prefix: string) => `${prefix}${JSON.stringify(packageName)}`,
   )
 }
 
-function setLockfileSdkDependency(content: string) {
+export function setLockfileSdkDependency(content: string) {
   if (!content.includes(TERMWEAVE_SDK_TEMPLATE_DEPENDENCY)) {
     throw new Error('Template bun.lock does not contain the managed Termweave SDK dependency')
   }
-
   return content.replaceAll(TERMWEAVE_SDK_TEMPLATE_DEPENDENCY, TERMWEAVE_SDK_DEPENDENCY)
 }
 
 export async function assertScaffoldAvailable(projectRoot: string) {
-  const conflicts: string[] = []
-  for (const path of SCAFFOLD_CONFLICTS) {
-    if (await exists(resolve(projectRoot, path))) conflicts.push(path)
-  }
+  const conflicts = (
+    await Promise.all(
+      SCAFFOLD_CONFLICTS.map(async (path) => ({
+        path,
+        exists: await exists(resolve(projectRoot, path)),
+      })),
+    )
+  )
+    .filter((entry) => entry.exists)
+    .map((entry) => entry.path)
 
   if (conflicts.length > 0) {
     throw new Error(
@@ -120,19 +124,21 @@ export async function createScaffold(
   const templateRoot = resolve(sdkRoot, 'template')
   const sidecarRoot = resolve(sdkRoot, 'sidecar')
   const sidecarSource = resolve(sidecarRoot, 'src')
-  await cp(sidecarSource, resolve(projectRoot, 'src'), {
-    recursive: true,
-    filter: (source) =>
-      source !== resolve(sidecarSource, RESERVED_SIDECAR_SOURCE) &&
-      basename(source) !== '.DS_Store',
-  })
-  await cp(resolve(templateRoot, 'patches'), resolve(projectRoot, 'patches'), { recursive: true })
-
-  for (const path of ['tsconfig.json', 'eslint.config.js', '.prettierignore']) {
-    await copyFile(resolve(templateRoot, path), resolve(projectRoot, path))
-  }
-  await copyFile(resolve(sidecarRoot, '.prettierrc.json'), resolve(projectRoot, '.prettierrc.json'))
-  await copyFile(resolve(sdkRoot, 'app.icon.png'), resolve(projectRoot, 'app.icon.png'))
+  await Promise.all([
+    cp(sidecarSource, resolve(projectRoot, 'src'), {
+      recursive: true,
+      filter: (source) =>
+        !isSdkManagedSidecarSource(relative(sidecarSource, source)) &&
+        basename(source) !== '.DS_Store',
+    }),
+    cp(resolve(templateRoot, 'patches'), resolve(projectRoot, 'patches'), { recursive: true }),
+    ...['tsconfig.json', 'eslint.config.js', '.prettierignore'].map((path) =>
+      copyFile(resolve(templateRoot, path), resolve(projectRoot, path)),
+    ),
+    copyFile(resolve(sidecarRoot, '.prettierrc.json'), resolve(projectRoot, '.prettierrc.json')),
+    copyFile(resolve(sdkRoot, 'app.icon.png'), resolve(projectRoot, 'app.icon.png')),
+    copyFile(resolve(sdkRoot, 'install.sh'), resolve(projectRoot, 'install.sh')),
+  ])
 
   const packageJson = JSON.parse(
     await readFile(resolve(templateRoot, 'package.json'), 'utf8'),
@@ -140,49 +146,28 @@ export async function createScaffold(
   packageJson.name = metadata.packageName
   packageJson.description = metadata.description
   setManagedSdkDependency(packageJson)
-  await writeFile(resolve(projectRoot, 'package.json'), `${JSON.stringify(packageJson, null, 2)}\n`)
-  const templateLock = await readFile(resolve(templateRoot, 'bun.lock'), 'utf8')
-  await writeFile(
-    resolve(projectRoot, 'bun.lock'),
-    setLockfileSdkDependency(setLockfileWorkspaceName(templateLock, metadata.packageName)),
-  )
 
+  const templateConfig = parseAppConfig(
+    JSON.parse(await readFile(resolve(templateRoot, 'app.config.json'), 'utf8')) as unknown,
+  )
   const appConfig = {
+    ...templateConfig,
     name: metadata.name,
     description: metadata.description,
     packageName: metadata.packageName,
     bundleIdentifier: metadata.bundleIdentifier,
-    version: '0.1.0',
     authors: [metadata.author],
-    windowWidth: 1920,
-    windowHeight: 1080,
-    fontSize: 12,
-    showDiagnostics: false,
-    backgroundColor: '#010416',
-    foregroundColor: '#F59B5A',
-    monitorOverlay: true,
-    crtEffects: true,
-    icon: 'app.icon.png',
   }
-  await writeFile(
-    resolve(projectRoot, 'app.config.json'),
-    `${JSON.stringify(appConfig, null, 2)}\n`,
-  )
-
-  await copyFile(resolve(sdkRoot, 'install.sh'), resolve(projectRoot, 'install.sh'))
-  await appendIgnoreRules(projectRoot)
-}
-
-async function runRequired(command: string[], cwd: string, description: string) {
-  const subprocess = Bun.spawn(command, {
-    cwd,
-    env: process.env,
-    stdin: 'inherit',
-    stdout: 'inherit',
-    stderr: 'inherit',
-  })
-  const exitCode = await subprocess.exited
-  if (exitCode !== 0) throw new Error(`${description} failed with exit code ${exitCode}`)
+  const templateLock = await readFile(resolve(templateRoot, 'bun.lock'), 'utf8')
+  await Promise.all([
+    writeFile(resolve(projectRoot, 'package.json'), `${JSON.stringify(packageJson, null, 2)}\n`),
+    writeFile(
+      resolve(projectRoot, 'bun.lock'),
+      setLockfileSdkDependency(setLockfileWorkspaceName(templateLock, metadata.packageName)),
+    ),
+    writeFile(resolve(projectRoot, 'app.config.json'), `${JSON.stringify(appConfig, null, 2)}\n`),
+    appendIgnoreRules(projectRoot),
+  ])
 }
 
 async function ask(terminal: Interface, question: string, defaultValue: string) {
@@ -192,8 +177,7 @@ async function ask(terminal: Interface, question: string, defaultValue: string) 
 
 async function main() {
   const projectRoot = resolve(process.argv[2] ?? process.cwd())
-  await assertScaffoldAvailable(projectRoot)
-
+  const gitAuthor = getGitAuthor(projectRoot) || 'awesome-dev'
   const terminal = createInterface({ input: process.stdin, output: process.stdout })
   let packageName: string
   let name: string
@@ -209,20 +193,16 @@ async function main() {
     }
 
     name = await ask(terminal, 'Application name', titleFromSlug(packageName))
-    bundleIdentifier = await ask(
-      terminal,
-      'Bundle identifier',
-      `com.${getGitAuthor(projectRoot) || 'awesome-dev'}.${packageName}`,
-    )
+    bundleIdentifier = await ask(terminal, 'Bundle identifier', `com.${gitAuthor}.${packageName}`)
     if (!/^[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+$/.test(bundleIdentifier)) {
       throw new Error('Bundle identifier must be a reverse-domain identifier')
     }
 
-    author = await ask(terminal, 'Author', getGitAuthor(projectRoot) || 'awesome-dev')
+    author = await ask(terminal, 'Author', gitAuthor)
     description = await ask(
       terminal,
       'Description',
-      `A terminal desktop application built with Termweave.`,
+      'A terminal desktop application built with Termweave.',
     )
   } finally {
     terminal.close()
@@ -235,7 +215,6 @@ async function main() {
     author,
     description,
   })
-
   await runRequired(
     ['bun', 'install', '--frozen-lockfile'],
     projectRoot,
@@ -253,7 +232,7 @@ async function main() {
     'Sidecar dependency installation',
   )
   await runRequired(
-    ['bun', resolve(SDK_ROOT, 'scripts/project.ts'), 'sync'],
+    ['bun', resolve(SDK_ROOT, 'scripts/project/manage-project.ts'), 'sync'],
     projectRoot,
     'Project synchronization',
   )
@@ -264,9 +243,4 @@ async function main() {
   )
 }
 
-if (import.meta.main) {
-  void main().catch((error) => {
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
-    process.exitCode = 1
-  })
-}
+if (import.meta.main) runCli(main)

@@ -1,5 +1,8 @@
 export const TERMINAL_FRAME_HEADER_BYTES = Uint32Array.BYTES_PER_ELEMENT
 export const MAX_TERMINAL_FRAME_ID = 0xffffffff
+// The user project lives outside the managed SDK, so the compiled development
+// launcher cannot rely on Bun's watcher to observe its source files directly.
+export const SIDECAR_RESTART_SIGNAL = '.termweave-sidecar-restart'
 
 export type SidecarFrameAcknowledgement = {
   type: 'frame-ack'

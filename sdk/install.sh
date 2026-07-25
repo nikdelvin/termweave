@@ -51,7 +51,7 @@ done
 
 git clone --branch "$repository_branch" --single-branch "$repository_url" "$project_root/termweave"
 mv "$project_root/termweave/.git" "$project_root/termweave/.termweave-git"
-if ! bun "$project_root/termweave/sdk/scripts/install-project.ts" "$project_root"; then
+if ! bun "$project_root/termweave/sdk/scripts/project/install-project.ts" "$project_root"; then
   echo "Termweave installation did not finish." >&2
   echo "Fix the reported error, then retry in a new empty project directory." >&2
   exit 1

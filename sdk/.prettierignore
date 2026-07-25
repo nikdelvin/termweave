@@ -8,5 +8,4 @@ src-tauri/icons/
 src-tauri/target/
 bun.lock
 .termweave-active.json
-.termweave-project-files.json
 .termweave-sidecar-restart

@@ -14,7 +14,6 @@ dist-ssr
 *.tsbuildinfo
 .eslintcache
 .termweave-active.json
-.termweave-project-files.json
 .termweave-sidecar-restart
 
 # Editor directories and files

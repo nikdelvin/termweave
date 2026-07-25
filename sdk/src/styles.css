@@ -94,7 +94,6 @@ body,
 
 #app {
   position: relative;
-  overflow: hidden;
   background: var(--background-color);
 }
 
@@ -271,21 +270,21 @@ body,
     hue-rotate(var(--monitor-bezel-hue));
 }
 
-#monitor-overlay {
+#monitor-overlay,
+#monitor-surround {
   position: absolute;
-  z-index: 3;
   inset: 0;
-  background: url('./assets/monitor-overlay.webp') center / 100% 100% no-repeat;
   pointer-events: none;
   user-select: none;
 }
 
+#monitor-overlay {
+  z-index: 3;
+  background: url('./assets/monitor-overlay.webp') center / 100% 100% no-repeat;
+}
+
 #monitor-surround {
-  position: absolute;
   z-index: 0;
-  inset: 0;
-  pointer-events: none;
-  user-select: none;
 }
 
 .monitor-copy {

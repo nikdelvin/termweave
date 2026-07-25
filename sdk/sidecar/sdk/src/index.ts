@@ -9,9 +9,9 @@ export {
   type PixelImagePreloadOptions,
   type PixelRendererDimension,
   type PixelRendererProps,
-} from './PixelRenderer'
+} from './components/PixelRenderer'
 export {
   getTermweaveConfig,
   type TermweaveConfig,
   type TermweaveTerminalGrid,
-} from './runtime-config'
+} from './helpers/runtime-config'

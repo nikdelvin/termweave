@@ -1,21 +1,12 @@
-import {
-  RGBA,
-  type BoxRenderable,
-  type OptimizedBuffer,
-  type RenderableOptions,
-} from '@opentui/core'
 import { createJimp } from '@jimp/core'
 import jpeg from '@jimp/js-jpeg'
 import png from '@jimp/js-png'
 import { decompressFrame, parseGIF, type ParsedFrame } from 'gifuct-js'
 import { fileURLToPath } from 'node:url'
-import { createEffect, createSignal, onCleanup, onMount, Show, type ParentProps } from 'solid-js'
 
-const FULL_BLOCK = 0x2588
+export const FULL_BLOCK = 0x2588
 const SOURCE_PIXELS_PER_CELL_X = 2
 const SOURCE_PIXELS_PER_CELL_Y = 2
-const ERROR_LENGTH = 220
-const GIF_FRAME_DELAY_MS = 150
 const IMAGE_CACHE_LIMIT = 8
 const StillImage = createJimp({ formats: [jpeg, png] })
 const QUADRANT_GLYPHS = new Uint32Array([
@@ -37,26 +28,18 @@ const QUADRANT_GLYPHS = new Uint32Array([
   FULL_BLOCK, // 1111
 ])
 
-export type PixelRendererDimension = NonNullable<RenderableOptions['width']>
-
-export interface PixelRendererProps {
-  uri: string
-  width?: PixelRendererDimension
-  height?: PixelRendererDimension
-}
-
 export interface PixelImagePreloadOptions {
   uri: string
   width: number
   height: number
 }
 
-interface Dimensions {
+export interface Dimensions {
   height: number
   width: number
 }
 
-interface Frame extends Dimensions {
+export interface Frame extends Dimensions {
   data: Uint8Array
 }
 
@@ -65,13 +48,13 @@ interface GifFrameDimensions extends Dimensions {
   top: number
 }
 
-interface ImageCells extends Dimensions {
+export interface ImageCells extends Dimensions {
   backgrounds: Uint8Array
   foregrounds: Uint8Array
   glyphs: Uint32Array
 }
 
-interface ImageCacheEntry {
+export interface ImageCacheEntry {
   complete: boolean
   images: ImageCells[]
   listeners: Set<(image: ImageCells) => void>
@@ -83,22 +66,7 @@ let retainedPreloadKeys = new Set<string>()
 
 type Rgb = readonly [red: number, green: number, blue: number]
 
-interface Viewport extends Dimensions {
-  x: number
-  y: number
-}
-
-function messageFrom(error: unknown) {
-  return error instanceof Error ? error.message : String(error)
-}
-
-function clippedError(message: string) {
-  const normalized = message.trim().replaceAll(/\s+/g, ' ')
-  if (normalized.length <= ERROR_LENGTH) return normalized
-  return `${normalized.slice(0, ERROR_LENGTH - 1)}…`
-}
-
-function configuredBackgroundColor() {
+export function configuredBackgroundColor() {
   const color = process.env.TERMWEAVE_BACKGROUND_COLOR?.trim()
   const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(color ?? '')
   if (!color || !match) {
@@ -119,20 +87,18 @@ function remoteUri(uri: string) {
   return /^https?:\/\//i.test(uri)
 }
 
-async function readImageBytes(uri: string, signal: AbortSignal) {
+async function readImageBytes(uri: string) {
   if (remoteUri(uri)) {
-    const response = await fetch(uri, { signal })
+    const response = await fetch(uri)
     if (!response.ok) throw new Error(`Image request failed with HTTP ${response.status}.`)
     return new Uint8Array(await response.arrayBuffer())
   }
 
   const path = uri.startsWith('file:') ? fileURLToPath(uri) : uri
-  const bytes = await Bun.file(path).bytes()
-  signal.throwIfAborted()
-  return bytes
+  return Bun.file(path).bytes()
 }
 
-function fittedDimensions(source: Dimensions, maximum: Dimensions): Dimensions {
+export function fittedDimensions(source: Dimensions, maximum: Dimensions): Dimensions {
   const scale = Math.min(maximum.width / source.width, maximum.height / source.height)
   const width = Math.max(
     SOURCE_PIXELS_PER_CELL_X,
@@ -203,7 +169,7 @@ function drawGifPatch(data: Uint8Array, canvas: Dimensions, frame: ParsedFrame) 
   }
 }
 
-function resizeFrame(source: Frame, target: Dimensions): Frame {
+export function resizeFrame(source: Frame, target: Dimensions): Frame {
   if (source.width === target.width && source.height === target.height) {
     return { ...target, data: source.data.slice() }
   }
@@ -266,7 +232,6 @@ function resizeFrame(source: Frame, target: Dimensions): Frame {
 function gifFrameIterator(
   bytes: Uint8Array,
   maximum: Dimensions,
-  signal: AbortSignal,
 ): IterableIterator<Frame> | undefined {
   if (!gifSignature(bytes)) return undefined
 
@@ -288,7 +253,6 @@ function gifFrameIterator(
     let frameCount = 0
 
     for (const rawFrame of gif.frames) {
-      signal.throwIfAborted()
       if (!('image' in rawFrame)) continue
 
       const frame = decompressFrame(rawFrame, gif.gct, true)
@@ -308,9 +272,8 @@ function gifFrameIterator(
   })()
 }
 
-async function loadStillFrame(bytes: Uint8Array, maximum: Dimensions, signal: AbortSignal) {
+async function loadStillFrame(bytes: Uint8Array, maximum: Dimensions) {
   const image = await StillImage.fromBuffer(copiedArrayBuffer(bytes))
-  signal.throwIfAborted()
 
   const source = { width: image.bitmap.width, height: image.bitmap.height }
   if (
@@ -329,15 +292,15 @@ async function loadStillFrame(bytes: Uint8Array, maximum: Dimensions, signal: Ab
   )
 }
 
-async function* loadImageFrames(uri: string, maximum: Dimensions, signal: AbortSignal) {
-  const bytes = await readImageBytes(uri, signal)
-  const gifFrames = gifFrameIterator(bytes, maximum, signal)
+async function* loadImageFrames(uri: string, maximum: Dimensions) {
+  const bytes = await readImageBytes(uri)
+  const gifFrames = gifFrameIterator(bytes, maximum)
   if (gifFrames) {
     yield* gifFrames
     return
   }
 
-  yield await loadStillFrame(bytes, maximum, signal)
+  yield await loadStillFrame(bytes, maximum)
 }
 
 function imageCacheKey(uri: string, maximum: Dimensions, background: Rgb) {
@@ -383,7 +346,7 @@ function allQuadrantsMatch(colors: Uint16Array) {
   return true
 }
 
-function fitQuadrants(
+export function fitQuadrants(
   colors: Uint16Array,
   foregroundChannels: Uint16Array,
   backgroundChannels: Uint16Array,
@@ -463,7 +426,7 @@ function fitQuadrants(
   return bestMask
 }
 
-function createImageCells(frame: Frame, background: Rgb): ImageCells {
+export function createImageCells(frame: Frame, background: Rgb): ImageCells {
   const width = Math.floor(frame.width / SOURCE_PIXELS_PER_CELL_X)
   const height = Math.floor(frame.height / SOURCE_PIXELS_PER_CELL_Y)
   const glyphs = new Uint32Array(width * height)
@@ -524,10 +487,9 @@ function getImageEntry(uri: string, maximum: Dimensions, background: Rgb) {
     listeners: new Set(),
     promise: Promise.resolve([]),
   }
-  const signal = new AbortController().signal
 
   entry.promise = (async () => {
-    for await (const frame of loadImageFrames(uri, maximum, signal)) {
+    for await (const frame of loadImageFrames(uri, maximum)) {
       const image = createImageCells(frame, background)
       entry.images.push(image)
       for (const listener of entry.listeners) listener(image)
@@ -556,7 +518,7 @@ function preloadDimension(value: number, name: string) {
   return Math.floor(value)
 }
 
-function getPreloadEntry(options: PixelImagePreloadOptions, background: Rgb) {
+export function getPixelImageEntry(options: PixelImagePreloadOptions, background: Rgb) {
   const uri = options.uri.trim()
   if (!uri) throw new Error('Pixel image URI is required.')
 
@@ -574,199 +536,15 @@ function getPreloadEntry(options: PixelImagePreloadOptions, background: Rgb) {
 }
 
 export async function preloadPixelImage(options: PixelImagePreloadOptions) {
-  const { entry } = getPreloadEntry(options, configuredBackgroundColor().channels)
+  const { entry } = getPixelImageEntry(options, configuredBackgroundColor().channels)
   await entry.promise
 }
 
 export async function preloadPixelImages(options: readonly PixelImagePreloadOptions[]) {
   const background = configuredBackgroundColor().channels
-  const preloads = options.map((option) => getPreloadEntry(option, background))
+  const preloads = options.map((option) => getPixelImageEntry(option, background))
 
   retainedPreloadKeys = new Set(preloads.map(({ key }) => key))
   trimImageCache()
   await Promise.all(preloads.map(({ entry }) => entry.promise))
-}
-
-function centeredViewport(container: Dimensions, image: Dimensions): Viewport {
-  const width = Math.min(container.width, image.width)
-  const height = Math.min(container.height, image.height)
-
-  return {
-    width,
-    height,
-    x: Math.floor((container.width - width) / 2),
-    y: Math.floor((container.height - height) / 2),
-  }
-}
-
-function setRgb(color: RGBA, channels: Uint8Array, offset: number) {
-  color.buffer[0] = (color.buffer[0]! & 0xff00) | (channels[offset] ?? 0)
-  color.buffer[1] = (color.buffer[1]! & 0xff00) | (channels[offset + 1] ?? 0)
-  color.buffer[2] = (color.buffer[2]! & 0xff00) | (channels[offset + 2] ?? 0)
-}
-
-function paintImage(
-  buffer: OptimizedBuffer,
-  renderable: BoxRenderable,
-  image: ImageCells,
-  container: Dimensions,
-) {
-  const viewport = centeredViewport(container, image)
-  const foreground = RGBA.fromInts(0, 0, 0)
-  const background = RGBA.fromInts(0, 0, 0)
-
-  for (let y = 0; y < viewport.height; y += 1) {
-    for (let x = 0; x < viewport.width; x += 1) {
-      const cellOffset = y * image.width + x
-      const colorOffset = cellOffset * 3
-      setRgb(foreground, image.foregrounds, colorOffset)
-      setRgb(background, image.backgrounds, colorOffset)
-      buffer.drawChar(
-        image.glyphs[cellOffset] ?? FULL_BLOCK,
-        renderable.screenX + viewport.x + x,
-        renderable.screenY + viewport.y + y,
-        foreground,
-        background,
-      )
-    }
-  }
-}
-
-export function PixelRenderer(props: ParentProps<PixelRendererProps>) {
-  let surface: BoxRenderable | undefined
-  let currentImage: ImageCells | undefined
-  const background = configuredBackgroundColor()
-  const [container, setContainer] = createSignal<Dimensions>({ width: 0, height: 0 })
-  const [error, setError] = createSignal('')
-
-  const updateDimensions = () => {
-    if (!surface) return
-
-    const next = {
-      width: Math.max(0, Math.floor(surface.width)),
-      height: Math.max(0, Math.floor(surface.height)),
-    }
-    setContainer((current) =>
-      current.width === next.width && current.height === next.height ? current : next,
-    )
-  }
-
-  createEffect(() => {
-    const uri = props.uri.trim()
-    const target = container()
-    let disposed = false
-    let frameTimer: ReturnType<typeof setTimeout> | undefined
-    let unsubscribe = () => {}
-
-    const startPlayback = (images: readonly ImageCells[]) => {
-      if (disposed || images.length === 0) return
-
-      let frameIndex = 0
-      currentImage = images[frameIndex]
-      surface?.requestRender()
-
-      const advanceFrame = () => {
-        if (disposed || images.length < 2) return
-        frameIndex = (frameIndex + 1) % images.length
-        currentImage = images[frameIndex]
-        surface?.requestRender()
-        frameTimer = setTimeout(advanceFrame, GIF_FRAME_DELAY_MS)
-      }
-
-      if (images.length > 1) frameTimer = setTimeout(advanceFrame, GIF_FRAME_DELAY_MS)
-    }
-
-    currentImage = undefined
-    setError('')
-    surface?.requestRender()
-
-    onCleanup(() => {
-      disposed = true
-      if (frameTimer) clearTimeout(frameTimer)
-      unsubscribe()
-    })
-
-    if (!uri || target.width === 0 || target.height === 0) return
-
-    const maximum = {
-      width: target.width * SOURCE_PIXELS_PER_CELL_X,
-      height: target.height * SOURCE_PIXELS_PER_CELL_Y,
-    }
-    const entry = getImageEntry(uri, maximum, background.channels)
-    if (entry.complete) {
-      startPlayback(entry.images)
-      return
-    }
-
-    const showFirstImage = (image: ImageCells) => {
-      if (disposed || currentImage) return
-      currentImage = image
-      surface?.requestRender()
-    }
-    const firstImage = entry.images[0]
-    if (firstImage) showFirstImage(firstImage)
-    entry.listeners.add(showFirstImage)
-    unsubscribe = () => entry.listeners.delete(showFirstImage)
-
-    void entry.promise
-      .then((images) => {
-        unsubscribe()
-        if (!disposed) startPlayback(images)
-      })
-      .catch((loadError) => {
-        if (!disposed) {
-          setError(clippedError(messageFrom(loadError)))
-        }
-      })
-  })
-
-  onMount(updateDimensions)
-
-  onCleanup(() => {
-    currentImage = undefined
-  })
-
-  const fillsAvailableSpace =
-    (props.width ?? 'auto') === 'auto' && (props.height ?? 'auto') === 'auto'
-
-  return (
-    <box
-      width={props.width ?? 'auto'}
-      height={props.height ?? 'auto'}
-      flexGrow={fillsAvailableSpace ? 1 : 0}
-      backgroundColor={background.color}
-      overflow="hidden"
-    >
-      <box
-        ref={surface}
-        position="absolute"
-        top={0}
-        left={0}
-        width="100%"
-        height="100%"
-        backgroundColor={background.color}
-        onSizeChange={updateDimensions}
-        renderAfter={(buffer) => {
-          if (surface && currentImage) paintImage(buffer, surface, currentImage, container())
-        }}
-      />
-
-      <Show when={Boolean(error())}>
-        <box
-          position="absolute"
-          top={0}
-          left={0}
-          width="100%"
-          minHeight={3}
-          padding={1}
-          backgroundColor="#351B19"
-          zIndex={2}
-        >
-          <text fg="#E9E3D2">PixelRenderer: {error()}</text>
-        </box>
-      </Show>
-
-      {props.children}
-    </box>
-  )
 }

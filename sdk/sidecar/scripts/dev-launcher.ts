@@ -1,11 +1,13 @@
 import { watch } from 'node:fs'
+import { rm } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import { SIDECAR_RESTART_SIGNAL } from '../../shared/terminal-protocol'
 
 declare const __TERMWEAVE_SIDECAR_ROOT__: string
 
 const sidecarRoot = __TERMWEAVE_SIDECAR_ROOT__
 const sdkRoot = resolve(sidecarRoot, '..')
-const restartSignal = '.termweave-sidecar-restart'
+const restartSignalPath = resolve(sdkRoot, SIDECAR_RESTART_SIGNAL)
 const restartDelayMs = 50
 const ownerProcessId = process.ppid
 
@@ -14,6 +16,8 @@ let restarting = false
 let restartQueued = false
 let restartTimer: ReturnType<typeof setTimeout> | undefined
 let sidecarProcess: ReturnType<typeof Bun.spawn> | undefined
+
+await rm(restartSignalPath, { force: true })
 
 function startSidecar() {
   const subprocess = Bun.spawn(['bun', 'run', 'src/index.tsx'], {
@@ -64,7 +68,7 @@ async function restartSidecar() {
 }
 
 const signalWatcher = watch(sdkRoot, (_event, filename) => {
-  if (!filename || String(filename) !== restartSignal) return
+  if (!filename || String(filename) !== SIDECAR_RESTART_SIGNAL) return
   if (restartTimer) clearTimeout(restartTimer)
   restartTimer = setTimeout(() => void restartSidecar(), restartDelayMs)
 })
@@ -92,6 +96,7 @@ async function stop(signal: NodeJS.Signals) {
   clearInterval(ownerProcessWatchdog)
   signalWatcher.close()
   await stopSidecar(signal)
+  await rm(restartSignalPath, { force: true })
   finishShutdown?.(0)
 }
 

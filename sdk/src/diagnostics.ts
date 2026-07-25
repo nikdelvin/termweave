@@ -3,11 +3,10 @@ import { SHOW_DIAGNOSTICS } from '../shared/terminal-config'
 export type DiagnosticLevel = 'info' | 'warn' | 'error'
 
 const startedAt = performance.now()
-const maxLines = 1000
+const MAX_LINES = 1000
 const lines: string[] = []
 const reportedCspViolations = new Set<string>()
 const diagnosticsElement = document.querySelector<HTMLElement>('#diagnostics')
-const diagnosticsEnabled = SHOW_DIAGNOSTICS
 
 if (SHOW_DIAGNOSTICS) {
   diagnosticsElement?.removeAttribute('hidden')
@@ -60,7 +59,7 @@ function serialize(value: unknown): string {
 
 function append(line: string) {
   lines.push(line)
-  if (lines.length > maxLines) lines.splice(0, lines.length - maxLines)
+  if (lines.length > MAX_LINES) lines.splice(0, lines.length - MAX_LINES)
 
   if (logElement) {
     logElement.textContent = lines.join('\n')
@@ -71,13 +70,13 @@ function append(line: string) {
 }
 
 function writeToConsole(level: DiagnosticLevel, line: string) {
-  if (level === 'error') {
-    nativeConsole.error(line)
-  } else if (level === 'warn') {
-    nativeConsole.warn(line)
-  } else {
-    nativeConsole.log(line)
-  }
+  nativeConsole[level === 'info' ? 'log' : level](line)
+}
+
+function formattedLine(level: DiagnosticLevel, scope: string, message: string, details?: unknown) {
+  const elapsed = (performance.now() - startedAt).toFixed(1).padStart(8)
+  const suffix = details === undefined ? '' : ` ${serialize(details)}`
+  return `[${elapsed}ms] [${level.toUpperCase()}] [${scope}] ${message}${suffix}`
 }
 
 export function diagnostic(
@@ -86,12 +85,9 @@ export function diagnostic(
   details?: unknown,
   level: DiagnosticLevel = 'info',
 ) {
-  if (!diagnosticsEnabled) return
+  if (!SHOW_DIAGNOSTICS) return
 
-  const elapsed = (performance.now() - startedAt).toFixed(1).padStart(8)
-  const suffix = details === undefined ? '' : ` ${serialize(details)}`
-  const line = `[${elapsed}ms] [${level.toUpperCase()}] [${scope}] ${message}${suffix}`
-
+  const line = formattedLine(level, scope, message, details)
   append(line)
   writeToConsole(level, line)
 }
@@ -101,13 +97,11 @@ function captureConsole(
   nativeMethod: (...values: unknown[]) => void,
   values: unknown[],
 ) {
-  const elapsed = (performance.now() - startedAt).toFixed(1).padStart(8)
-  const renderedValues = values.map(serialize).join(' ')
-  append(`[${elapsed}ms] [${level.toUpperCase()}] [console] ${renderedValues}`)
+  append(formattedLine(level, 'console', values.map(serialize).join(' ')))
   nativeMethod(...values)
 }
 
-if (diagnosticsEnabled) {
+if (SHOW_DIAGNOSTICS) {
   console.log = (...values: unknown[]) => {
     captureConsole('info', nativeConsole.log, values)
   }

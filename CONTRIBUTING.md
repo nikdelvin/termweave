@@ -8,13 +8,12 @@ improvements are all welcome.
 Development currently requires macOS, [Bun 1.3+](https://bun.sh/), a stable
 [Rust toolchain](https://www.rust-lang.org/tools/install), and the Xcode Command Line Tools.
 
-Clone the repository and install both workspaces:
+Clone the repository and install the workspaces:
 
 ```sh
 git clone https://github.com/nikdelvin/termweave.git
 cd termweave/sdk
-bun install --frozen-lockfile
-bun install --cwd sidecar --frozen-lockfile
+bun run deps:install
 ```
 
 Run the development app:
@@ -25,27 +24,29 @@ bun run app:dev
 
 ## 🗺️ Find your way around
 
-| Path                 | What lives there                                 |
-| -------------------- | ------------------------------------------------ |
-| `src/`               | xterm.js renderer and webview code.              |
-| `sidecar/`           | OpenTUI + Solid application and sidecar tooling. |
-| `src-tauri/`         | Native Tauri application.                        |
-| `scripts/`           | Configuration, build, install, and update tools. |
-| `template/`         | Files generated for a new Termweave application. |
+| Path         | What lives there                                      |
+| ------------ | ----------------------------------------------------- |
+| `src/`       | Webview entry point, diagnostics, and UI runtime.     |
+| `sidecar/`   | OpenTUI app, public SDK package, and sidecar tooling. |
+| `src-tauri/` | Native Tauri application.                             |
+| `scripts/`   | App, package, and project tooling.                    |
+| `shared/`    | Shared terminal configuration and protocol.           |
+| `template/`  | Standalone project package and configuration.         |
 
 ## ✅ Check your work
 
 Run the standard checks before opening a pull request:
 
 ```sh
+bun run app:format
 bun run app:check
-bun scripts/audit-packages.ts
-bun run build
+bun run deps:audit
+bun run app:build
 sh -n install.sh
-cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 ```
 
 Use `bun run app:format` to format the SDK and sidecar.
+Tests live under `tests/` in both workspaces and run as part of `app:check`.
 
 For native or sidecar lifecycle changes, also verify:
 
@@ -57,32 +58,29 @@ For native or sidecar lifecycle changes, also verify:
 ## 🧩 Keep changes focused
 
 - Preserve the named `App` export used by `sidecar/src/index.tsx`.
+- Keep `sidecar/src/index.tsx` and `sidecar/src/runtime/` SDK-only; they are not copied into
+  standalone projects.
+- Keep the project watcher and development launcher separate. Standalone source lives outside the
+  SDK checkout, so Bun's sidecar watch mode cannot see it.
 - Change product metadata in `app.config.json`; generated Tauri, Cargo, HTML, and CSS values are
-  synchronized by `scripts/sync-app-config.ts`.
+  synchronized by `scripts/app/sync-app-config.ts`.
 - Keep direct Bun and Cargo dependency versions exact.
 - Guard and document platform-specific behavior.
 - Update the README when public commands, requirements, configuration, or layout change.
 - Do not commit generated output, dependency directories, or synchronized standalone-project
   files.
 
-## 📦 Update dependencies
+## 📦 Audit dependencies
 
-Preview compatible dependency updates before applying them:
-
-```sh
-bun run sdk:deps:update --dry-run
-bun run sdk:deps:update
-```
-
-Use `--latest` only when intentionally reviewing breaking releases. Audit the resulting lockfiles
-with:
+Check direct dependency versions, lockfiles, and known vulnerabilities with:
 
 ```sh
 cargo install cargo-audit --locked
-bun run sdk:deps:audit
+bun run deps:audit
 ```
 
-Review upstream changelogs and test the native lifecycle before committing dependency updates.
+When updating dependencies manually, review upstream changelogs and test the native lifecycle
+before committing the changes.
 
 ## 📬 Open a pull request
 

@@ -1,0 +1,17 @@
+{
+  "name": "Termweave App",
+  "description": "A terminal desktop application built with Termweave.",
+  "packageName": "termweave-app",
+  "bundleIdentifier": "com.awesome-dev.termweave-app",
+  "version": "0.1.0",
+  "authors": ["awesome-dev"],
+  "windowWidth": 1920,
+  "windowHeight": 1080,
+  "fontSize": 12,
+  "showDiagnostics": false,
+  "backgroundColor": "#010416",
+  "foregroundColor": "#F59B5A",
+  "monitorOverlay": true,
+  "crtEffects": true,
+  "icon": "app.icon.png"
+}
