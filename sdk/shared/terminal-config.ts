@@ -17,11 +17,16 @@ export const CRT_EFFECT_DEFAULTS = {
   sweepLineVisibility: 0.3,
 } as const
 
+export const TERMINAL_SURFACE = {
+  width: 1280,
+  height: 720,
+} as const
+
 export const TERMINAL_GRID = {
-  cols: appConfig.windowWidth / appConfig.fontSize,
-  rows: appConfig.windowHeight / appConfig.fontSize,
-  targetWidth: appConfig.windowWidth,
-  targetHeight: appConfig.windowHeight,
+  cols: TERMINAL_SURFACE.width / appConfig.fontSize,
+  rows: TERMINAL_SURFACE.height / appConfig.fontSize,
+  targetWidth: TERMINAL_SURFACE.width,
+  targetHeight: TERMINAL_SURFACE.height,
   fontSize: appConfig.fontSize,
 } as const
 

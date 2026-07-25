@@ -1,6 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { relative, resolve } from 'node:path'
 import { format, resolveConfig } from 'prettier'
+import { TERMINAL_SURFACE } from '../../shared/terminal-config'
 import { loadAppConfig } from './app-config'
 import { runCli } from '../lib/process'
 
@@ -59,8 +60,8 @@ export function replaceBunRootWorkspaceName(content: string, packageName: string
 
 export async function syncAppConfig(root = SDK_ROOT) {
   const { config, configPath } = await loadAppConfig(root)
-  const cols = config.windowWidth / config.fontSize
-  const rows = config.windowHeight / config.fontSize
+  const cols = TERMINAL_SURFACE.width / config.fontSize
+  const rows = TERMINAL_SURFACE.height / config.fontSize
   const crateName = `${config.packageName.replaceAll('-', '_')}_lib`
 
   const tauriPath = resolve(root, 'src-tauri/tauri.conf.json')
@@ -77,8 +78,8 @@ export async function syncAppConfig(root = SDK_ROOT) {
   tauriConfig.identifier = config.bundleIdentifier
   Object.assign(mainWindow, {
     title: config.name,
-    width: config.windowWidth,
-    height: config.windowHeight,
+    width: TERMINAL_SURFACE.width,
+    height: TERMINAL_SURFACE.height,
     backgroundColor: config.backgroundColor,
   })
 
@@ -190,7 +191,8 @@ export async function syncAppConfig(root = SDK_ROOT) {
 
   const status = changed.length === 0 ? 'already synchronized' : `updated ${changed.join(', ')}`
   process.stdout.write(
-    `App config ${status}; ${config.fontSize}px -> ${cols}x${rows} at ${config.windowWidth}x${config.windowHeight}.\n`,
+    `App config ${status}; ${config.fontSize}px -> ${cols}x${rows} on the fixed ` +
+      `${TERMINAL_SURFACE.width}x${TERMINAL_SURFACE.height} terminal surface.\n`,
   )
 
   return changed

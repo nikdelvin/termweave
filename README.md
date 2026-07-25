@@ -60,7 +60,7 @@ The main places to edit are:
 
 1. `src/routes/` — build the starter Home and Demo screens.
 2. `src/routes.ts` and `src/App.tsx` — configure routing and the application shell.
-3. `app.config.json` — set the app name, colors, window size, CRT effects, and bundle metadata.
+3. `app.config.json` — set the app name, colors, CRT effects, and bundle metadata.
 4. `app.icon.png` — replace the default app icon.
 
 Changes under `src/` reload while the app is running. Restart `bun run dev` after changing the

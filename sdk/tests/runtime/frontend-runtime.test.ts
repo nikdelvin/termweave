@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { SIDECAR_PROTOCOL, TERMINAL_GRID } from '../../shared/terminal-config'
+import {
+  MONITOR_OVERLAY_ENABLED,
+  SIDECAR_PROTOCOL,
+  TERMINAL_GRID,
+} from '../../shared/terminal-config'
 import {
   MIN_HORIZONTAL_BEZEL_PX,
   MIN_VERTICAL_BEZEL_PX,
@@ -27,7 +31,7 @@ const runtime: FrontendRuntime = {
 }
 
 describe('frontend layout', () => {
-  test('fits the fixed terminal surface inside the monitor bezel', () => {
+  test('fits the fixed terminal surface inside the configured monitor margins', () => {
     expect(
       terminalScale(
         TERMINAL_GRID.targetWidth + MIN_HORIZONTAL_BEZEL_PX * 2,
@@ -40,7 +44,11 @@ describe('frontend layout', () => {
         TERMINAL_GRID.targetHeight / 2 + MIN_VERTICAL_BEZEL_PX * 2,
       ),
     ).toBe(0.5)
-    expect(terminalScale(100, 100)).toBe(0)
+
+    const expectedSmallScale = MONITOR_OVERLAY_ENABLED
+      ? 0
+      : Math.min(100 / TERMINAL_GRID.targetWidth, 100 / TERMINAL_GRID.targetHeight)
+    expect(terminalScale(100, 100)).toBe(expectedSmallScale)
   })
 
   test('derives a stable monitor filter from the configured color', () => {

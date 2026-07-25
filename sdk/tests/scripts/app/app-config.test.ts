@@ -13,9 +13,9 @@ describe('app config', () => {
     expect(() => parseAppConfig(config)).toThrow('outdated configuration schema')
   })
 
-  test('requires an exact 16:9 terminal grid', () => {
-    expect(() => parseAppConfig(validAppConfig({ windowHeight: 1000 }))).toThrow(
-      'exact 16:9 aspect ratio',
+  test('requires font size to produce an integer grid on the fixed terminal surface', () => {
+    expect(() => parseAppConfig(validAppConfig({ fontSize: 11 }))).toThrow(
+      'fixed 1280x720 terminal surface',
     )
   })
 

@@ -299,7 +299,7 @@ export function createCrtRenderer(options: CrtRendererOptions) {
     enable() {
       let addon: WebglAddon | undefined
       try {
-        addon = new WebglAddon(CRT_EFFECTS_ENABLED)
+        addon = new WebglAddon(true)
         webglAddon = addon
         contextLossSubscription = addon.onContextLoss(() => {
           diagnostic(
@@ -315,7 +315,7 @@ export function createCrtRenderer(options: CrtRendererOptions) {
         if (CRT_EFFECTS_ENABLED) scheduleAberration()
         diagnostic('xterm.webgl', 'WebGL renderer enabled', {
           customGlyphs: terminal.options.customGlyphs,
-          preserveDrawingBuffer: CRT_EFFECTS_ENABLED,
+          preserveDrawingBuffer: true,
         })
       } catch (error) {
         diagnostic(

@@ -14,8 +14,8 @@
       {
         "label": "main",
         "title": "Termweave",
-        "width": 1920,
-        "height": 1080,
+        "width": 1280,
+        "height": 720,
         "closable": true,
         "minimizable": true,
         "resizable": true,

@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { extname, relative, resolve, sep } from 'node:path'
+import { TERMINAL_SURFACE } from '../../shared/terminal-config'
 
 export type AppBuilderConfig = {
   name: string
@@ -8,8 +9,6 @@ export type AppBuilderConfig = {
   bundleIdentifier: string
   version: string
   authors: string[]
-  windowWidth: number
-  windowHeight: number
   fontSize: number
   showDiagnostics: boolean
   backgroundColor: string
@@ -57,13 +56,6 @@ function requireString(value: unknown, path: string) {
     fail(`${path} must be a non-empty string`)
   }
   return value
-}
-
-function requirePositiveInteger(value: unknown, path: string) {
-  if (!Number.isInteger(value) || Number(value) <= 0) {
-    fail(`${path} must be a positive integer`)
-  }
-  return Number(value)
 }
 
 function requirePositiveNumber(value: unknown, path: string) {
@@ -121,18 +113,13 @@ export function parseAppConfig(value: unknown): AppBuilderConfig {
   }
   const authors = config.authors.map((author, index) => requireString(author, `authors[${index}]`))
 
-  const windowWidth = requirePositiveInteger(config.windowWidth, 'windowWidth')
-  const windowHeight = requirePositiveInteger(config.windowHeight, 'windowHeight')
-  if (windowWidth * 9 !== windowHeight * 16) {
-    fail('windowWidth and windowHeight must use an exact 16:9 aspect ratio')
-  }
-
   const fontSize = requirePositiveNumber(config.fontSize, 'fontSize')
-  const cols = windowWidth / fontSize
-  const rows = windowHeight / fontSize
+  const cols = TERMINAL_SURFACE.width / fontSize
+  const rows = TERMINAL_SURFACE.height / fontSize
   if (!Number.isInteger(cols) || !Number.isInteger(rows)) {
     fail(
-      `fontSize ${fontSize} produces a non-integer ${cols}x${rows} grid at ${windowWidth}x${windowHeight}`,
+      `fontSize ${fontSize} produces a non-integer ${cols}x${rows} grid on the fixed ` +
+        `${TERMINAL_SURFACE.width}x${TERMINAL_SURFACE.height} terminal surface`,
     )
   }
 
@@ -143,8 +130,6 @@ export function parseAppConfig(value: unknown): AppBuilderConfig {
     bundleIdentifier,
     version,
     authors,
-    windowWidth,
-    windowHeight,
     fontSize,
     showDiagnostics: requireBoolean(config.showDiagnostics, 'showDiagnostics'),
     backgroundColor: requireHexColor(config.backgroundColor, 'backgroundColor'),

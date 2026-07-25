@@ -60,6 +60,20 @@ describe('pixel image conversion', () => {
     expect([...image.backgrounds]).toEqual([255, 0, 0])
   })
 
+  test('bounds pixel colors without changing the selected glyph shape', () => {
+    const solidColor = frame(
+      2,
+      2,
+      [100, 150, 200, 255, 100, 150, 200, 255, 100, 150, 200, 255, 100, 150, 200, 255],
+    )
+
+    const image = createImageCells(solidColor, [0, 0, 0])
+
+    expect([...image.glyphs]).toEqual([FULL_BLOCK])
+    expect([...image.foregrounds]).toEqual([109, 146, 182])
+    expect([...image.backgrounds]).toEqual([109, 146, 182])
+  })
+
   test('chooses the upper-left quadrant glyph and composites transparency', () => {
     const upperLeftRed = frame(
       2,

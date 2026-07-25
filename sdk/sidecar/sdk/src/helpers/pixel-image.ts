@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url'
 export const FULL_BLOCK = 0x2588
 const SOURCE_PIXELS_PER_CELL_X = 2
 const SOURCE_PIXELS_PER_CELL_Y = 2
+// Preserve 2×2 glyph shapes while bounding WebGL styles to an equal 9-bit RGB333 cube.
+const PIXEL_COLOR_LEVELS = [8, 8, 8] as const
 const IMAGE_CACHE_LIMIT = 8
 const StillImage = createJimp({ formats: [jpeg, png] })
 const QUADRANT_GLYPHS = new Uint32Array([
@@ -346,6 +348,17 @@ function allQuadrantsMatch(colors: Uint16Array) {
   return true
 }
 
+function quantizeChannel(value: number, levels: number) {
+  const maximum = levels - 1
+  return Math.round((Math.round((value * maximum) / 255) * 255) / maximum)
+}
+
+function writePixelColor(target: Uint8Array, offset: number, source: Uint16Array) {
+  for (let channel = 0; channel < PIXEL_COLOR_LEVELS.length; channel += 1) {
+    target[offset + channel] = quantizeChannel(source[channel] ?? 0, PIXEL_COLOR_LEVELS[channel]!)
+  }
+}
+
 export function fitQuadrants(
   colors: Uint16Array,
   foregroundChannels: Uint16Array,
@@ -450,12 +463,8 @@ export function createImageCells(frame: Frame, background: Rgb): ImageCells {
 
       const mask = fitQuadrants(colors, foregroundChannels, backgroundChannels)
       glyphs[cellOffset] = QUADRANT_GLYPHS[mask] ?? FULL_BLOCK
-      foregrounds[colorOffset] = foregroundChannels[0] ?? 0
-      foregrounds[colorOffset + 1] = foregroundChannels[1] ?? 0
-      foregrounds[colorOffset + 2] = foregroundChannels[2] ?? 0
-      backgrounds[colorOffset] = backgroundChannels[0] ?? 0
-      backgrounds[colorOffset + 1] = backgroundChannels[1] ?? 0
-      backgrounds[colorOffset + 2] = backgroundChannels[2] ?? 0
+      writePixelColor(foregrounds, colorOffset, foregroundChannels)
+      writePixelColor(backgrounds, colorOffset, backgroundChannels)
     }
   }
 

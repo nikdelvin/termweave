@@ -81,6 +81,11 @@ export function createTerminalDisplay() {
       cursor: FOREGROUND_COLOR,
     },
   })
+  terminal.attachCustomWheelEventHandler((event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    return false
+  })
 
   let disposed = false
   let fit = () => {}
