@@ -5,7 +5,7 @@
   "bundleIdentifier": "com.awesome-dev.termweave-app",
   "version": "0.1.0",
   "authors": ["awesome-dev"],
-  "fontSize": 4,
+  "fontSize": 8,
   "backgroundColor": "#010416",
   "foregroundColor": "#F59B5A",
   "monitorOverlay": true,

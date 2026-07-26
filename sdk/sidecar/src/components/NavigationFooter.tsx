@@ -19,7 +19,10 @@ export function NavigationFooter(props: NavigationFooterProps) {
     return index < 0 ? 0 : index
   }
 
-  const activeRouteLabel = () => APP_ROUTES[activeRouteIndex()]?.label ?? APP_ROUTES[0].label
+  const routeList = () =>
+    APP_ROUTES.map((route, index) =>
+      index === activeRouteIndex() ? `[${route.label}]` : route.label,
+    ).join('  ')
 
   const changeRoute = (offset: number) => {
     const index = (activeRouteIndex() + offset + APP_ROUTES.length) % APP_ROUTES.length
@@ -56,8 +59,8 @@ export function NavigationFooter(props: NavigationFooterProps) {
     <box
       position="absolute"
       left={0}
-      bottom={4}
-      gap={4}
+      bottom={1}
+      gap={1}
       width="100%"
       alignItems="center"
       justifyContent="center"
@@ -66,72 +69,36 @@ export function NavigationFooter(props: NavigationFooterProps) {
       <box
         border
         borderColor={foregroundColor}
-        width={142}
-        height={34}
-        padding={2}
-        gap={2}
+        title=" TERMWEAVE "
+        width="auto"
+        height={7}
+        padding={1}
+        gap={1}
         flexDirection="column"
         alignItems="center"
         justifyContent="center"
         backgroundColor={backgroundColor}
         zIndex={1}
       >
-        <ascii_font
-          text="TERMWEAVE"
-          font="shade"
-          color={foregroundColor}
-          backgroundColor={backgroundColor}
-          selectable={false}
-        />
-        <ascii_font
-          text="BUILD TERMINAL APPS."
-          font="shade"
-          color={foregroundColor}
-          backgroundColor={backgroundColor}
-          selectable={false}
-        />
-        <ascii_font
-          text="SHIP THEM NATIVE."
-          font="shade"
-          color={foregroundColor}
-          backgroundColor={backgroundColor}
-          selectable={false}
-        />
+        <text fg={foregroundColor}>A config-driven Tauri and OpenTUI builder</text>
+        <text fg={foregroundColor}>for native desktop terminal apps.</text>
       </box>
       <box
         border
         borderColor={foregroundColor}
-        width={142}
-        height={34}
-        padding={2}
-        gap={2}
+        title=" SOLID ROUTER + SIGNAL "
+        width="auto"
+        height={7}
+        padding={1}
+        gap={1}
         flexDirection="column"
         alignItems="center"
         justifyContent="center"
         backgroundColor={backgroundColor}
         zIndex={1}
       >
-        <ascii_font
-          text={`USE THE ARROW KEYS TO CHANGE:`}
-          font="shade"
-          color={foregroundColor}
-          backgroundColor={backgroundColor}
-          selectable={false}
-        />
-        <ascii_font
-          text={`UP/DOWN: ROUTE (${activeRouteLabel()})`}
-          font="shade"
-          color={foregroundColor}
-          backgroundColor={backgroundColor}
-          selectable={false}
-        />
-        <ascii_font
-          text={`LEFT/RIGHT: VALUE (${count()})`}
-          font="shade"
-          color={foregroundColor}
-          backgroundColor={backgroundColor}
-          selectable={false}
-        />
+        <text fg={foregroundColor}>Up/Down changes route | [↑/↓] {routeList()}</text>
+        <text fg={foregroundColor}>Left/Right changes value | [&lt;] {count()} [&gt;]</text>
       </box>
     </box>
   )
