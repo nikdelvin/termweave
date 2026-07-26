@@ -12,3 +12,7 @@
 # Generated from the root app icon and sidecar source.
 /icons/
 /binaries/
+/third-party/ffmpeg/COPYING.LGPLv2.1
+/third-party/ffmpeg/FFMPEG-LICENSE.md
+/third-party/ffmpeg/artifact-*.json
+/third-party/ffmpeg/ffmpeg-*.tar.xz

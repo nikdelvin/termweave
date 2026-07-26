@@ -1,20 +1,21 @@
-import {
-  RGBA,
-  type BoxRenderable,
-  type OptimizedBuffer,
-  type RenderableOptions,
-} from '@opentui/core'
+import { OptimizedBuffer, type BoxRenderable, type RenderableOptions } from '@opentui/core'
 import { createEffect, createSignal, onCleanup, onMount, Show, type ParentProps } from 'solid-js'
+import { isMp4Uri } from '../helpers/media-uri'
 import {
   configuredBackgroundColor,
-  FULL_BLOCK,
+  createImageCells,
   getPixelImageEntry,
   type Dimensions,
   type ImageCells,
   type PixelImageFrame,
 } from '../helpers/pixel-image'
+import { startVideoAudio, type VideoAudioSession } from '../helpers/video-audio'
+import { MediaPlaybackClock, VideoFrameScheduler } from '../helpers/video-scheduler'
+import { streamVideoFrames, type VideoFrame } from '../helpers/video-stream'
 
 const ERROR_LENGTH = 220
+const VIDEO_FRAMES_PER_SECOND = 24
+const VIDEO_QUEUE_SIZE = 3
 
 export {
   preloadPixelImage,
@@ -53,47 +54,57 @@ export function centeredViewport(container: Dimensions, image: Dimensions): View
   }
 }
 
-function setRgb(color: RGBA, channels: Uint8Array, offset: number) {
-  color.buffer[0] = (color.buffer[0]! & 0xff00) | (channels[offset] ?? 0)
-  color.buffer[1] = (color.buffer[1]! & 0xff00) | (channels[offset + 1] ?? 0)
-  color.buffer[2] = (color.buffer[2]! & 0xff00) | (channels[offset + 2] ?? 0)
+export interface ImageBufferViews {
+  attributes: Uint32Array
+  bg: Uint16Array
+  char: Uint32Array
+  fg: Uint16Array
 }
 
-export function paintImage(
-  buffer: OptimizedBuffer,
-  renderable: BoxRenderable,
-  image: ImageCells,
-  container: Dimensions,
-) {
-  const viewport = centeredViewport(container, image)
-  const foreground = RGBA.fromInts(0, 0, 0)
-  const background = RGBA.fromInts(0, 0, 0)
+export function writeImageCellsToBuffer(image: ImageCells, buffers: ImageBufferViews) {
+  const cellCount = image.width * image.height
+  if (
+    buffers.char.length < cellCount ||
+    buffers.attributes.length < cellCount ||
+    buffers.fg.length < cellCount * 4 ||
+    buffers.bg.length < cellCount * 4
+  ) {
+    throw new RangeError('The native image buffer is smaller than the pixel image.')
+  }
 
-  for (let y = 0; y < viewport.height; y += 1) {
-    for (let x = 0; x < viewport.width; x += 1) {
-      const cellOffset = y * image.width + x
-      const colorOffset = cellOffset * 3
-      setRgb(foreground, image.foregrounds, colorOffset)
-      setRgb(background, image.backgrounds, colorOffset)
-      buffer.drawChar(
-        image.glyphs[cellOffset] ?? FULL_BLOCK,
-        renderable.screenX + viewport.x + x,
-        renderable.screenY + viewport.y + y,
-        foreground,
-        background,
-      )
-    }
+  buffers.char.set(image.glyphs)
+  buffers.attributes.fill(0, 0, cellCount)
+
+  for (let cellOffset = 0; cellOffset < cellCount; cellOffset += 1) {
+    const sourceOffset = cellOffset * 3
+    const targetOffset = cellOffset * 4
+    buffers.fg[targetOffset] = image.foregrounds[sourceOffset] ?? 0
+    buffers.fg[targetOffset + 1] = image.foregrounds[sourceOffset + 1] ?? 0
+    buffers.fg[targetOffset + 2] = image.foregrounds[sourceOffset + 2] ?? 0
+    buffers.fg[targetOffset + 3] = 255
+    buffers.bg[targetOffset] = image.backgrounds[sourceOffset] ?? 0
+    buffers.bg[targetOffset + 1] = image.backgrounds[sourceOffset + 1] ?? 0
+    buffers.bg[targetOffset + 2] = image.backgrounds[sourceOffset + 2] ?? 0
+    buffers.bg[targetOffset + 3] = 255
   }
 }
 
 export function PixelRenderer(props: ParentProps<PixelRendererProps>) {
   let surface: BoxRenderable | undefined
   let currentImage: ImageCells | undefined
+  let imageBuffer: OptimizedBuffer | undefined
+  let imageVersion = 0
+  let paintedImageVersion = -1
   const background = configuredBackgroundColor()
   const [container, setContainer] = createSignal<Dimensions>({ width: 0, height: 0 })
   const [error, setError] = createSignal('')
 
   const requestRender = () => surface?.requestRender()
+  const showImage = (image: ImageCells | undefined) => {
+    currentImage = image
+    imageVersion += 1
+    requestRender()
+  }
   const updateDimensions = () => {
     if (!surface) return
     const next = {
@@ -110,12 +121,9 @@ export function PixelRenderer(props: ParentProps<PixelRendererProps>) {
     const target = container()
     let disposed = false
     let frameTimer: ReturnType<typeof setTimeout> | undefined
+    let disposeMedia = () => {}
     let unsubscribe = () => {}
 
-    const showImage = (image: ImageCells) => {
-      currentImage = image
-      requestRender()
-    }
     const startPlayback = (images: readonly PixelImageFrame[]) => {
       if (disposed || images.length === 0) return
 
@@ -147,17 +155,104 @@ export function PixelRenderer(props: ParentProps<PixelRendererProps>) {
       }
       if (images.length > 1) scheduleNextFrame()
     }
+    const startVideoPlayback = () => {
+      const abortController = new AbortController()
+      const reusableImages: ImageCells[] = []
+      const frames = streamVideoFrames({
+        uri,
+        width: target.width * 2,
+        height: target.height * 2,
+        background: background.channels,
+        framesPerSecond: VIDEO_FRAMES_PER_SECOND,
+        signal: abortController.signal,
+      })
+      let audioFailureLogged = false
+      let audioSession: VideoAudioSession | undefined
+      let mediaDisposed = false
+      let scheduler: VideoFrameScheduler<VideoFrame> | undefined
+      const logAudioFailure = (audioError: unknown) => {
+        if (audioFailureLogged || disposed || abortController.signal.aborted) return
+        audioFailureLogged = true
+        console.warn(
+          `Termweave video audio is unavailable; continuing silently: ${errorMessage(audioError)}`,
+        )
+      }
+      const stopVideoPlayback = () => {
+        if (mediaDisposed) return
+        mediaDisposed = true
+        abortController.abort()
+        scheduler?.dispose()
+        audioSession?.dispose()
+        void frames.return(undefined).catch(() => {})
+      }
+      disposeMedia = stopVideoPlayback
 
-    currentImage = undefined
+      void (async () => {
+        const firstFramePromise = frames.next()
+        const audioSessionPromise = startVideoAudio({
+          onClockFallback: () => scheduler?.flush(),
+          onFailure: logAudioFailure,
+          signal: abortController.signal,
+          uri,
+        }).catch((audioError: unknown) => {
+          logAudioFailure(audioError)
+          return undefined
+        })
+        const [firstFrame, startedAudio] = await Promise.all([
+          firstFramePromise,
+          audioSessionPromise,
+        ])
+        audioSession = startedAudio
+        if (disposed || abortController.signal.aborted) {
+          if (!firstFrame.done) firstFrame.value.release()
+          startedAudio?.dispose()
+          return
+        }
+        if (firstFrame.done) throw new Error('FFmpeg video playback produced no frames.')
+
+        const clock = startedAudio?.clock ?? new MediaPlaybackClock()
+        scheduler = new VideoFrameScheduler<VideoFrame>({
+          clock,
+          framesPerSecond: VIDEO_FRAMES_PER_SECOND,
+          maxQueueSize: VIDEO_QUEUE_SIZE,
+          onDiscard: (frame) => frame.release(),
+          onPresent: (frame) => {
+            const image = createImageCells(frame, background.channels, reusableImages.pop())
+            frame.release()
+            const previousImage = currentImage
+            showImage(image)
+            if (previousImage) reusableImages.push(previousImage)
+          },
+          timelineOriginMs: 0,
+        })
+
+        if (!(await scheduler.enqueue(firstFrame.value))) return
+        while (!abortController.signal.aborted) {
+          const result = await frames.next()
+          if (result.done || !(await scheduler.enqueue(result.value))) break
+        }
+      })().catch((loadError: unknown) => {
+        if (disposed || abortController.signal.aborted) return
+        stopVideoPlayback()
+        showImage(undefined)
+        setError(errorMessage(loadError))
+      })
+    }
+
+    showImage(undefined)
     setError('')
-    requestRender()
 
     onCleanup(() => {
       disposed = true
       if (frameTimer) clearTimeout(frameTimer)
+      disposeMedia()
       unsubscribe()
     })
     if (!uri || target.width === 0 || target.height === 0) return
+    if (isMp4Uri(uri)) {
+      startVideoPlayback()
+      return
+    }
 
     const { entry } = getPixelImageEntry(
       { uri, width: target.width, height: target.height },
@@ -186,6 +281,7 @@ export function PixelRenderer(props: ParentProps<PixelRendererProps>) {
   })
 
   onMount(updateDimensions)
+  onCleanup(() => imageBuffer?.destroy())
 
   const width = () => props.width ?? 'auto'
   const height = () => props.height ?? 'auto'
@@ -207,7 +303,35 @@ export function PixelRenderer(props: ParentProps<PixelRendererProps>) {
         backgroundColor={background.color}
         onSizeChange={updateDimensions}
         renderAfter={(buffer) => {
-          if (surface && currentImage) paintImage(buffer, surface, currentImage, container())
+          if (!surface || !currentImage) return
+
+          if (!imageBuffer) {
+            imageBuffer = OptimizedBuffer.create(
+              currentImage.width,
+              currentImage.height,
+              'unicode',
+              {
+                id: 'pixel-renderer',
+              },
+            )
+          } else {
+            imageBuffer.resize(currentImage.width, currentImage.height)
+          }
+          if (paintedImageVersion !== imageVersion) {
+            writeImageCellsToBuffer(currentImage, imageBuffer.buffers)
+            paintedImageVersion = imageVersion
+          }
+
+          const viewport = centeredViewport(container(), currentImage)
+          buffer.drawFrameBuffer(
+            surface.screenX + viewport.x,
+            surface.screenY + viewport.y,
+            imageBuffer,
+            0,
+            0,
+            viewport.width,
+            viewport.height,
+          )
         }}
       />
 

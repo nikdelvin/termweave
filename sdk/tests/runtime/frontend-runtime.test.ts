@@ -11,6 +11,10 @@ import {
   terminalScale,
 } from '../../src/runtime/monitor-layout'
 import {
+  GLYPH_ATLAS_PAGE_RESERVE,
+  glyphAtlasResetPageThreshold,
+} from '../../src/runtime/glyph-atlas'
+import {
   parseSidecarAuthenticated,
   parseSidecarHello,
   parseSidecarTextMessage,
@@ -54,6 +58,13 @@ describe('frontend layout', () => {
       saturation: 1,
       sepia: 0,
     })
+  })
+
+  test('keeps atlas pages in reserve before the WebGL texture-unit limit', () => {
+    expect(GLYPH_ATLAS_PAGE_RESERVE).toBe(4)
+    expect(glyphAtlasResetPageThreshold(16)).toBe(12)
+    expect(glyphAtlasResetPageThreshold(4)).toBe(4)
+    expect(() => glyphAtlasResetPageThreshold(0)).toThrow()
   })
 })
 

@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "dev": "bun run --watch --no-clear-screen src/index.tsx",
+    "ffmpeg:build": "bun scripts/build-ffmpeg.ts",
     "build": "bun scripts/build-sidecar.ts production",
     "build:dev-launcher": "bun scripts/build-sidecar.ts development",
     "test": "bun test ./tests/",

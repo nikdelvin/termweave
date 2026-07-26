@@ -31,6 +31,7 @@
     "deps:audit": "bun scripts/packages/audit-packages.ts && cd src-tauri && cargo audit",
     "icons:generate": "bun scripts/app/generate-icons.ts",
     "config:sync": "bun scripts/app/sync-app-config.ts",
+    "ffmpeg:build": "bun run --cwd sidecar ffmpeg:build",
     "sidecar:build": "bun run --cwd sidecar build",
     "sidecar:dev-launcher": "bun run --cwd sidecar build:dev-launcher",
     "app:format": "bun run format && bun run --cwd sidecar format && cargo fmt --manifest-path src-tauri/Cargo.toml",

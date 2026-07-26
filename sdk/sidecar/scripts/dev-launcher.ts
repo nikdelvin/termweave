@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import { SIDECAR_RESTART_SIGNAL } from '../../shared/terminal-protocol'
 
 declare const __TERMWEAVE_SIDECAR_ROOT__: string
+declare const __TERMWEAVE_FFMPEG_PATH__: string
 
 const sidecarRoot = __TERMWEAVE_SIDECAR_ROOT__
 const sdkRoot = resolve(sidecarRoot, '..')
@@ -22,7 +23,10 @@ await rm(restartSignalPath, { force: true })
 function startSidecar() {
   const subprocess = Bun.spawn(['bun', 'run', 'src/index.tsx'], {
     cwd: sidecarRoot,
-    env: process.env,
+    env: {
+      ...process.env,
+      TERMWEAVE_FFMPEG_PATH: process.env.TERMWEAVE_FFMPEG_PATH?.trim() || __TERMWEAVE_FFMPEG_PATH__,
+    },
     stdin: 'inherit',
     stdout: 'inherit',
     stderr: 'inherit',

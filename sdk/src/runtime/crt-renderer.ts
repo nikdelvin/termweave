@@ -5,11 +5,14 @@ import {
   CRT_EFFECTS_ENABLED,
   TERMINAL_GRID,
 } from '../../shared/terminal-config'
+import { glyphAtlasResetPageThreshold } from './glyph-atlas'
 
 interface ChromaticAberrationRenderer {
   gl: WebGL2RenderingContext
   program: WebGLProgram
   texture: WebGLTexture
+  textureHeight: number
+  textureWidth: number
   vertexArray: WebGLVertexArrayObject
   resolutionLocation: WebGLUniformLocation
   shiftLocation: WebGLUniformLocation
@@ -34,9 +37,14 @@ export function createCrtRenderer(options: CrtRendererOptions) {
     terminalHost,
   } = options
   let aberrationFrame: number | undefined
+  let atlasResetFrame: number | undefined
   let chromaticRenderer: ChromaticAberrationRenderer | undefined
-  let contextLossSubscription: IDisposable | undefined
+  let maximumAtlasPages: number | undefined
+  let rendererHandoffActive = false
+  let rendererHandoffFrame: number | undefined
   let webglAddon: WebglAddon | undefined
+  let webglSubscriptions: IDisposable[] = []
+  const atlasPages = new Set<HTMLCanvasElement>()
 
   const noisePeakOpacity = CRT_EFFECT_DEFAULTS.noiseVisibility * 0.1
   const flickerAmplitude = CRT_EFFECT_DEFAULTS.flickerVisibility * 0.1
@@ -183,7 +191,16 @@ export function createCrtRenderer(options: CrtRendererOptions) {
     gl.useProgram(program)
     gl.uniform1i(textureLocation, 0)
 
-    return { gl, program, texture, vertexArray, resolutionLocation, shiftLocation }
+    return {
+      gl,
+      program,
+      texture,
+      textureHeight: 0,
+      textureWidth: 0,
+      vertexArray,
+      resolutionLocation,
+      shiftLocation,
+    }
   }
 
   const renderAberration = () => {
@@ -204,7 +221,13 @@ export function createCrtRenderer(options: CrtRendererOptions) {
       gl.bindVertexArray(renderer.vertexArray)
       gl.activeTexture(gl.TEXTURE0)
       gl.bindTexture(gl.TEXTURE_2D, renderer.texture)
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source)
+      if (renderer.textureWidth !== source.width || renderer.textureHeight !== source.height) {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source)
+        renderer.textureWidth = source.width
+        renderer.textureHeight = source.height
+      } else {
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, source)
+      }
       gl.uniform2f(renderer.resolutionLocation, source.width, source.height)
       gl.uniform2f(
         renderer.shiftLocation,
@@ -228,7 +251,11 @@ export function createCrtRenderer(options: CrtRendererOptions) {
 
   const clearAberration = () => {
     if (aberrationFrame !== undefined) cancelAnimationFrame(aberrationFrame)
+    if (rendererHandoffFrame !== undefined) cancelAnimationFrame(rendererHandoffFrame)
     aberrationFrame = undefined
+    rendererHandoffActive = false
+    rendererHandoffFrame = undefined
+    aberrationCanvas.style.removeProperty('opacity')
     aberrationHost.hidden = true
     const gl = chromaticRenderer?.gl
     if (gl) {
@@ -237,17 +264,51 @@ export function createCrtRenderer(options: CrtRendererOptions) {
     }
   }
 
-  const disposeWebgl = () => {
-    const addon = webglAddon
-    const subscription = contextLossSubscription
-    webglAddon = undefined
-    contextLossSubscription = undefined
-    clearAberration()
+  const beginRendererHandoff = () => {
+    if (aberrationFrame !== undefined) cancelAnimationFrame(aberrationFrame)
+    aberrationFrame = undefined
+    renderAberration()
+    if (aberrationHost.hidden) return false
 
-    try {
-      subscription?.dispose()
-    } catch {
-      // Continue disposing the renderer.
+    rendererHandoffActive = true
+    aberrationCanvas.style.opacity = '1'
+    return true
+  }
+
+  const scheduleRendererHandoffCompletion = () => {
+    if (!rendererHandoffActive || rendererHandoffFrame !== undefined) return
+
+    rendererHandoffFrame = requestAnimationFrame(() => {
+      rendererHandoffFrame = undefined
+      if (!rendererHandoffActive) return
+
+      if (CRT_EFFECTS_ENABLED) {
+        renderAberration()
+      } else {
+        aberrationHost.hidden = true
+        effectsHost.hidden = true
+      }
+      rendererHandoffActive = false
+      aberrationCanvas.style.removeProperty('opacity')
+    })
+  }
+
+  let enableWebgl = () => {}
+  const disposeWebgl = (preserveRenderedFrame = false, notifyRendererChanged = true) => {
+    const addon = webglAddon
+    webglAddon = undefined
+    if (atlasResetFrame !== undefined) cancelAnimationFrame(atlasResetFrame)
+    atlasResetFrame = undefined
+    atlasPages.clear()
+    maximumAtlasPages = undefined
+    if (!preserveRenderedFrame) clearAberration()
+
+    for (const subscription of webglSubscriptions.splice(0)) {
+      try {
+        subscription.dispose()
+      } catch {
+        // Continue disposing the renderer.
+      }
     }
     if (!addon) return
 
@@ -256,35 +317,91 @@ export function createCrtRenderer(options: CrtRendererOptions) {
     } catch {
       // The fallback renderer can still take over.
     }
-    onRendererChanged()
+    if (notifyRendererChanged) onRendererChanged()
   }
 
-  const aberrationRenderSubscription = CRT_EFFECTS_ENABLED
-    ? terminal.onRender(scheduleAberration)
-    : undefined
+  const scheduleAtlasResetIfNeeded = () => {
+    if (
+      atlasResetFrame !== undefined ||
+      maximumAtlasPages === undefined ||
+      atlasPages.size < glyphAtlasResetPageThreshold(maximumAtlasPages)
+    ) {
+      return
+    }
+
+    const currentAddon = webglAddon
+    atlasResetFrame = requestAnimationFrame(() => {
+      atlasResetFrame = undefined
+      if (!currentAddon || webglAddon !== currentAddon) return
+
+      // clearTextureAtlas keeps every allocated page and forces a full redraw. Recreate the
+      // addon instead so the old pages are released before xterm starts merging them. Preserve
+      // the last rendered frame over the handoff so the DOM fallback never becomes visible.
+      const preservingRenderedFrame = beginRendererHandoff()
+      disposeWebgl(preservingRenderedFrame, false)
+      enableWebgl()
+      terminal.refresh(0, terminal.rows - 1)
+    })
+  }
+
+  enableWebgl = () => {
+    let addon: WebglAddon | undefined
+    try {
+      addon = new WebglAddon(true)
+      webglAddon = addon
+      webglSubscriptions = [
+        addon.onContextLoss(() => {
+          disposeWebgl()
+        }),
+        addon.onChangeTextureAtlas((canvas) => {
+          atlasPages.clear()
+          atlasPages.add(canvas)
+          scheduleAtlasResetIfNeeded()
+        }),
+        addon.onAddTextureAtlasCanvas((canvas) => {
+          atlasPages.add(canvas)
+          scheduleAtlasResetIfNeeded()
+        }),
+        addon.onRemoveTextureAtlasCanvas((canvas) => {
+          atlasPages.delete(canvas)
+        }),
+      ]
+      terminal.loadAddon(addon)
+
+      const initialAtlas = addon.textureAtlas
+      if (initialAtlas) atlasPages.add(initialAtlas)
+      const canvas = terminalWebglCanvas()
+      const gl = canvas?.getContext('webgl2')
+      const textureUnits = gl?.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS)
+      if (typeof textureUnits === 'number' && Number.isFinite(textureUnits) && textureUnits >= 1) {
+        maximumAtlasPages = Math.min(32, Math.floor(textureUnits))
+      }
+      scheduleAtlasResetIfNeeded()
+      onRendererChanged()
+      if (CRT_EFFECTS_ENABLED && !rendererHandoffActive) scheduleAberration()
+    } catch {
+      if (webglAddon === addon) disposeWebgl()
+    }
+  }
+
+  const terminalRenderSubscription = terminal.onRender(() => {
+    if (rendererHandoffActive) {
+      scheduleRendererHandoffCompletion()
+    } else if (CRT_EFFECTS_ENABLED) {
+      scheduleAberration()
+    }
+  })
 
   return {
     clearAberration,
 
     dispose() {
-      aberrationRenderSubscription?.dispose()
+      terminalRenderSubscription.dispose()
       disposeWebgl()
     },
 
     enable() {
-      let addon: WebglAddon | undefined
-      try {
-        addon = new WebglAddon(true)
-        webglAddon = addon
-        contextLossSubscription = addon.onContextLoss(() => {
-          disposeWebgl()
-        })
-        terminal.loadAddon(addon)
-        onRendererChanged()
-        if (CRT_EFFECTS_ENABLED) scheduleAberration()
-      } catch {
-        if (webglAddon === addon) disposeWebgl()
-      }
+      enableWebgl()
     },
   }
 }

@@ -185,9 +185,8 @@ export function createTerminalOutput(options: TerminalOutputOptions) {
   }
 
   output.on('data', (chunk: Buffer) => {
-    const data = Uint8Array.from(chunk)
-    outputChunks.push(data)
-    outputChunkBytes += data.byteLength
+    outputChunks.push(chunk)
+    outputChunkBytes += chunk.byteLength
 
     scheduleFlush()
   })

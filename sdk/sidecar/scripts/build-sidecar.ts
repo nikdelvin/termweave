@@ -1,6 +1,8 @@
 import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import solidPlugin from '@opentui/solid/bun-plugin'
+import { ensureFfmpegBinary } from './build-ffmpeg'
+import { getHostTuple } from './host-target'
 
 export type SidecarBuildMode = 'development' | 'production'
 
@@ -15,28 +17,11 @@ export function getSidecarOutputPath(
   return resolve(sdkRoot, `src-tauri/binaries/opentui-sidecar-${triple}${extension}`)
 }
 
-async function getHostTuple() {
-  const subprocess = Bun.spawn(['rustc', '--print', 'host-tuple'], {
-    cwd: SIDECAR_ROOT,
-    stdout: 'pipe',
-    stderr: 'pipe',
-  })
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(subprocess.stdout).text(),
-    new Response(subprocess.stderr).text(),
-    subprocess.exited,
-  ])
-  if (exitCode !== 0) {
-    throw new Error(
-      `Could not determine the Rust host tuple: ${stderr.trim() || `exit ${exitCode}`}`,
-    )
-  }
-  return stdout.trim()
-}
-
 export async function buildSidecar(mode: SidecarBuildMode, sidecarRoot = SIDECAR_ROOT) {
   const sdkRoot = resolve(sidecarRoot, '..')
-  const outfile = getSidecarOutputPath(sdkRoot, await getHostTuple())
+  const triple = await getHostTuple()
+  const ffmpegPath = await ensureFfmpegBinary(sdkRoot, triple)
+  const outfile = getSidecarOutputPath(sdkRoot, triple)
   await mkdir(resolve(sdkRoot, 'src-tauri/binaries'), { recursive: true })
 
   const buildOptions: Parameters<typeof Bun.build>[0] = {
@@ -49,6 +34,7 @@ export async function buildSidecar(mode: SidecarBuildMode, sidecarRoot = SIDECAR
     buildOptions.plugins = [solidPlugin]
   } else {
     buildOptions.define = {
+      __TERMWEAVE_FFMPEG_PATH__: JSON.stringify(ffmpegPath),
       __TERMWEAVE_SIDECAR_ROOT__: JSON.stringify(sidecarRoot),
     }
   }

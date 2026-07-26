@@ -3,12 +3,13 @@ import jpeg from '@jimp/js-jpeg'
 import png from '@jimp/js-png'
 import { decompressFrame, parseGIF, type ParsedFrame } from 'gifuct-js'
 import { fileURLToPath } from 'node:url'
+import { isMp4Uri } from './media-uri'
 
 export const FULL_BLOCK = 0x2588
 const SOURCE_PIXELS_PER_CELL_X = 2
 const SOURCE_PIXELS_PER_CELL_Y = 2
-// Preserve 2×2 glyph shapes while bounding WebGL styles to an equal 9-bit RGB333 cube.
-const PIXEL_COLOR_LEVELS = [8, 8, 8] as const
+const PIXEL_COLOR_LOOKUP_3_BIT = createPixelColorLookup(3)
+const PIXEL_COLOR_LOOKUP_2_BIT = createPixelColorLookup(2)
 const IMAGE_CACHE_LIMIT = 8
 const DEFAULT_GIF_FRAME_DELAY_MS = 100
 const MINIMUM_GIF_FRAME_DELAY_MS = 10
@@ -45,6 +46,7 @@ export interface Dimensions {
 
 export interface Frame extends Dimensions {
   data: Uint8Array
+  pixelFormat?: 'bgra' | 'rgba'
 }
 
 export interface AnimationFrame extends Frame {
@@ -76,7 +78,15 @@ export interface ImageCacheEntry {
 const imageCache = new Map<string, ImageCacheEntry>()
 let retainedPreloadKeys = new Set<string>()
 
-type Rgb = readonly [red: number, green: number, blue: number]
+export type Rgb = readonly [red: number, green: number, blue: number]
+
+function createPixelColorLookup(bits: number) {
+  const maximum = (1 << bits) - 1
+  return Uint8Array.from({ length: 256 }, (_, value) => {
+    const quantized = Math.round((value * maximum) / 255)
+    return Math.round((quantized * 255) / maximum)
+  })
+}
 
 export function configuredBackgroundColor() {
   const color = process.env.TERMWEAVE_BACKGROUND_COLOR?.trim()
@@ -340,15 +350,16 @@ function readPixel(
   background: Rgb,
 ) {
   const pixelOffset = (sourceY * frame.width + sourceX) * 4
+  const blueFirst = frame.pixelFormat === 'bgra'
   const opacity = (frame.data[pixelOffset + 3] ?? 255) / 255
   colors[colorOffset] = Math.round(
-    (frame.data[pixelOffset] ?? 0) * opacity + background[0] * (1 - opacity),
+    (frame.data[pixelOffset + (blueFirst ? 2 : 0)] ?? 0) * opacity + background[0] * (1 - opacity),
   )
   colors[colorOffset + 1] = Math.round(
     (frame.data[pixelOffset + 1] ?? 0) * opacity + background[1] * (1 - opacity),
   )
   colors[colorOffset + 2] = Math.round(
-    (frame.data[pixelOffset + 2] ?? 0) * opacity + background[2] * (1 - opacity),
+    (frame.data[pixelOffset + (blueFirst ? 0 : 2)] ?? 0) * opacity + background[2] * (1 - opacity),
   )
 }
 
@@ -366,15 +377,11 @@ function allQuadrantsMatch(colors: Uint16Array) {
   return true
 }
 
-function quantizeChannel(value: number, levels: number) {
-  const maximum = levels - 1
-  return Math.round((Math.round((value * maximum) / 255) * 255) / maximum)
-}
-
 function writePixelColor(target: Uint8Array, offset: number, source: Uint16Array) {
-  for (let channel = 0; channel < PIXEL_COLOR_LEVELS.length; channel += 1) {
-    target[offset + channel] = quantizeChannel(source[channel] ?? 0, PIXEL_COLOR_LEVELS[channel]!)
-  }
+  // RGB332: 8 red × 8 green × 4 blue levels = 256 possible colors.
+  target[offset] = PIXEL_COLOR_LOOKUP_3_BIT[source[0] ?? 0] ?? 0
+  target[offset + 1] = PIXEL_COLOR_LOOKUP_3_BIT[source[1] ?? 0] ?? 0
+  target[offset + 2] = PIXEL_COLOR_LOOKUP_2_BIT[source[2] ?? 0] ?? 0
 }
 
 export function fitQuadrants(
@@ -457,12 +464,13 @@ export function fitQuadrants(
   return bestMask
 }
 
-export function createImageCells(frame: Frame, background: Rgb): ImageCells {
+export function createImageCells(frame: Frame, background: Rgb, reusable?: ImageCells): ImageCells {
   const width = Math.floor(frame.width / SOURCE_PIXELS_PER_CELL_X)
   const height = Math.floor(frame.height / SOURCE_PIXELS_PER_CELL_Y)
-  const glyphs = new Uint32Array(width * height)
-  const foregrounds = new Uint8Array(width * height * 3)
-  const backgrounds = new Uint8Array(width * height * 3)
+  const canReuse = reusable?.width === width && reusable.height === height
+  const glyphs = canReuse ? reusable.glyphs : new Uint32Array(width * height)
+  const foregrounds = canReuse ? reusable.foregrounds : new Uint8Array(width * height * 3)
+  const backgrounds = canReuse ? reusable.backgrounds : new Uint8Array(width * height * 3)
   const colors = new Uint16Array(12)
   const foregroundChannels = new Uint16Array(3)
   const backgroundChannels = new Uint16Array(3)
@@ -563,13 +571,16 @@ export function getPixelImageEntry(options: PixelImagePreloadOptions, background
 }
 
 export async function preloadPixelImage(options: PixelImagePreloadOptions) {
+  if (isMp4Uri(options.uri)) return
   const { entry } = getPixelImageEntry(options, configuredBackgroundColor().channels)
   await entry.promise
 }
 
 export async function preloadPixelImages(options: readonly PixelImagePreloadOptions[]) {
   const background = configuredBackgroundColor().channels
-  const preloads = options.map((option) => getPixelImageEntry(option, background))
+  const preloads = options
+    .filter((option) => !isMp4Uri(option.uri))
+    .map((option) => getPixelImageEntry(option, background))
 
   retainedPreloadKeys = new Set(preloads.map(({ key }) => key))
   trimImageCache()

@@ -14,8 +14,8 @@
       {
         "label": "main",
         "title": "Termweave",
-        "width": 2560,
-        "height": 1440,
+        "width": 1536,
+        "height": 864,
         "closable": true,
         "minimizable": true,
         "resizable": true,
@@ -41,6 +41,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": ["binaries/opentui-sidecar"]
+    "externalBin": ["binaries/opentui-sidecar", "binaries/ffmpeg"],
+    "resources": ["third-party/ffmpeg"]
   }
 }

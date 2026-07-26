@@ -1,5 +1,5 @@
-import demoImageUri from './assets/campfire-dark.gif' with { type: 'file' }
 import homeImageUri from './assets/campfire.gif' with { type: 'file' }
+import demoVideoUri from './assets/demo.mp4' with { type: 'file' }
 
 const ROUTE_PATHS = {
   demo: '/demo',
@@ -24,7 +24,7 @@ export const HOME_ROUTE = {
 
 export const DEMO_ROUTE = {
   connections: [ROUTE_PATHS.home],
-  imageUri: demoImageUri,
+  imageUri: demoVideoUri,
   label: 'DEMO',
   path: ROUTE_PATHS.demo,
 } as const satisfies RouteDefinition

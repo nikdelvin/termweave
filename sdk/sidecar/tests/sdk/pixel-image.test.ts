@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { centeredViewport } from '../../sdk/src/components/PixelRenderer'
+import { centeredViewport, writeImageCellsToBuffer } from '../../sdk/src/components/PixelRenderer'
 import {
   createImageCells,
   fittedDimensions,
@@ -62,7 +62,7 @@ describe('pixel image conversion', () => {
     expect([...image.backgrounds]).toEqual([255, 0, 0])
   })
 
-  test('bounds pixel colors without changing the selected glyph shape', () => {
+  test('quantizes colors to the 256-color RGB332 palette without changing the glyph', () => {
     const solidColor = frame(
       2,
       2,
@@ -72,8 +72,8 @@ describe('pixel image conversion', () => {
     const image = createImageCells(solidColor, [0, 0, 0])
 
     expect([...image.glyphs]).toEqual([FULL_BLOCK])
-    expect([...image.foregrounds]).toEqual([109, 146, 182])
-    expect([...image.backgrounds]).toEqual([109, 146, 182])
+    expect([...image.foregrounds]).toEqual([109, 146, 170])
+    expect([...image.backgrounds]).toEqual([109, 146, 170])
   })
 
   test('chooses the upper-left quadrant glyph and composites transparency', () => {
@@ -88,6 +88,39 @@ describe('pixel image conversion', () => {
     expect([...image.glyphs]).toEqual([0x2598])
     expect([...image.foregrounds]).toEqual([255, 0, 0])
     expect([...image.backgrounds]).toEqual([0, 0, 255])
+  })
+
+  test('reads BGRA video frames and reuses cell arrays', () => {
+    const bgraRed = {
+      ...frame(2, 2, [0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255]),
+      pixelFormat: 'bgra' as const,
+    }
+    const reusable = createImageCells(frame(2, 2, new Array(16).fill(0)), [0, 0, 0])
+    const image = createImageCells(bgraRed, [0, 0, 0], reusable)
+
+    expect(image.glyphs).toBe(reusable.glyphs)
+    expect(image.foregrounds).toBe(reusable.foregrounds)
+    expect([...image.foregrounds]).toEqual([255, 0, 0])
+  })
+
+  test('writes cells into the native OpenTUI memory layout', () => {
+    const image = createImageCells(
+      frame(2, 2, [255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255]),
+      [0, 0, 0],
+    )
+    const buffers = {
+      attributes: new Uint32Array(1).fill(99),
+      bg: new Uint16Array(4),
+      char: new Uint32Array(1),
+      fg: new Uint16Array(4),
+    }
+
+    writeImageCellsToBuffer(image, buffers)
+
+    expect([...buffers.char]).toEqual([FULL_BLOCK])
+    expect([...buffers.fg]).toEqual([255, 0, 0, 255])
+    expect([...buffers.bg]).toEqual([255, 0, 0, 255])
+    expect([...buffers.attributes]).toEqual([0])
   })
 })
 

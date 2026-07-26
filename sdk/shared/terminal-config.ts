@@ -17,8 +17,8 @@ export const CRT_EFFECT_DEFAULTS = {
 } as const
 
 export const TERMINAL_SURFACE = {
-  width: 2560,
-  height: 1440,
+  width: 1536,
+  height: 864,
 } as const
 
 export const TERMINAL_GRID = {
