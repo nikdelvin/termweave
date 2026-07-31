@@ -1,0 +1,8 @@
+node_modules/
+dist/
+docs/
+src-tauri/.generated/
+src-tauri/binaries/
+src-tauri/gen/
+src-tauri/target/
+bun.lock

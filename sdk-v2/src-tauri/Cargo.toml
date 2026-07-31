@@ -1,0 +1,18 @@
+[package]
+name = "termweave-sdk-v2"
+version = "2.0.0"
+description = "A clean, single-package Termweave SDK and application template."
+authors = ["Termweave Contributors"]
+license = "MIT"
+publish = false
+edition = "2021"
+
+[lib]
+name = "termweave_sdk_v2_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "=2.6.3", features = [] }
+
+[dependencies]
+tauri = { version = "=2.11.5", features = [] }
