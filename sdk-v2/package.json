@@ -10,19 +10,28 @@
     "#termweave": "./app/termweave/index.ts"
   },
   "scripts": {
-    "dev": "bun run prepare && tauri dev --config src-tauri/.generated/override.json",
-    "build": "bun run check && bun run prepare && tauri build --config src-tauri/.generated/override.json",
+    "dev": "bun run prepare && bun run sidecar:build && tauri dev --config src-tauri/.generated/override.json",
+    "build": "bun run check && bun run prepare && bun run sidecar:build && tauri build --config src-tauri/.generated/override.json",
     "prepare": "bun scripts/prepare.ts",
+    "sidecar:build": "bun scripts/build-sidecar.ts",
     "frontend:dev": "vite",
     "frontend:build": "vite build",
     "test": "bun test tests",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src scripts shared tests vite.config.ts",
+    "lint": "eslint app src scripts shared tests vite.config.ts",
     "format": "prettier --write --ignore-unknown . && cargo fmt --manifest-path src-tauri/Cargo.toml",
     "format:check": "prettier --check --ignore-unknown . && cargo fmt --manifest-path src-tauri/Cargo.toml -- --check",
-    "rust:check": "cargo check --locked --manifest-path src-tauri/Cargo.toml",
+    "rust:check": "bun run sidecar:build && cargo check --locked --manifest-path src-tauri/Cargo.toml",
     "check": "bun run test && bun run typecheck && bun run lint && bun run format:check && bun run rust:check",
     "tauri": "tauri"
+  },
+  "dependencies": {
+    "@opentui/core": "0.4.5",
+    "@opentui/solid": "0.4.5",
+    "@tauri-apps/api": "2.11.1",
+    "@tauri-apps/plugin-shell": "2.3.5",
+    "@xterm/xterm": "6.0.0",
+    "solid-js": "1.9.12"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",

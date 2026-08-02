@@ -1,0 +1,18 @@
+:root {
+  color: var(--termweave-foreground, #f59b5a);
+  background: var(--termweave-background, #010416);
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--termweave-background, #010416);
+}
+
+#app .xterm {
+  height: 100%;
+}

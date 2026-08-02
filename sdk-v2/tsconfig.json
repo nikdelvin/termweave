@@ -6,6 +6,8 @@
     "lib": ["ES2021", "DOM", "DOM.Iterable"],
     "skipLibCheck": true,
     "moduleResolution": "bundler",
+    "jsx": "preserve",
+    "jsxImportSource": "@opentui/solid",
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
@@ -16,5 +18,5 @@
     "noFallthroughCasesInSwitch": true,
     "types": ["vite/client", "bun", "node"]
   },
-  "include": ["src", "scripts", "shared", "tests", "vite.config.ts"]
+  "include": ["app", "src", "scripts", "shared", "tests", "vite.config.ts"]
 }

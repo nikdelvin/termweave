@@ -16,6 +16,7 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   {
     files: [
+      'app/**/*.{ts,tsx}',
       'src/**/*.{ts,tsx}',
       'scripts/**/*.ts',
       'shared/**/*.ts',
