@@ -1,10 +1,13 @@
+import { WebglAddon } from '@xterm/addon-webgl'
 import {
   Terminal,
   type IDisposable,
+  type ITerminalAddon,
   type ITerminalInitOnlyOptions,
   type ITerminalOptions,
 } from '@xterm/xterm'
 import type { AppConfig } from '../shared/config'
+import { terminalFontFamily } from './presentation'
 
 export type ProcessExit = Readonly<{
   code: number | null
@@ -61,8 +64,10 @@ export function terminalOptions(config: AppConfig): ITerminalOptions & ITerminal
   return {
     cols: config.terminalGrid.cols,
     rows: config.terminalGrid.rows,
-    fontFamily: 'monospace',
+    fontFamily: terminalFontFamily,
     fontSize: config.terminalGrid.fontSize,
+    letterSpacing: 0,
+    lineHeight: 1,
     scrollback: 0,
     cursorBlink: false,
     convertEol: false,
@@ -76,7 +81,55 @@ export function terminalOptions(config: AppConfig): ITerminalOptions & ITerminal
 }
 
 export function createTerminal(config: AppConfig) {
-  return new Terminal(terminalOptions(config))
+  const terminal = new Terminal(terminalOptions(config))
+  terminal.attachCustomWheelEventHandler((event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    return false
+  })
+  return terminal
+}
+
+export interface WebglAddonLike extends ITerminalAddon {
+  onContextLoss(handler: () => void): IDisposable
+}
+
+export type CreateWebglAddon = () => WebglAddonLike
+
+export function enableWebglRenderer(
+  terminal: Pick<Terminal, 'loadAddon'>,
+  createAddon: CreateWebglAddon = () => new WebglAddon(),
+): IDisposable {
+  let addon: WebglAddonLike | undefined
+  let contextLossSubscription: IDisposable | undefined
+  let disposed = false
+
+  const dispose = () => {
+    if (disposed) return
+    disposed = true
+    try {
+      contextLossSubscription?.dispose()
+    } catch {
+      // Renderer fallback must survive partially disposed event state.
+    }
+    contextLossSubscription = undefined
+    try {
+      addon?.dispose()
+    } catch {
+      // xterm's default renderer remains the final fallback.
+    }
+    addon = undefined
+  }
+
+  try {
+    addon = createAddon()
+    contextLossSubscription = addon.onContextLoss(dispose)
+    terminal.loadAddon(addon)
+  } catch {
+    dispose()
+  }
+
+  return { dispose }
 }
 
 function errorMessage(error: unknown) {

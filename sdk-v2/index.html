@@ -6,7 +6,15 @@
     <title>Termweave App</title>
   </head>
   <body>
-    <main id="app"></main>
+    <main id="app">
+      <div id="display-stage">
+        <div id="terminal" aria-label="Termweave terminal"></div>
+        <div id="crt-effects" aria-hidden="true" hidden>
+          <div id="crt-noise"></div>
+        </div>
+        <div id="monitor-overlay" aria-hidden="true" hidden></div>
+      </div>
+    </main>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

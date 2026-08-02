@@ -55,8 +55,9 @@ implemented from the v2 design in this document.
 | Flat app configuration                    | Keep                        |
 | Fixed logical terminal grid               | Keep                        |
 | Monitor illustration                      | Keep one overlay asset      |
-| CRT scanlines/noise/flicker/sweep         | Reimplement with CSS        |
-| Chromatic-aberration framebuffer capture  | Remove                      |
+| CRT scanlines/noise                       | Reimplement with CSS        |
+| V1 chromatic-aberration framebuffer capture | Remove                    |
+| Same-canvas CRT optical postprocessor      | Plan separately in Phase 4.5 |
 | Mirrored monitor-surround assets          | Remove                      |
 | Glyph-atlas reset/handoff machinery       | Remove                      |
 | WebSocket terminal server                 | Remove                      |
@@ -160,7 +161,9 @@ sdk-v2/
 │   ├── index.tsx
 │   └── routes.ts
 ├── docs/
-│   └── migration-plan.md
+│   ├── migration-plan.md
+│   ├── migration-prompts.md
+│   └── phase-4.5-webgl-postprocessing.md
 ├── scripts/
 │   ├── build-sidecar.ts
 │   ├── dev-sidecar.ts
@@ -246,7 +249,7 @@ Validation rules:
 - `version` is a valid three-part semantic version with an optional prerelease/build suffix.
 - `authors` contains at least one author.
 - `fontSize` is finite and greater than zero.
-- Both `1536 / fontSize` and `864 / fontSize` are integers.
+- Both `2560 / fontSize` and `1440 / fontSize` are integers.
 - Colors are six-digit hexadecimal strings.
 - `monitorOverlay` and `crtEffects` are booleans.
 - `icon` is a non-empty project-relative PNG or SVG path that cannot escape the project root.
@@ -255,7 +258,7 @@ Validation rules:
 The fixed logical surface is:
 
 ```ts
-const terminalSurface = { width: 1536, height: 864 };
+const terminalSurface = { width: 2560, height: 1440 };
 const terminalGrid = {
   cols: terminalSurface.width / config.fontSize,
   rows: terminalSurface.height / config.fontSize,
@@ -313,8 +316,8 @@ interface TermweaveConfig {
     cols: number;
     rows: number;
     fontSize: number;
-    width: 1536;
-    height: 864;
+    width: 2560;
+    height: 1440;
   };
 }
 
@@ -492,7 +495,7 @@ scope.
 
 ### Terminal
 
-- One fixed 1536×864 logical stage.
+- One fixed 2560×1440 logical stage.
 - Grid derived from `fontSize`.
 - Included local font.
 - Configured foreground/background colors.
@@ -518,9 +521,36 @@ The streamlined effect consists of:
 
 - Scanlines.
 - Low-opacity tiled noise.
-- Edge vignette.
-- Subtle stepped flicker.
-- A slow vertical sweep.
+
+Use the iconic 240p console raster. A normal 480i signal alternates two approximately 240-line
+fields at different vertical positions; 240p console output repeats one field parity instead, so
+only 240 active line positions are illuminated and the alternate positions remain dark.
+
+The remaining 45 lines in the 525-line timing belong to the vertical blanking interval. They form
+one off-picture retrace interval rather than 45 dark gaps distributed through the visible image,
+so they are not rendered inside the CSS aperture.
+
+For a 24-inch 16:9 reference tube, picture height is
+`24 in × 25.4 mm/in × 9 / sqrt(16² + 9²) = 298.9 mm`. A 480-line raster position is
+`298.9 mm / 480 = 0.623 mm` high, while illuminated 240p line starts are `1.245 mm` apart.
+Mapping the same picture height to the 1440-unit logical aperture gives a 3 px raster position and
+a 6 px illuminated-line pitch. Render each period as 3 px of untouched terminal followed by the
+fully dark 3 px alternate position, with the complete effect held at the configured 0.3 opacity.
+Integer logical dimensions avoid the aliasing and moiré produced by fractional 1.5 px VGA bands.
+Keep the scanline grid stationary; raster refresh does not make the grid crawl vertically for a
+viewer.
+
+Noise may shift spatially, but its opacity stays constant to avoid reintroducing a whole-screen
+flicker. Retain the 128×128 grayscale v1 texture: it has an opaque, near-neutral luminance
+distribution and therefore does not bias the image brighter or darker through the blend mode.
+Cycle eight integer-pixel texture phases over 133.467 ms, producing approximately 59.94 spatial
+updates per second without interpolation. This follows the NTSC/240p field cadence while avoiding
+the slow directional drift and low-frequency opacity pulse of the earlier CSS. Under reduced
+motion, retain one static low-opacity phase.
+
+References: [ITU-T J.182](https://www.itu.int/rec/T-REC-J.182-200103-I/en),
+[Analog Devices' interlaced-video explanation](https://www.analog.com/en/resources/technical-articles/basics-of-analog-video.html),
+and [HD Retrovision's 240p technical overview](https://www.hdretrovision.com/240p).
 
 Use CSS pseudo-elements and at most one dedicated noise element. Respect
 `prefers-reduced-motion` by disabling animations. When `crtEffects` is false, the entire effect
@@ -528,6 +558,10 @@ host is hidden.
 
 The v1 chromatic-aberration shader, second WebGL context, texture upload, rendered-frame handoff,
 and texture-atlas reset logic are intentionally not migrated.
+
+Phase 4.5 may later replace the stock WebGL addon with a pinned same-canvas renderer fork. That
+work is additive and separately reviewed; it does not reinterpret the v1 capture pipeline as part
+of Phase 4. See [Phase 4.5 — Same-Canvas WebGL CRT Optics](./phase-4.5-webgl-postprocessing.md).
 
 ## 12. Solid Router template
 
@@ -651,6 +685,21 @@ recovers on the next save.
 **Exit:** The template retains Termweave's visual identity without framebuffer capture or mirrored
 surround assets.
 
+### Phase 4.5 — Same-canvas WebGL CRT optics
+
+- Begin only after Phase 4 is committed as an independently shippable baseline.
+- Use one GPU-resident render target and one final pass inside xterm's existing WebGL canvas.
+- Add restrained barrel distortion, radial chromatic aberration, and phosphor glow/bloom.
+- Retain Phase 4's vignette-free CSS scanlines and low-opacity noise.
+- Correct pointer coordinates with the same barrel mapping used by the shader.
+- Preserve the stock default-renderer fallback on activation failure and context loss.
+- Follow the detailed architecture, exclusions, implementation order, and verification gates in
+  [the Phase 4.5 plan](./phase-4.5-webgl-postprocessing.md).
+
+**Exit:** Static CRT optics render through the one xterm canvas without CPU frame capture,
+preserved default-framebuffer contents, a second canvas/context, broken pointer alignment, or loss
+of Phase 4 fallback behavior.
+
 ### Phase 5 — Image and GIF PixelRenderer
 
 - Add local decoding, contain sizing, background composition, native supersampled drawing, GIF
@@ -754,6 +803,10 @@ Test all combinations:
 Also verify reduced-motion behavior, common window aspect ratios, fullscreen scaling, WebGL
 success, and default-renderer fallback.
 
+Phase 4.5 additionally verifies same-canvas topology, shader/FBO failures, context loss, barrel
+pointer mapping, 1×/2× display scale, GPU resource lifetime, and the performance gate defined in
+[`phase-4.5-webgl-postprocessing.md`](./phase-4.5-webgl-postprocessing.md).
+
 ### Performance smoke test
 
 Run an animated GIF route continuously for at least ten minutes while repeatedly navigating and
@@ -818,6 +871,9 @@ adapter.
 | ------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
 | Tauri raw channel is too slow for a GIF          | Reduce/coalesce producer rendering; do not restore WebSockets                                  |
 | xterm WebGL fails                                | Dispose the addon and use xterm's default renderer                                             |
+| Phase 4.5 shader or framebuffer fails            | Dispose the enhanced addon and retain the Phase 4/default-renderer fallback                     |
+| Barrel distortion misaligns pointer input        | Block release until inverse coordinate mapping passes edge/corner tests                         |
+| Full-resolution Phase 4.5 target is too costly   | Use one deterministic visible-resolution target; do not add a multi-pass framebuffer chain     |
 | Sidecar crashes in production                    | Show the error and let the user close; do not auto-restart                                     |
 | Sidecar has a syntax error in development        | Keep launcher alive and retry on the next source edit                                          |
 | GIF consumes excessive memory                    | Validate dimensions/frame data and document practical asset limits; do not add video streaming |
@@ -831,7 +887,7 @@ adapter.
 - `app.config.json` controls the generated application's version independently.
 - macOS is the only initial release requirement.
 - Code remains portable where doing so adds no architecture or dependency.
-- The logical terminal surface remains fixed at 1536×864.
+- The logical terminal surface remains fixed at 2560×1440.
 - xterm remains the embedded terminal emulator.
 - A PTY is not required for the owned OpenTUI sidecar and is out of scope.
 - The monitor is a single scaled overlay; exact v1 surround behavior is not required.
@@ -846,3 +902,4 @@ adapter.
 - [Tauri Architecture](https://v2.tauri.app/concept/architecture/)
 - [OpenTUI Renderer and Custom Streams](https://opentui.com/docs/core-concepts/renderer/)
 - [OpenTUI Lifecycle and Cleanup](https://opentui.com/docs/core-concepts/lifecycle/)
+- [Phase 4.5 — Same-Canvas WebGL CRT Optics](./phase-4.5-webgl-postprocessing.md)

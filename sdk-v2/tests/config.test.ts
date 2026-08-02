@@ -7,14 +7,14 @@ describe('app configuration', () => {
     expect(parseAppConfig(validAppConfig())).toEqual({
       ...validAppConfig(),
       terminalGrid: {
-        cols: 192,
-        rows: 108,
+        cols: 320,
+        rows: 180,
         fontSize: 8,
-        width: 1536,
-        height: 864,
+        width: 2560,
+        height: 1440,
       },
     })
-    expect(terminalSurface).toEqual({ width: 1536, height: 864 })
+    expect(terminalSurface).toEqual({ width: 2560, height: 1440 })
   })
 
   test('requires an object root', () => {
@@ -79,14 +79,14 @@ describe('app configuration', () => {
 
   test('requires font size to produce whole rows and columns', () => {
     expect(() => parseAppConfig(validAppConfig({ fontSize: 7 }))).toThrow(
-      'must divide the fixed 1536x864 terminal surface',
+      'must divide the fixed 2560x1440 terminal surface',
     )
-    expect(parseAppConfig(validAppConfig({ fontSize: 12 })).terminalGrid).toEqual({
-      cols: 128,
-      rows: 72,
-      fontSize: 12,
-      width: 1536,
-      height: 864,
+    expect(parseAppConfig(validAppConfig({ fontSize: 16 })).terminalGrid).toEqual({
+      cols: 160,
+      rows: 90,
+      fontSize: 16,
+      width: 2560,
+      height: 1440,
     })
   })
 
@@ -151,11 +151,11 @@ describe('app configuration', () => {
       backgroundColor: '#010416',
       foregroundColor: '#F59B5A',
       terminalGrid: {
-        cols: 192,
-        rows: 108,
-        fontSize: 8,
-        width: 1536,
-        height: 864,
+        cols: 128,
+        rows: 72,
+        fontSize: 20,
+        width: 2560,
+        height: 1440,
       },
     })
     expect(Object.isFrozen(publicConfig)).toBe(true)

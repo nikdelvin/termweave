@@ -105,7 +105,7 @@ Implement Phase 4 of the SDK v2 migration plan in `sdk-v2`.
 Read `sdk-v2/docs/migration-plan.md` completely and inspect the completed transport and development lifecycle first.
 
 Scope:
-- Add the fixed 1536×864 logical terminal stage and responsive uniform scaling.
+- Add the fixed 2560×1440 logical terminal stage and responsive uniform scaling.
 - Add the configured local font.
 - Add xterm’s WebGL addon with a small graceful fallback.
 - Port exactly one monitor-overlay asset from SDK v1.
@@ -117,7 +117,7 @@ Visual requirements:
 - With the monitor enabled, position xterm under the single scaled monitor overlay.
 - Fill unused native-window space with the configured background.
 - With the monitor disabled, render the terminal edge to edge on the logical surface.
-- CRT effects consist only of scanlines, low-opacity noise, vignette, subtle stepped flicker, and a slow vertical sweep.
+- CRT effects consist only of scanlines and low-opacity noise.
 - Hide the complete effects host when `crtEffects` is false.
 - Respect `prefers-reduced-motion`.
 - Dispose the xterm WebGL addon on context loss and continue with xterm’s default renderer.
@@ -127,6 +127,34 @@ Do not migrate mirrored surround images, chromatic-aberration shaders, framebuff
 Keep the visual implementation small: prefer CSS pseudo-elements and at most one dedicated noise element. Keep `sdk/` untouched.
 
 Verify all four monitor/CRT flag combinations, reduced motion, fullscreen, multiple window aspect ratios, WebGL success, and fallback rendering. Run all checks and report the assets retained and v1 machinery intentionally excluded.
+
+### Phase 4.5
+
+Implement Phase 4.5 of the SDK v2 migration plan in `sdk-v2`.
+
+Read `sdk-v2/docs/migration-plan.md` and
+`sdk-v2/docs/phase-4.5-webgl-postprocessing.md` completely. Inspect and verify the committed Phase
+4 baseline before changing renderer code. Treat the Phase 4.5 document as the source of truth for
+architecture, exclusions, implementation order, and acceptance criteria.
+
+Scope:
+- Replace the stock WebGL addon with a reproducibly pinned Termweave fork of addon 0.19.0.
+- Keep xterm's existing WebGL display canvas and WebGL2 context; add no canvas nodes or contexts.
+- Render xterm directly into one GPU-only RGBA target and run one final pass into the same canvas.
+- Add subtle barrel distortion, radial chromatic aberration, and restrained phosphor glow/bloom.
+- Retain Phase 4's vignette-free CSS scanlines and low-opacity noise.
+- Correct pointer coordinates using the same barrel mapping used by the shader.
+- Preserve config behavior, monitor layering, reduced motion, activation fallback, context-loss disposal, and terminal lifetime.
+
+Hard requirements:
+- Do not use `readPixels`, `preserveDrawingBuffer`, snapshots, CPU frame capture, or postprocessor uploads of captured terminal pixels.
+- Do not add a canvas, second WebGL context, native render surface, or renderer recovery loop.
+- Do not patch stock-addon private fields at runtime or depend on a mutable fork reference.
+- Do not add SVG filters, flicker, sweep, vignette, audio, video, mirrored surrounds, or v1 renderer machinery.
+- Do not change the public configuration schema or `#termweave` API.
+- Keep `sdk/` untouched.
+
+Verify shader/FBO construction and failure paths, exactly-once context-loss disposal, default-renderer continuity, pointer alignment, every monitor/CRT flag combination, reduced motion, fullscreen and aspect-ratio scaling, 1×/2× display scale, single-canvas topology, resource lifetime, and the sustained performance gate. Run `bun run check`, `bun run frontend:build`, the native visual matrix, and the final exclusion audit.
 
 ### Phase 5
 

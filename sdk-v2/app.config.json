@@ -5,7 +5,7 @@
   "bundleIdentifier": "com.example.termweave-app",
   "version": "0.1.0",
   "authors": ["Example Author"],
-  "fontSize": 8,
+  "fontSize": 20,
   "backgroundColor": "#010416",
   "foregroundColor": "#F59B5A",
   "monitorOverlay": true,

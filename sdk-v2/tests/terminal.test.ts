@@ -3,6 +3,7 @@ import { Terminal } from '@xterm/xterm'
 import { parseAppConfig } from '../shared/config'
 import {
   createTerminalSession,
+  enableWebglRenderer,
   terminalOptions,
   type AppWindowLike,
   type ChildLike,
@@ -10,6 +11,7 @@ import {
   type RawChunk,
   type SidecarCommandLike,
   type TerminalLike,
+  type WebglAddonLike,
 } from '../src/terminal'
 import { validAppConfig } from './fixtures'
 
@@ -207,9 +209,12 @@ describe('fixed xterm configuration', () => {
   test('uses the configured grid, colors, and non-scrolling terminal options', () => {
     const options = terminalOptions(parseAppConfig(validAppConfig()))
     expect(options).toMatchObject({
-      cols: 192,
-      rows: 108,
+      cols: 320,
+      rows: 180,
+      fontFamily: '"Kreative Square", monospace',
       fontSize: 8,
+      letterSpacing: 0,
+      lineHeight: 1,
       scrollback: 0,
       cursorBlink: false,
       convertEol: false,
@@ -231,6 +236,118 @@ describe('fixed xterm configuration', () => {
 
     expect(terminal.buffer.active.getLine(0)?.translateToString(true)).toBe('café red')
     terminal.dispose()
+  })
+})
+
+class FakeWebglAddon implements WebglAddonLike {
+  disposeCount = 0
+  contextLossSubscriptionDisposeCount = 0
+  private contextLossHandler: (() => void) | undefined
+
+  activate() {}
+
+  dispose() {
+    this.disposeCount += 1
+  }
+
+  onContextLoss(handler: () => void) {
+    this.contextLossHandler = handler
+    return {
+      dispose: () => {
+        this.contextLossSubscriptionDisposeCount += 1
+        this.contextLossHandler = undefined
+      },
+    }
+  }
+
+  loseContext() {
+    const handler = this.contextLossHandler
+    handler?.()
+  }
+}
+
+describe('xterm WebGL fallback', () => {
+  test('loads the addon and disposes it idempotently', () => {
+    const addon = new FakeWebglAddon()
+    const loaded: WebglAddonLike[] = []
+    const renderer = enableWebglRenderer(
+      {
+        loadAddon(candidate) {
+          loaded.push(candidate as WebglAddonLike)
+        },
+      },
+      () => addon,
+    )
+
+    expect(loaded).toEqual([addon])
+    expect(addon.disposeCount).toBe(0)
+    renderer.dispose()
+    renderer.dispose()
+    expect(addon.contextLossSubscriptionDisposeCount).toBe(1)
+    expect(addon.disposeCount).toBe(1)
+  })
+
+  test('disposes the addon on context loss without disposing or reloading xterm', () => {
+    const addon = new FakeWebglAddon()
+    let loadCount = 0
+    let terminalDisposeCount = 0
+    const renderer = enableWebglRenderer(
+      {
+        loadAddon() {
+          loadCount += 1
+        },
+        dispose() {
+          terminalDisposeCount += 1
+        },
+      } as Pick<Terminal, 'loadAddon'>,
+      () => addon,
+    )
+
+    addon.loseContext()
+    renderer.dispose()
+
+    expect(loadCount).toBe(1)
+    expect(terminalDisposeCount).toBe(0)
+    expect(addon.contextLossSubscriptionDisposeCount).toBe(1)
+    expect(addon.disposeCount).toBe(1)
+  })
+
+  test('continues without WebGL when construction fails', () => {
+    let loadCount = 0
+    const renderer = enableWebglRenderer(
+      {
+        loadAddon() {
+          loadCount += 1
+        },
+      },
+      () => {
+        throw new Error('WebGL unavailable')
+      },
+    )
+
+    expect(loadCount).toBe(0)
+    expect(() => renderer.dispose()).not.toThrow()
+  })
+
+  test('disposes partial addon state when xterm activation fails', () => {
+    const addon = new FakeWebglAddon()
+    let terminalDisposeCount = 0
+    const renderer = enableWebglRenderer(
+      {
+        loadAddon() {
+          throw new Error('renderer activation failed')
+        },
+        dispose() {
+          terminalDisposeCount += 1
+        },
+      } as Pick<Terminal, 'loadAddon'>,
+      () => addon,
+    )
+
+    expect(terminalDisposeCount).toBe(0)
+    expect(addon.contextLossSubscriptionDisposeCount).toBe(1)
+    expect(addon.disposeCount).toBe(1)
+    expect(() => renderer.dispose()).not.toThrow()
   })
 })
 

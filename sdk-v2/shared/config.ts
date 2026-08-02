@@ -1,13 +1,13 @@
 import rawAppConfig from '../app.config.json'
 
-export const terminalSurface = Object.freeze({ width: 1536, height: 864 } as const)
+export const terminalSurface = Object.freeze({ width: 2560, height: 1440 } as const)
 
 export type TerminalGrid = Readonly<{
   cols: number
   rows: number
   fontSize: number
-  width: 1536
-  height: 864
+  width: 2560
+  height: 1440
 }>
 
 export type AppConfig = Readonly<{

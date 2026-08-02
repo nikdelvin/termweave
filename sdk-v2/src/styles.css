@@ -1,6 +1,15 @@
+@font-face {
+  font-family: 'Kreative Square';
+  src: url('./assets/font.ttf') format('truetype');
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+}
+
 :root {
   color: var(--termweave-foreground, #f59b5a);
   background: var(--termweave-background, #010416);
+  font-synthesis: none;
 }
 
 html,
@@ -13,6 +22,138 @@ body,
   background: var(--termweave-background, #010416);
 }
 
-#app .xterm {
+* {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+#app {
+  position: relative;
+}
+
+#display-stage {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  transform: scale(var(--termweave-stage-scale, 1));
+  transform-origin: center;
+}
+
+#terminal,
+#crt-effects {
+  position: absolute;
+}
+
+#terminal {
+  z-index: 1;
+  overflow: hidden;
+  background: var(--termweave-background, #010416);
+  filter: brightness(0.99) contrast(1.025) saturate(1.04);
+}
+
+#crt-effects {
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* 240p draws one 3px raster position and leaves the alternate 3px position dark. */
+#crt-effects::before {
+  position: absolute;
+  inset: 0;
+  content: '';
+  z-index: 3;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent var(--crt-scanline-beam-height, 3px),
+    #000 var(--crt-scanline-beam-height, 3px),
+    #000 var(--crt-scanline-pitch, 6px)
+  );
+  mix-blend-mode: multiply;
+  opacity: var(--crt-scanlines-opacity, 0.56);
+}
+
+#crt-noise {
+  position: absolute;
+  z-index: 2;
+  inset: -96px;
+  pointer-events: none;
+  background: url('./assets/crt-noise.png') repeat;
+  background-size: 128px 128px;
+  mix-blend-mode: soft-light;
+  opacity: var(--crt-noise-opacity, 0.0242);
+  animation: crt-noise-shift 133.467ms steps(1, end) infinite;
+  will-change: transform;
+}
+
+#monitor-overlay {
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+  user-select: none;
+  background: url('./assets/monitor-overlay.webp') center / 100% 100% no-repeat;
+  filter: brightness(var(--monitor-bezel-brightness)) contrast(var(--monitor-bezel-contrast))
+    sepia(var(--monitor-bezel-sepia)) saturate(var(--monitor-bezel-saturation))
+    hue-rotate(var(--monitor-bezel-hue));
+}
+
+@keyframes crt-noise-shift {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+
+  12.5% {
+    transform: translate3d(-47px, 23px, 0);
+  }
+
+  25% {
+    transform: translate3d(31px, -59px, 0);
+  }
+
+  37.5% {
+    transform: translate3d(-73px, -17px, 0);
+  }
+
+  50% {
+    transform: translate3d(61px, 41px, 0);
+  }
+
+  62.5% {
+    transform: translate3d(-19px, 67px, 0);
+  }
+
+  75% {
+    transform: translate3d(83px, -37px, 0);
+  }
+
+  87.5% {
+    transform: translate3d(-53px, -79px, 0);
+  }
+
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #crt-noise {
+    animation: none;
+  }
+}
+
+.xterm-char-measure-element {
+  line-height: 1 !important;
+}
+
+#terminal .xterm,
+#terminal .xterm-viewport,
+#terminal .xterm-screen {
+  width: 100%;
   height: 100%;
 }

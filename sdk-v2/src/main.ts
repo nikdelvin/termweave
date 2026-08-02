@@ -1,7 +1,8 @@
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { Command } from '@tauri-apps/plugin-shell'
 import { getAppConfig } from '../shared/config'
-import { createTerminal, createTerminalSession } from './terminal'
+import { createPresentation, terminalFontFamily } from './presentation'
+import { createTerminal, createTerminalSession, enableWebglRenderer } from './terminal'
 import '@xterm/xterm/css/xterm.css'
 import './styles.css'
 
@@ -10,20 +11,47 @@ if (!root) throw new Error('Missing application root')
 
 const config = getAppConfig()
 document.title = config.name
-root.style.setProperty('--termweave-background', config.backgroundColor)
-root.style.setProperty('--termweave-foreground', config.foregroundColor)
-
+const presentation = createPresentation(root, config)
 const terminal = createTerminal(config)
-terminal.open(root)
+let disposed = false
+let renderer: ReturnType<typeof enableWebglRenderer> | undefined
+let session: ReturnType<typeof createTerminalSession> | undefined
+let cleanupPromise: Promise<void> | undefined
 
-const command = Command.sidecar('binaries/opentui-sidecar', [], { encoding: 'raw' })
-const session = createTerminalSession({
-  terminal,
-  command,
-  appWindow: getCurrentWindow(),
-})
+function cleanup() {
+  if (cleanupPromise) return cleanupPromise
+  disposed = true
+  presentation.dispose()
+  renderer?.dispose()
 
-window.addEventListener('beforeunload', () => void session.cleanup(), { once: true })
-import.meta.hot?.dispose(() => void session.cleanup())
+  if (session) {
+    cleanupPromise = session.cleanup()
+  } else {
+    terminal.dispose()
+    cleanupPromise = Promise.resolve()
+  }
+  return cleanupPromise
+}
 
-void session.start()
+window.addEventListener('beforeunload', () => void cleanup(), { once: true })
+import.meta.hot?.dispose(() => void cleanup())
+
+void (async () => {
+  try {
+    await document.fonts.load(`${config.terminalGrid.fontSize}px ${terminalFontFamily}`)
+  } catch {
+    // The bundled font is preferred, but a font-loading failure must not hide the application.
+  }
+  if (disposed) return
+
+  terminal.open(presentation.terminalHost)
+  renderer = enableWebglRenderer(terminal)
+
+  const command = Command.sidecar('binaries/opentui-sidecar', [], { encoding: 'raw' })
+  session = createTerminalSession({
+    terminal,
+    command,
+    appWindow: getCurrentWindow(),
+  })
+  await session.start()
+})()
