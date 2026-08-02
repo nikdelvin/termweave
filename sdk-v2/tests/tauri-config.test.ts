@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import packageManifest from '../package.json'
 import capabilities from '../src-tauri/capabilities/default.json'
 import tauriConfig from '../src-tauri/tauri.conf.json'
 
@@ -26,5 +27,14 @@ describe('Tauri Phase 2 configuration', () => {
     expect(csp).toContain('ipc: http://ipc.localhost')
     expect(csp).toContain("style-src 'self' 'unsafe-inline'")
     expect(csp).not.toMatch(/wss?:|127\.0\.0\.1|localhost:\d/)
+  })
+})
+
+describe('Tauri Phase 3 development command', () => {
+  test('builds the development launcher before starting Tauri', () => {
+    expect(packageManifest.scripts.dev).toBe(
+      'bun run prepare && bun scripts/build-sidecar.ts development && tauri dev --config src-tauri/.generated/override.json',
+    )
+    expect(packageManifest.scripts['sidecar:build']).toBe('bun scripts/build-sidecar.ts')
   })
 })

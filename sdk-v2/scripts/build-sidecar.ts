@@ -5,14 +5,18 @@ import solidPlugin from '@opentui/solid/bun-plugin'
 
 const projectRoot = resolve(import.meta.dir, '..')
 
+export type SidecarBuildMode = 'development' | 'production'
+
 type BuildRunner = (
   options: Parameters<typeof Bun.build>[0],
 ) => Promise<{ success: boolean; logs: readonly unknown[] }>
 
 type BuildSidecarOptions = {
+  mode?: SidecarBuildMode
   root?: string
   triple?: string
   platform?: NodeJS.Platform
+  bunExecutable?: string
   build?: BuildRunner
 }
 
@@ -49,38 +53,64 @@ export async function getHostTuple() {
   return triple
 }
 
-export async function buildProductionSidecar({
+export async function buildSidecar({
+  mode = 'production',
   root = projectRoot,
   triple,
   platform = process.platform,
+  bunExecutable = process.execPath,
   build = Bun.build,
 }: BuildSidecarOptions = {}) {
   const hostTuple = triple ?? (await getHostTuple())
   const outputPath = getSidecarOutputPath(root, hostTuple, platform)
   await mkdir(resolve(root, 'src-tauri/binaries'), { recursive: true })
 
-  const result = await build({
-    entrypoints: [resolve(root, 'app/index.tsx')],
+  const buildOptions: Parameters<typeof Bun.build>[0] = {
+    entrypoints: [
+      resolve(root, mode === 'production' ? 'app/index.tsx' : 'scripts/dev-sidecar.ts'),
+    ],
     compile: { outfile: outputPath },
-    define: {
+  }
+
+  if (mode === 'production') {
+    buildOptions.define = {
       'process.env.DEBUG': 'undefined',
       'process.env.NODE_ENV': JSON.stringify('production'),
-    },
-    plugins: [solidPlugin],
-  })
+    }
+    buildOptions.plugins = [solidPlugin]
+  } else {
+    buildOptions.define = {
+      __TERMWEAVE_BUN_EXECUTABLE__: JSON.stringify(bunExecutable),
+      __TERMWEAVE_PROJECT_ROOT__: JSON.stringify(root),
+    }
+  }
+
+  const result = await build(buildOptions)
 
   if (!result.success) {
     const diagnostics = result.logs.map(String).join('\n').trim()
-    throw new Error(`OpenTUI sidecar build failed${diagnostics ? `:\n${diagnostics}` : ''}`)
+    const subject = mode === 'production' ? 'OpenTUI sidecar' : 'Development launcher'
+    throw new Error(`${subject} build failed${diagnostics ? `:\n${diagnostics}` : ''}`)
   }
 
   return outputPath
 }
 
+export function buildProductionSidecar(options: Omit<BuildSidecarOptions, 'mode'> = {}) {
+  return buildSidecar({ ...options, mode: 'production' })
+}
+
 if (import.meta.main) {
   try {
-    const outputPath = await buildProductionSidecar()
-    process.stdout.write(`Built production sidecar ${outputPath}\n`)
+    const requestedMode = process.argv[2] ?? 'production'
+    if (requestedMode !== 'development' && requestedMode !== 'production') {
+      throw new Error('Usage: bun scripts/build-sidecar.ts [development|production]')
+    }
+
+    const outputPath = await buildSidecar({ mode: requestedMode })
+    const subject =
+      requestedMode === 'production' ? 'production sidecar' : 'development sidecar launcher'
+    process.stdout.write(`Built ${subject} ${outputPath}\n`)
   } catch (error) {
     process.stderr.write(`${errorMessage(error)}\n`)
     process.exitCode = 1

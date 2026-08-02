@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { buildProductionSidecar, getSidecarOutputPath } from '../scripts/build-sidecar'
+import {
+  buildProductionSidecar,
+  buildSidecar,
+  getSidecarOutputPath,
+} from '../scripts/build-sidecar'
 
 let root = ''
 
@@ -51,6 +55,29 @@ describe('production sidecar build', () => {
     expect(buildOptions?.plugins).toHaveLength(1)
   })
 
+  test('compiles the development launcher with the project and Bun paths', async () => {
+    let buildOptions: Parameters<typeof Bun.build>[0] | undefined
+    const outputPath = await buildSidecar({
+      mode: 'development',
+      root,
+      triple: 'aarch64-apple-darwin',
+      platform: 'darwin',
+      bunExecutable: '/opt/bun/bin/bun',
+      build: async (options) => {
+        buildOptions = options
+        return { success: true, logs: [] }
+      },
+    })
+
+    expect(buildOptions?.entrypoints).toEqual([resolve(root, 'scripts/dev-sidecar.ts')])
+    expect(buildOptions?.compile).toEqual({ outfile: outputPath })
+    expect(buildOptions?.define).toEqual({
+      __TERMWEAVE_BUN_EXECUTABLE__: '"/opt/bun/bin/bun"',
+      __TERMWEAVE_PROJECT_ROOT__: JSON.stringify(root),
+    })
+    expect(buildOptions?.plugins).toBeUndefined()
+  })
+
   test('surfaces Bun build diagnostics without fallback behavior', async () => {
     await expect(
       buildProductionSidecar({
@@ -64,5 +91,16 @@ describe('production sidecar build', () => {
     ).rejects.toThrow(
       'OpenTUI sidecar build failed:\napp/index.tsx: unexpected token\nbuild stopped',
     )
+  })
+
+  test('labels development launcher build failures', async () => {
+    await expect(
+      buildSidecar({
+        mode: 'development',
+        root,
+        triple: 'aarch64-apple-darwin',
+        build: async () => ({ success: false, logs: ['launcher failed'] }),
+      }),
+    ).rejects.toThrow('Development launcher build failed:\nlauncher failed')
   })
 })

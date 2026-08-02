@@ -10,7 +10,7 @@
     "#termweave": "./app/termweave/index.ts"
   },
   "scripts": {
-    "dev": "bun run prepare && bun run sidecar:build && tauri dev --config src-tauri/.generated/override.json",
+    "dev": "bun run prepare && bun scripts/build-sidecar.ts development && tauri dev --config src-tauri/.generated/override.json",
     "build": "bun run check && bun run prepare && bun run sidecar:build && tauri build --config src-tauri/.generated/override.json",
     "prepare": "bun scripts/prepare.ts",
     "sidecar:build": "bun scripts/build-sidecar.ts",
