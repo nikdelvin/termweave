@@ -134,27 +134,49 @@ Implement Phase 4.5 of the SDK v2 migration plan in `sdk-v2`.
 
 Read `sdk-v2/docs/migration-plan.md` and
 `sdk-v2/docs/phase-4.5-webgl-postprocessing.md` completely. Inspect and verify the committed Phase
-4 baseline before changing renderer code. Treat the Phase 4.5 document as the source of truth for
-architecture, exclusions, implementation order, and acceptance criteria.
+4 baseline before changing visual or rendering code. Treat the Phase 4.5 document as the source of
+truth wherever other planning text conflicts with its architecture, exclusions, implementation
+order, or acceptance criteria.
 
 Scope:
-- Replace the stock WebGL addon with a reproducibly pinned Termweave fork of addon 0.19.0.
-- Keep xterm's existing WebGL display canvas and WebGL2 context; add no canvas nodes or contexts.
-- Render xterm directly into one GPU-only RGBA target and run one final pass into the same canvas.
+- Keep the pinned stock `@xterm/addon-webgl` 0.19.0 and `@xterm/xterm` 6.0.0 packages unchanged.
+- After loading the stock addon, locate its display canvas below the public terminal element and
+  reacquire the already-created WebGL2 context; add no canvas nodes or contexts.
+- Allocate one full-drawing-buffer RGBA8 texture-backed framebuffer, validate it, and keep it bound
+  while the unchanged addon renders backgrounds, glyphs, selection, and cursor.
+- Present one final pass into the same canvas synchronously from `Terminal.onRender`, then restore
+  shared GL state and rebind the Termweave framebuffer before returning.
 - Add subtle barrel distortion, radial chromatic aberration, and restrained phosphor glow/bloom.
 - Retain Phase 4's vignette-free CSS scanlines and low-opacity noise.
 - Correct pointer coordinates using the same barrel mapping used by the shader.
-- Preserve config behavior, monitor layering, reduced motion, activation fallback, context-loss disposal, and terminal lifetime.
+- Observe drawing-buffer dimension changes and recreate a complete target before xterm's next
+  redraw; recreate resources after successful context restoration.
+- Preserve config behavior, monitor layering, reduced motion, transactional activation fallback,
+  permanent-context-loss disposal, and terminal lifetime.
 
 Hard requirements:
-- Do not use `readPixels`, `preserveDrawingBuffer`, snapshots, CPU frame capture, or postprocessor uploads of captured terminal pixels.
+- Do not fork, vendor, rebuild, republish, or patch the stock addon; do not import xterm private
+  modules, read private runtime fields, or monkey-patch canvas, WebGL, or animation-frame globals.
+- Do not use `readPixels`, `preserveDrawingBuffer`, snapshots, CPU frame capture, postprocessor
+  uploads of captured terminal pixels, or a normal-frame copy from the default framebuffer.
 - Do not add a canvas, second WebGL context, native render surface, or renderer recovery loop.
-- Do not patch stock-addon private fields at runtime or depend on a mutable fork reference.
+- Permit `blitFramebuffer` only as the documented one-time emergency raw-frame handoff after an
+  unexpected runtime steering or presentation failure; never use it on the successful frame path.
+- Do not add a same-context copy renderer, reduced-resolution target, second framebuffer, or silent
+  downscaling if the full-resolution target misses the performance or memory gate; retain Phase 4.
 - Do not add SVG filters, flicker, sweep, vignette, audio, video, mirrored surrounds, or v1 renderer machinery.
 - Do not change the public configuration schema or `#termweave` API.
 - Keep `sdk/` untouched.
 
-Verify shader/FBO construction and failure paths, exactly-once context-loss disposal, default-renderer continuity, pointer alignment, every monitor/CRT flag combination, reduced motion, fullscreen and aspect-ratio scaling, 1×/2× display scale, single-canvas topology, resource lifetime, and the sustained performance gate. Run `bun run check`, `bun run frontend:build`, the native visual matrix, and the final exclusion audit.
+Verify the pinned source contract (`bindFramebuffer` absence and post-render `Terminal.onRender`
+ordering), same-context reacquisition, target binding before the first and every xterm render,
+shared GL-state restoration, shader/FBO construction and failure paths, steering-invariant failure,
+the one-time emergency blit, resize/DPR replacement before redraw, successful context restoration,
+exactly-once permanent-context-loss disposal, default-renderer continuity, pointer alignment, every
+monitor/CRT flag combination, reduced motion, fullscreen and aspect-ratio scaling, 1×/2× display
+scale, single-canvas topology, resource lifetime, absence of normal-frame copies, and the sustained
+full-resolution performance gate. Run `bun run check`, `bun run frontend:build`, the native visual
+matrix, and the final exclusion audit.
 
 ### Phase 5
 
