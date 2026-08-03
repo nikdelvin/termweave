@@ -67,11 +67,15 @@ describe('presentation configuration matrix', () => {
           const terminal = fakeElement()
           const effects = fakeElement()
           const monitor = fakeElement()
+          const rendererStatus = fakeElement()
+          const rendererStatusMessage = fakeElement()
           const elements = new Map<string, ReturnType<typeof fakeElement>>([
             ['#display-stage', stage],
             ['#terminal', terminal],
             ['#crt-effects', effects],
             ['#monitor-overlay', monitor],
+            ['#renderer-status', rendererStatus],
+            ['#renderer-status-message', rendererStatusMessage],
           ])
           const root = {
             ...fakeElement(),
@@ -104,9 +108,14 @@ describe('presentation configuration matrix', () => {
           expect(terminal.style.height).toBe('1440px')
           expect(effects.style.width).toBe('2560px')
           expect(effects.style.height).toBe('1440px')
-          expect(effects.style.getPropertyValue('--crt-scanlines-opacity')).toBe(
-            crtEffects ? '0.3' : '',
+          expect(rendererStatus.style.left).toBe('-1280px')
+          expect(rendererStatus.style.top).toBe('-720px')
+          expect(rendererStatus.style.width).toBe('2560px')
+          expect(rendererStatus.style.height).toBe('1440px')
+          expect(effects.style.getPropertyValue('--crt-noise-opacity')).toBe(
+            crtEffects ? '0.025' : '',
           )
+          expect(effects.style.getPropertyValue('--crt-scanlines-opacity')).toBe('')
           expect(stage.style.getPropertyValue('--termweave-stage-scale')).toBe(
             String(monitorOverlay ? 1072 / 2560 : 1200 / 2560),
           )
@@ -137,18 +146,34 @@ describe('fixed logical stage', () => {
 
   test('positions the monitor around an exactly centered terminal aperture', () => {
     const layout = presentationLayout(true)
-    const artworkScale = 2560 / 2453
-    const screenLeft = 268 * artworkScale
-    const screenCenterY = (201 + 1380 / 2) * artworkScale
+    const apertureWidth = 3000 - 268 - 278
+    const apertureHeight = 1740 - 201 - 159
+    const apertureCenterX = 268 + apertureWidth / 2
+    const apertureCenterY = 201 + apertureHeight / 2
+    const frameWidth = 2464
+    const frameHeight = 1386
+    const frameLeft = apertureCenterX - frameWidth / 2
+    const frameTop = apertureCenterY - frameHeight / 2
+    const artworkScale = 2560 / frameWidth
+    const frameRight = layout.monitorLeft + (frameLeft + frameWidth) * artworkScale
+    const frameBottom = layout.monitorTop + (frameTop + frameHeight) * artworkScale
 
+    expect(apertureWidth).toBe(2454)
+    expect(apertureHeight).toBe(1380)
+    expect(frameWidth / frameHeight).toBe(16 / 9)
+    expect((frameWidth - apertureWidth) / 2).toBe(5)
+    expect((frameHeight - apertureHeight) / 2).toBe(3)
     expect(layout.terminalLeft + layout.terminalWidth / 2).toBe(0)
     expect(layout.terminalTop + layout.terminalHeight / 2).toBe(0)
-    expect(layout.monitorLeft).toBeCloseTo(-(screenLeft + 1280), 10)
-    expect(layout.monitorTop).toBeCloseTo(-screenCenterY, 10)
+    expect(layout.monitorLeft).toBeCloseTo(-apertureCenterX * artworkScale, 12)
+    expect(layout.monitorTop).toBeCloseTo(-apertureCenterY * artworkScale, 12)
     expect(layout.monitorWidth).toBeCloseTo(3000 * artworkScale, 10)
     expect(layout.monitorHeight).toBeCloseTo(1740 * artworkScale, 10)
     expect(layout.monitorWidth / 3000).toBeCloseTo(layout.monitorHeight / 1740, 12)
-    expect(1380 * artworkScale - layout.terminalHeight).toBeLessThan(1)
+    expect(layout.monitorLeft + frameLeft * artworkScale).toBeCloseTo(layout.terminalLeft, 12)
+    expect(layout.monitorTop + frameTop * artworkScale).toBeCloseTo(layout.terminalTop, 12)
+    expect(frameRight).toBeCloseTo(layout.terminalLeft + layout.terminalWidth, 12)
+    expect(frameBottom).toBeCloseTo(layout.terminalTop + layout.terminalHeight, 12)
     expect(layout.windowInset).toBe(64)
   })
 })
@@ -164,13 +189,11 @@ describe('original SDK visual styling', () => {
     })
   })
 
-  test('derives the original CRT opacity variables from the 0.3 defaults', () => {
+  test('applies the CSS noise visibility directly as opacity', () => {
     const variables = crtEffectStyleVariables()
 
-    expect(variables['--crt-noise-opacity']).toBeCloseTo(0.03 * (50 / 62), 12)
-    expect(variables['--crt-scanline-beam-height']).toBe('3px')
-    expect(variables['--crt-scanline-pitch']).toBe('6px')
-    expect(variables['--crt-scanlines-opacity']).toBe(0.3)
+    expect(variables['--crt-noise-opacity']).toBe(0.025)
+    expect(Object.keys(variables)).toEqual(['--crt-noise-opacity'])
   })
 })
 
@@ -237,13 +260,17 @@ describe('streamlined visual asset and markup contract', () => {
     expect(assets).toEqual(['crt-noise.png', 'font-OFL.txt', 'font.ttf', 'monitor-overlay.webp'])
   })
 
-  test('uses only scanlines and noise, no custom canvas, and explicit motion/hidden rules', async () => {
+  test('keeps only noise in CSS and leaves curved scanlines to WebGL', async () => {
     const [html, css] = await Promise.all([
       readFile(resolve(import.meta.dir, '../index.html'), 'utf8'),
       readFile(resolve(import.meta.dir, '../src/styles.css'), 'utf8'),
     ])
 
     expect(html.match(/id="crt-noise"/g)).toHaveLength(1)
+    expect(html.match(/id="renderer-status"/g)).toHaveLength(1)
+    expect(html).toContain('role="alert"')
+    expect(html).toContain('aria-live="assertive"')
+    expect(html).toContain('aria-atomic="true"')
     expect(html).not.toContain('id="crt-sweep"')
     expect(html).not.toContain('<canvas')
     expect(html).not.toContain('monitor-surround')
@@ -252,9 +279,9 @@ describe('streamlined visual asset and markup contract', () => {
     expect(css).toContain('animation: crt-noise-shift 133.467ms steps(1, end) infinite')
     expect(css).toContain('inset: -96px')
     expect(css).toContain('transform: translate3d(83px, -37px, 0)')
-    expect(css).toContain('transparent var(--crt-scanline-beam-height, 3px)')
-    expect(css).toContain('#000 var(--crt-scanline-beam-height, 3px)')
-    expect(css).toContain('#000 var(--crt-scanline-pitch, 6px)')
+    expect(css).not.toContain('#crt-effects::before')
+    expect(css).not.toContain('repeating-linear-gradient')
+    expect(css).not.toContain('crt-scanline')
     expect(css).toContain('background-size: 128px 128px')
     expect(css.match(/--crt-noise-opacity/g)).toHaveLength(1)
     expect(css).not.toContain('will-change: transform, opacity')
@@ -267,6 +294,9 @@ describe('streamlined visual asset and markup contract', () => {
     expect(css).not.toContain('box-shadow: inset')
     expect(css).toContain('brightness(var(--monitor-bezel-brightness))')
     expect(css.match(/monitor-overlay\.webp/g)).toHaveLength(1)
+    expect(css).toContain('#renderer-status')
+    expect(css).toContain('z-index: 4')
+    expect(css).toContain('align-items: flex-end')
     expect(css).not.toContain('monitor-mirrored')
   })
 })

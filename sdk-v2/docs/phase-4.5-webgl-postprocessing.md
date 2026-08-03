@@ -1,6 +1,6 @@
 # Phase 4.5 — Same-Canvas WebGL CRT Optics
 
-**Status:** Planned; Phase 4 baseline committed
+**Status:** Implemented; native 1×/2× visual and sustained-performance acceptance pending
 **Depends on:** Completed Phase 4 streamlined visuals
 **Target:** SDK v2 on macOS WKWebView, with portable WebGL behavior where practical
 **Document date:** 2026-08-03
@@ -39,12 +39,13 @@ Phase 4.5:
 - Steers xterm rendering into a Termweave-owned texture-backed framebuffer.
 - Keeps exactly one visible xterm WebGL canvas.
 - Adds one GPU-resident render target and one final full-screen pass.
-- Retains CSS scanlines and low-opacity noise.
-- Adds static barrel distortion, chromatic aberration, and bloom when `crtEffects` is enabled.
+- Retains low-opacity CSS noise.
+- Adds static barrel distortion, chromatic aberration, curved scanlines, and bloom when
+  `crtEffects` is enabled.
 - Preserves Phase 4's monitor geometry, colors, font, fixed grid, scaling, and fallback behavior.
 
-Phase 4 should be committed before Phase 4.5 begins so the more invasive renderer work remains a
-separate commit or pull request with a clean rollback point.
+Committed Phase 4 revision `3e1eb18` is the recorded rollback point. Phase 4.5 creates no tag,
+commit, push, or dependency update implicitly.
 
 ## 3. Terminology and hard boundary
 
@@ -84,12 +85,14 @@ glyph-local approximations, not the design in this document.
 ## 4. Goals
 
 - Render subtle, recognizable CRT curvature without distracting from the TUI.
-- Apply a small radial RGB separation that is zero at the center and strongest near the edges.
+- Apply a small separable-axis RGB convergence error that is zero at the center and strongest near
+  the edges.
 - Add a restrained light halo around bright terminal content.
 - Keep the monitor overlay sharp and undistorted above the processed terminal.
 - Keep the configured background visible outside the curved sample boundary.
 - Preserve the fixed 2560×1440 logical terminal and centered uniform scaling.
-- Preserve terminal text, selection, cursor, keyboard input, and mouse-enabled TUI behavior.
+- Preserve terminal text, rendered selection, cursor, and keyboard input. This SDK application
+  keeps mouse tracking disabled in its OpenTUI configuration.
 - Dispose the postprocessor and stock WebGL addon on permanent context loss, then continue with
   xterm's default renderer.
 - Avoid a continuous render loop for static optics.
@@ -167,13 +170,14 @@ public Terminal.onRender callback
      ▼
 one synchronous full-screen CRT pass
      ├── inverse barrel sampling
-     ├── radial RGB channel sampling
-     └── small luminance bloom
+     ├── separable-axis RGB channel sampling
+     ├── small luminance bloom
+     └── source-mapped antialiased scanlines
      │
      ▼
 the same visible xterm WebGL canvas
      │
-     ├── CSS scanlines and low-opacity noise
+     ├── low-opacity CSS noise
      └── one unprocessed monitor overlay above everything
 ```
 
@@ -189,12 +193,19 @@ from the default framebuffer.
 The Phase 4 DOM order remains:
 
 1. Terminal and its one WebGL display canvas.
-2. CSS effects host containing scanlines and one noise element.
+2. CSS effects host containing one noise element.
 3. Single monitor overlay.
 
-Only terminal pixels are barrel-distorted. The monitor artwork is physical casing and must remain
-undistorted. CSS scanlines and noise remain compositor overlays in the first Phase 4.5 version;
-they are intentionally not uploaded as WebGL textures and do not require continuous xterm redraws.
+Terminal pixels and the scanline mask use the same barrel-mapped source coordinates. The monitor
+artwork is physical casing and must remain undistorted. Random noise remains a CSS compositor
+overlay; it is intentionally not uploaded as a WebGL texture and does not require continuous xterm
+redraws.
+
+The 3000×1740 monitor artwork has measured center-edge aperture paddings of 268 px left, 278 px
+right, 201 px top, and 159 px bottom, giving a 2454×1380 aperture centered at `(1495, 891)`. The
+terminal uses the nearest larger integer 16:9 frame, 2464×1386, centered on that same point. Its
+5 px horizontal and 3 px vertical overscan on each side sits behind the bezel, while the terminal
+and measured aperture centers remain identical and artwork scaling stays uniform.
 
 ## 8. WebGL render pipeline
 
@@ -210,8 +221,12 @@ When `crtEffects` is enabled, activation will:
 6. Allocate one full-size RGBA8 2D texture and attach it to one framebuffer.
 7. Verify texture-size limits, shader status, link status, and framebuffer completeness.
 8. Create one full-screen triangle or quad vertex buffer and vertex-array state.
-9. Subscribe to `Terminal.onRender`, canvas drawing-buffer dimension changes, and context events.
-10. Bind the Termweave framebuffer before xterm's first scheduled render.
+9. Clear both the texture-backed target and default display framebuffer to the configured
+   background while preserving clear color, color mask, scissor state, and the previous
+   draw-framebuffer binding. Initializing the sampled target prevents a transparent-black blank
+   xterm frame from becoming an opaque black CRT aperture during the first presentation.
+10. Subscribe to `Terminal.onRender`, canvas drawing-buffer dimension changes, and context events.
+11. Bind the Termweave framebuffer before xterm's first scheduled render.
 
 Initialization is transactional. Steering does not begin until all resources, subscriptions, and
 compatibility checks are valid. Any failure disposes partial postprocessor and addon state, binds
@@ -284,7 +299,7 @@ When either dimension changes while the context is healthy, it will:
 2. Reallocate the one target texture to the exact new drawing-buffer size.
 3. Reattach and validate the framebuffer.
 4. Restore the steering binding before xterm's scheduled redraw.
-5. Resume presentation only after the complete replacement succeeds.
+5. Resume presentation only after the complete storage reallocation succeeds.
 
 The observer and xterm's device-pixel resize scheduling must be verified in WKWebView. If Termweave
 cannot guarantee that the resized target is bound before xterm draws, it must stop steering and
@@ -302,10 +317,11 @@ The postprocessor owns and deletes:
 It also owns its `Terminal.onRender`, dimension-observer, and canvas-context subscriptions.
 Disposal must be idempotent and safe after partial initialization.
 
-Resources are recreated for a legitimate drawable-size/device-pixel-ratio change and after a
-successful WebGL context restoration while the addon remains active. They are not recreated after
-the addon's permanent context-loss notification; the postprocessor and addon are disposed and
-xterm's default renderer remains active.
+Drawable-size/device-pixel-ratio changes reuse the existing texture and framebuffer objects while
+reallocating the texture's storage to the exact new drawing-buffer size. The complete WebGL
+resource set is recreated only after a successful context restoration while the addon remains
+active. It is not recreated after the addon's permanent context-loss notification; the
+postprocessor and addon are disposed and xterm's default renderer remains active.
 
 ## 9. CRT shader design
 
@@ -318,25 +334,100 @@ subtle and expose constants internally rather than adding configuration fields.
 - Calculate radius squared from the centered position.
 - Map the destination position to its source position with a low-strength radial polynomial.
 - Keep the exact center invariant.
-- Maintain horizontal and vertical symmetry.
+- Maintain exact horizontal symmetry.
+- Normalize the horizontal and vertical axes so terminal content reaches all four cardinal edges
+  while the corners remain outside the curved aperture.
+- Apply the accepted aesthetic edge tuning: scale the horizontal contribution to top/bottom
+  curvature by `0.82`, then interpolate an additional multiplier from `1.0` at the center to `0.6`
+  at the lower edge. This intentionally makes the lower curve slightly flatter than the upper
+  curve.
 - Return `backgroundColor` when the source coordinate falls outside the terminal texture.
 - Avoid hard-coded monitor-artwork coordinates; distortion is normalized to the terminal surface.
 
 The source-mapping function used by the shader must have a matching pure TypeScript reference for
-unit tests and pointer-coordinate correction.
+unit tests.
+
+### Physical calibration
+
+The private optics module records the calibration constants rather than exposing new public
+configuration:
+
+- The reference display is the Philips 28PW6006: an inexpensive mass-market 50 Hz consumer
+  widescreen CRT rather than a rare broadcast monitor. The set has a nominal 28-inch tube and a
+  66 cm visible 16:9 picture. The references are the
+  [Philips user manual](https://manualzilla.com/doc/6995958/philips-28pw6006-25-user-s-manual)
+  and a [period retail listing](https://forums.moneysavingexpert.com/discussion/13783/e-u-philips-28pw6006-tv-189-99-somerfield-instore).
+- All sampling distances are authored in the emulated 240-line raster, not in the host display's
+  1440p logical pixels. The 660 mm diagonal gives a 575.240 × 323.572 mm picture, so one raster
+  pixel is `323.572 mm / 240 = 1.348218 mm`; the corresponding square-pixel 16:9 raster is
+  approximately 426.667 × 240.
+- The tube model starts from an older spherical "1R" geometry with curvature radius approximately
+  1.7 times the nominal screen radius: `R = 604.52 mm`. The historical aspect-correct radial
+  coefficient is `k = 0.01386136580657748`; an aperture-fit gain of `2` gives the rendered
+  coefficient `k = 0.02772273161315496`. Per-axis aperture normalization preserves exact cardinal
+  edge coverage; the `0.82` shared top/bottom factor and lower-edge interpolation to `0.6` are
+  visual-fit coefficients rather than physical measurements. They use normalized terminal
+  coordinates and no monitor-artwork coordinates. The base coefficient is an inference from the
+  historical spherical panel geometry described in
+  [US5962964A](https://patents.google.com/patent/US5962964A/en).
+- Consumer service documentation provides convergence controls but no defensible millimetre
+  tolerance for this set. The shader therefore uses an explicitly aesthetic aged-set target of
+  one-half 240p raster line of red-to-blue separation at each cardinal edge. This is
+  `0.5 × 1.348218 = 0.674109 mm`, or `±0.25` raster pixels per shifted channel around green.
+  It is intentionally much more visible than the former 0.24 mm professional-monitor target.
+- Bloom uses a conservative 1.0 mm consumer CRT beam-spot diameter from the lower end of the
+  documented 1–2 mm range. Sampling uses its 0.5 mm radius, equivalent to
+  `0.37085979294314786` raster pixels. Four cardinal neighbors use a normalized Gaussian weight
+  of `0.05` each, with a bright-pass threshold of `max(0.5, backgroundLuminance + 0.1)`. The
+  reference is [ITU-R BT.2042-4](https://www.itu.int/dms_pub/itu-r/opb/rep/R-REP-BT.2042-4-2010-PDF-E.pdf).
+
+The shader converts those raster-space distances to normalized source-texture distances. At a
+1440-line output the six-times scale makes each shifted channel offset `±1.5` output pixels at a
+cardinal edge, for exactly 3 output pixels from red to blue. The bloom sample radius is approximately
+2.225 output pixels. The separable X/Y convergence components combine to approximately 4.243 pixels
+of vector separation at an extreme corner; 3 pixels is the per-axis cardinal-edge value. Changing
+host resolution changes output-pixel scale without changing the simulated CRT-space proportions.
+The optics remain static and use no clock, flicker, sweep, vignette, or continuous redraw.
+The opaque, full-range grayscale noise texture produces approximately `0.1331` RMS modulation at
+full opacity when soft-light blended over mid-grey. Its fixed `0.025` visibility therefore produces
+approximately `0.00333` RMS modulation, equivalent to a full-scale S/N of `49.6 dB`. This sits near
+the 49 dB quality floor in [ITU-T J.62](https://www.itu.int/rec/T-REC-J.62) while keeping noise
+restrained for a clean consumer CRT signal. The visibility maps directly to layer opacity without
+an additional calibration multiplier; the blend calculation follows
+[W3C Compositing and Blending Level 1](https://www.w3.org/TR/compositing-1/#blendingsoftlight).
 
 ### Chromatic aberration
 
-- Derive a normalized radial direction from the centered sample position.
+- Barrel-map the destination once and calculate channel separation from that shared source
+  position.
 - Use zero separation at the exact center.
-- Increase separation gradually toward the edges.
-- Sample red slightly outward, green at the barrel-mapped coordinate, and blue slightly inward.
-- Express offsets in source texels so the visible effect remains stable across drawable sizes.
+- Increase each source-axis component gradually toward its corresponding edge. Keep the components
+  separable instead of normalizing a radial vector: Y separation must remain constant along a
+  horizontal source line, and X separation must remain constant along a vertical source line.
+- Shift red and blue around the shared source coordinate. Do not shift destination coordinates:
+  that translates the completed curved image and can make its colored copies cross the original
+  curve instead of inheriting it.
+- Express source offsets in 240p raster pixels and convert them to normalized source-texture
+  distances so the simulated CRT proportions remain stable across output sizes.
 - Clamp strength to a subpixel or low-single-pixel range at the visible edge.
+- Blend the reconstructed shifted channels with the unshifted center sample using one fixed `0.45`
+  visibility value, then output alpha `1.0`. Do not add separate per-channel or CSS opacity.
 - Apply no temporal animation.
 
 This is real channel sampling of the completed terminal image, not colored shadows or duplicated
 DOM content.
+
+### Scanlines
+
+- Derive the raster phase from barrel-mapped `sourceUv.y`, never from the straight destination or
+  a CSS overlay.
+- Use a one-pixel pitch in the 240-line source raster. At the fixed 1440 px logical height this
+  becomes one 3 px active raster position followed by one 3 px dark position.
+- Darken the inactive half by `0.15`.
+- Antialias both periodic transitions with fragment derivatives so stage scaling does not create
+  avoidable shimmer or moire.
+- Apply the mask in the existing final shader pass with no texture, framebuffer, or render-loop
+  addition.
 
 ### Phosphor glow/bloom
 
@@ -344,7 +435,7 @@ DOM content.
 - Apply a threshold so dark configured backgrounds do not bloom.
 - Use a small fixed ring or cross of texture samples around the base coordinate.
 - Add only a restrained fraction of the bright neighborhood to the base color.
-- Keep the sample radius expressed in texels.
+- Keep the sample radius expressed in 240p raster pixels and convert it to source-texture distance.
 - Clamp output to a valid color range.
 - Avoid a multi-resolution or separable-blur pipeline in the first version.
 
@@ -376,52 +467,42 @@ canvas, or implicit resolution reduction as an optimization.
 The postprocessor must query `MAX_TEXTURE_SIZE`, check framebuffer completeness, and fall back
 before showing a partial or black terminal.
 
-## 11. Mouse and pointer coordinate mapping
+## 11. Mouse input policy
 
-Postprocessing changes where cells appear but does not change DOM hit testing. Without correction,
-mouse-enabled TUIs and selection would become inaccurate near curved edges.
-
-Phase 4.5 therefore requires one shared barrel-mapping module:
-
-- The shader uses the destination-to-source mapping for pixels.
-- A pure TypeScript implementation uses the same coefficients for pointer coordinates.
-- Capture-phase mouse and pointer handling converts visible coordinates into source-terminal
-  coordinates before xterm performs cell lookup.
-- Coordinates outside the curved source boundary are ignored.
-- Center coordinates remain unchanged.
-- Monitor and stage scaling are resolved from the terminal element's current bounding rectangle,
-  not from the 2560×1440 constants alone.
-
-The implementation must cover mouse down, move, up, wheel, and any pointer events xterm consumes.
-Synthetic forwarding must be marked to avoid recursive interception. Keyboard and IME input remain
+The SDK v2 application explicitly configures OpenTUI with `useMouse: false` and
+`enableMouseMovement: false`; Phase 4 also blocks xterm wheel handling. Phase 4.5 therefore adds no
+capture listeners, coordinate remapping, or synthetic mouse events. Keyboard and IME input remain
 unchanged.
 
-If reliable event remapping cannot be implemented against xterm's supported event surface, barrel
-distortion is blocked. Shipping visually curved output with knowingly incorrect mouse coordinates
-is not acceptable.
+Mouse-enabled TUIs and curvature-aware xterm selection are outside this phase's application
+contract. If mouse input is enabled in a later phase, destination-to-source event correction must
+be designed and accepted before that feature ships.
 
 ## 12. Configuration behavior
 
 No public configuration schema changes are planned.
 
-| Configuration                      | WebGL path                         | CSS scanlines/noise | Monitor |
-| ---------------------------------- | ---------------------------------- | ------------------- | ------- |
-| `crtEffects: true`, monitor on     | Steered FBO plus shader pass       | Visible             | Visible |
-| `crtEffects: true`, monitor off    | Steered FBO plus shader pass       | Visible             | Hidden  |
-| `crtEffects: false`, monitor on    | Unchanged direct stock addon       | Host hidden         | Visible |
-| `crtEffects: false`, monitor off   | Unchanged direct stock addon       | Host hidden         | Hidden  |
-| WebGL failure or context loss      | Unavailable; default renderer      | Follows config      | Follows config |
+| Configuration                      | WebGL path                         | Shader scanlines | CSS noise      | Monitor        |
+| ---------------------------------- | ---------------------------------- | ---------------- | -------------- | -------------- |
+| `crtEffects: true`, monitor on     | Steered FBO plus shader pass       | Visible          | Visible        | Visible        |
+| `crtEffects: true`, monitor off    | Steered FBO plus shader pass       | Visible          | Visible        | Hidden         |
+| `crtEffects: false`, monitor on    | Unchanged direct stock addon       | Bypassed         | Host hidden    | Visible        |
+| `crtEffects: false`, monitor off   | Unchanged direct stock addon       | Bypassed         | Host hidden    | Hidden         |
+| WebGL failure or context loss      | Unavailable; default renderer      | Unavailable      | Follows config | Follows config |
 
-`backgroundColor` supplies xterm's background, unused native-window space, render-target clears,
-and out-of-bounds curved samples. `foregroundColor` continues through xterm's theme and therefore
-participates naturally in channel separation and bloom.
+`backgroundColor` supplies xterm's background, unused native-window space, initial and replacement
+display-framebuffer clears, the WebGL canvas's CSS background while the postprocessor owns it, and
+out-of-bounds curved samples. The CSS background remains visible if the browser discards the
+non-preserved drawing buffer between presentations; the prior inline canvas background is restored
+on disposal. `foregroundColor` continues through xterm's theme and therefore participates naturally
+in channel separation and bloom.
 
 ### Reduced motion
 
-Barrel distortion, chromatic aberration, and bloom are static and require no reduced-motion
-variation. Scanlines remain stationary, and the existing media query continues to disable noise
-animation while retaining its static appearance. Phase 4.5 must not introduce a shader clock or
-continuous render loop.
+Barrel distortion, chromatic aberration, scanlines, and bloom are static and require no
+reduced-motion variation. The existing media query continues to disable noise animation while
+retaining its static appearance. Phase 4.5 must not introduce a shader clock or continuous render
+loop.
 
 ## 13. Fallback and failure behavior
 
@@ -448,7 +529,7 @@ The terminal remains the product; optics are optional.
 - Permanent addon context-loss notification: dispose all subscriptions, the postprocessor, and the
   addon exactly once; do not reload it.
 - Default renderer lifetime: terminal text, process output, input, focus, and cleanup continue.
-- CSS effects: remain controlled by `crtEffects` even when shader optics are unavailable.
+- CSS noise remains controlled by `crtEffects` even when shader optics are unavailable.
 - Diagnostics: development may log one concise renderer reason; production must not repeatedly
   report or retry.
 
@@ -499,53 +580,61 @@ The application-facing integration should remain concentrated in the existing vi
 - `src/terminal.ts`: construct the stock addon, coordinate postprocessor activation, retain the
   small fallback, and own exactly-once disposal.
 - `src/presentation.ts`: continue applying config and expose any pure shared optics constants.
-- `src/styles.css`: retain the vignette-free scanlines, noise, and reduced-motion rules.
+- `src/styles.css`: retain vignette-free noise and reduced-motion rules; do not draw scanlines in
+  CSS.
 - A private CRT postprocessor module: canvas/context discovery, FBO steering, shader presentation,
   dimension observation, state restoration, emergency handoff, and resource disposal.
-- A small private optics module: pure barrel math and pointer mapping shared with the shader.
-- Focused tests under `tests/`: geometry, lifecycle, configuration combinations, and pointer mapping.
+- A small private optics module: calibrated pure barrel and scanline math shared with the shader.
+- Focused tests under `tests/`: geometry, lifecycle, configuration combinations, and the disabled
+  mouse-input contract.
 
 `src/main.ts`, raw sidecar transport, development lifecycle, shared public configuration, and
 `#termweave` exports should not need architectural changes.
 
 ## 16. Implementation plan
 
-- [ ] Commit and tag the completed Phase 4 baseline before renderer work begins.
-- [ ] Record the exact stock-addon compatibility contract and add an upgrade audit for framebuffer
+- [x] Record committed Phase 4 revision `3e1eb18` as the rollback point without creating a tag.
+- [x] Record the exact stock-addon compatibility contract and add an upgrade audit for framebuffer
       binding, render-event order, canvas discovery, and context restoration.
-- [ ] Add pure aspect-corrected barrel mapping and inverse pointer helpers with center, symmetry,
-      boundary, and non-finite-input tests.
-- [ ] Add the postprocessor's single RGBA8 target, framebuffer validation, explicit GL-state
+- [x] Add pure aspect-corrected barrel mapping with center, horizontal symmetry, tuned lower-edge
+      asymmetry, boundary, and non-finite-input tests.
+- [x] Add the postprocessor's single RGBA8 target, framebuffer validation, explicit GL-state
       restoration, dimension observation, and idempotent partial-resource disposal.
-- [ ] Add the one-pass barrel, radial RGB split, and restrained luminance-bloom shader with internal
-      constants and no animation clock.
-- [ ] Reacquire the stock addon's existing context, bind the target before xterm rendering, and run
+- [x] Add the one-pass barrel, separable-axis RGB split, curved antialiased scanlines, and restrained
+      luminance-bloom shader with internal constants and no animation clock.
+- [x] Reacquire the stock addon's existing context, bind the target before xterm rendering, and run
       the final pass synchronously from `Terminal.onRender` into the same display canvas.
-- [ ] Add invariant guards and the one-time emergency raw-frame blit for unexpected runtime failure.
-- [ ] Integrate `crtEffects`, `backgroundColor`, WebGL activation failure, and context-loss fallback
+- [x] Add invariant guards and the one-time emergency raw-frame blit for unexpected runtime failure.
+- [x] Integrate `crtEffects`, `backgroundColor`, WebGL activation failure, and context-loss fallback
       through `src/terminal.ts` without changing the public config schema.
-- [ ] Retain Phase 4's vignette-free CSS scanlines/noise, complete host hiding, and reduced-motion
-      behavior.
-- [ ] Add pointer-coordinate correction for selection and mouse-enabled terminal applications;
-      block barrel release if edge-cell input remains inaccurate.
+- [x] Retain Phase 4's vignette-free CSS noise, complete host hiding, and reduced-motion behavior;
+      remove the straight CSS scanline layer.
+- [x] Verify that the application keeps OpenTUI mouse tracking disabled and that the postprocessor
+      installs no mouse-event interception.
 - [ ] Verify visual output, fallback, canvas count, resource lifetime, device-pixel-ratio changes,
       memory, and responsiveness across the complete acceptance matrix.
-- [ ] Run `bun run check`, `bun run frontend:build`, native smoke tests, the exclusion audit, and
-      `git diff -- sdk` before handoff.
+- [x] Run `bun run check`, `bun run frontend:build`, the exclusion audit, and `git diff -- sdk`.
+- [ ] Run the native smoke matrix and sustained full-resolution gate on real 1× and 2× displays.
+
+Native verification progress on 2026-08-03: a macOS WKWebView development smoke on the available
+1920×1080, backing-scale `1.0` display successfully compiled and presented the same-canvas shader
+in both windowed and fullscreen states. The monitor overlay, curved scanlines, consumer-calibrated
+RGB split and bloom, heavy-line RGB edge-test screen, and centered counter remained visible without
+a fallback diagnostic. Synthetic Right Arrow input reached the application and changed the counter.
+This host exposes no 2× display mode, so the remaining fixed-size matrix, forced native fallbacks,
+real 2×/5120×2880 coverage, and sustained performance/resource gate remain pending.
 
 ## 17. Test and verification plan
 
 ### Pure unit tests
 
 - Center maps exactly to center.
-- Horizontal and vertical symmetry.
+- Horizontal symmetry and the documented lower-edge asymmetry.
 - Wide, tall, and exact 16:9 coordinate normalization.
-- Edge strength remains within the documented bound.
+- Exact cardinal-edge coverage with curved out-of-source corners.
 - Out-of-source samples return the configured background.
 - Zero-sized and non-finite inputs fail safely.
 - RGB separation is zero at center and monotonic toward the edge.
-- Pointer mapping matches the shader reference function within a defined tolerance.
-- Curved-corner pointer input is rejected.
 
 ### Renderer lifecycle tests
 
@@ -557,19 +646,30 @@ The application-facing integration should remain concentrated in the existing vi
 - Program linking failure.
 - Texture allocation failure.
 - Framebuffer incompleteness.
+- Every transactional construction failure deletes the exact partial resource set, restores shared
+  GL state and the canvas background, and removes any observer, render, or context subscription
+  already installed.
 - Addon activation failure after partial allocation.
 - Target framebuffer is bound before the first and every subsequent xterm render.
+- Before the first terminal render, both the sampled target and default display framebuffer are
+  cleared to the configured background with prior clear color, color mask, scissor state, and
+  binding restored.
 - `Terminal.onRender` presents only after xterm has drawn into the target.
 - Modified programs, VAOs, texture units, atlas bindings, blend state, and viewport are restored.
 - Unexpected draw-framebuffer binding triggers fallback rather than shader presentation.
-- Drawing-buffer dimension changes replace and bind the target before xterm's redraw.
+- Drawing-buffer dimension changes reallocate target storage and bind it before xterm's redraw.
+- Drawing-buffer resize and context restoration clear the replacement display surface to the
+  configured background before redraw.
+- Resize allocation or framebuffer-completeness failure stops presentation and disposes the
+  existing resource set without an invalid emergency blit.
 - Temporary context loss suspends presentation without allocating resources.
 - Successful context restoration recreates and rebinds resources before redraw.
+- Failed context restoration deletes its partial replacement generation before fallback.
 - Permanent context loss and exactly-once disposal.
 - Emergency raw-frame blit occurs once on an injected runtime presentation failure and never on a
   successful frame.
 - Repeated disposal.
-- Drawable-size/device-pixel-ratio resource replacement without leaks.
+- Repeated drawable-size/device-pixel-ratio storage reallocations without resource leaks.
 - `crtEffects: false` bypass with no postprocess allocation.
 - Continued xterm lifetime and input after fallback.
 
@@ -580,7 +680,7 @@ The application-facing integration should remain concentrated in the existing vi
 - Monitor overlay remains one element and above the terminal.
 - CRT host is completely hidden when disabled.
 - Vignette, flicker, and sweep styles are absent.
-- Reduced motion disables noise animation; scanlines are already stationary.
+- Reduced motion disables noise animation; shader scanlines are already stationary.
 
 ### Native visual matrix
 
@@ -603,8 +703,8 @@ For each applicable case verify:
 - Curvature is visible but restrained.
 - RGB split is subtle and strongest near edges.
 - Glow improves bright edges without reducing text legibility.
-- Scanlines/noise remain low opacity.
-- Pointer selection and mouse-enabled TUI cells align at center, edges, and corners.
+- Curved scanlines and noise remain visually restrained.
+- Mouse tracking remains disabled and no postprocessor input listeners are installed.
 
 ### WebGL and fallback checks
 
@@ -659,16 +759,16 @@ Phase 4.5 is complete only when:
   copy from the default framebuffer.
 - The final shader pass runs synchronously from `Terminal.onRender` and rebinds the target before
   returning.
-- Drawing-buffer size changes and successful context restoration bind a complete replacement target
-  before xterm redraws.
+- Drawing-buffer size changes bind a complete resized target, and successful context restoration
+  binds a complete recreated target, before xterm redraws.
 - A violated steering invariant fails safely without presenting a partial or black terminal.
 - The monitor overlay remains single, sharp, and above the processed terminal.
-- The complete CRT pool is scanlines, low-opacity noise, barrel distortion, chromatic aberration,
-  and phosphor glow/bloom.
+- The complete CRT pool is curved scanlines, low-opacity noise, barrel distortion, chromatic
+  aberration, and phosphor glow/bloom.
 - Flicker, sweep, and vignette are absent.
-- `crtEffects: false` hides CSS effects and bypasses shader optics.
+- `crtEffects: false` hides CSS noise and bypasses shader optics, including scanlines.
 - Reduced motion stops noise animation and does not affect stationary scanlines or static optics.
-- Mouse-enabled applications and selection remain aligned after curvature.
+- The existing no-mouse application contract remains in force without synthetic input forwarding.
 - Shader/FBO failure and context loss leave a live default-renderer terminal.
 - All Phase 4 geometry, flag combinations, colors, font, fullscreen behavior, and window-aspect tests
   continue to pass.
@@ -682,13 +782,13 @@ Phase 4 is the rollback path. Reverting Phase 4.5 must require only:
 
 - Removing the CRT postprocessor activation and returning `src/terminal.ts` to Phase 4's direct
   stock-addon lifecycle.
-- Removing the private postprocessor, optics, and pointer-mapping modules.
+- Removing the private postprocessor and optics modules.
 
 No dependency or vendored renderer rollback is needed because Phase 4.5 never replaces or modifies
 the stock addon.
 
 Raw transport, sidecar lifecycle, fixed-stage layout, monitor asset, font, configuration, and CSS
-scanlines/noise must remain unaffected by that rollback.
+noise must remain unaffected by that rollback.
 
 ## 20. References
 

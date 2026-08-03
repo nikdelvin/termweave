@@ -45,7 +45,8 @@ body,
 }
 
 #terminal,
-#crt-effects {
+#crt-effects,
+#renderer-status {
   position: absolute;
 }
 
@@ -62,23 +63,6 @@ body,
   pointer-events: none;
 }
 
-/* 240p draws one 3px raster position and leaves the alternate 3px position dark. */
-#crt-effects::before {
-  position: absolute;
-  inset: 0;
-  content: '';
-  z-index: 3;
-  background: repeating-linear-gradient(
-    to bottom,
-    transparent 0,
-    transparent var(--crt-scanline-beam-height, 3px),
-    #000 var(--crt-scanline-beam-height, 3px),
-    #000 var(--crt-scanline-pitch, 6px)
-  );
-  mix-blend-mode: multiply;
-  opacity: var(--crt-scanlines-opacity, 0.56);
-}
-
 #crt-noise {
   position: absolute;
   z-index: 2;
@@ -87,7 +71,7 @@ body,
   background: url('./assets/crt-noise.png') repeat;
   background-size: 128px 128px;
   mix-blend-mode: soft-light;
-  opacity: var(--crt-noise-opacity, 0.0242);
+  opacity: var(--crt-noise-opacity, 0.025);
   animation: crt-noise-shift 133.467ms steps(1, end) infinite;
   will-change: transform;
 }
@@ -101,6 +85,26 @@ body,
   filter: brightness(var(--monitor-bezel-brightness)) contrast(var(--monitor-bezel-contrast))
     sepia(var(--monitor-bezel-sepia)) saturate(var(--monitor-bezel-saturation))
     hue-rotate(var(--monitor-bezel-hue));
+}
+
+#renderer-status {
+  z-index: 4;
+  display: flex;
+  align-items: flex-end;
+  pointer-events: none;
+}
+
+#renderer-status-message {
+  width: 100%;
+  padding: 20px 32px;
+  border-top: 4px solid #ff6b73;
+  color: #fff;
+  background: rgb(104 8 24 / 94%);
+  font:
+    400 32px/1.25 'Kreative Square',
+    monospace;
+  text-align: center;
+  text-shadow: 0 2px 0 #000;
 }
 
 @keyframes crt-noise-shift {

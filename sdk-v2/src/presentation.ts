@@ -6,22 +6,20 @@ export const terminalFontFamily = '"Kreative Square", monospace'
 const monitorArtwork = {
   width: 3_000,
   height: 1_740,
-  aperture: {
+  aperturePadding: {
     left: 268,
+    right: 278,
     top: 201,
-    width: 2_453,
-    height: 1_380,
+    bottom: 159,
+  },
+  terminalFrame: {
+    width: 2_464,
+    height: 1_386,
   },
 } as const
 
 const crtEffectDefaults = {
-  noiseVisibility: 0.3,
-  scanlinesVisibility: 0.3,
-} as const
-
-const crtReferenceRaster = {
-  activeLinePositions: 480,
-  drawnLines: 240,
+  noiseVisibility: 0.025,
 } as const
 
 export type PresentationLayout = Readonly<{
@@ -74,26 +72,22 @@ export function monitorBezelFilter(color: string) {
 }
 
 export function crtEffectStyleVariables() {
-  const noisePeakOpacity = crtEffectDefaults.noiseVisibility * 0.1
-  const activeLineHeight = terminalSurface.height / crtReferenceRaster.activeLinePositions
-  const scanlinePitch = terminalSurface.height / crtReferenceRaster.drawnLines
-
   return {
-    '--crt-noise-opacity': noisePeakOpacity * (50 / 62),
-    '--crt-scanline-beam-height': `${activeLineHeight}px`,
-    '--crt-scanline-pitch': `${scanlinePitch}px`,
-    '--crt-scanlines-opacity': crtEffectDefaults.scanlinesVisibility,
+    '--crt-noise-opacity': crtEffectDefaults.noiseVisibility,
   } as const
 }
 
 export function presentationLayout(monitorOverlay: boolean): PresentationLayout {
-  const artworkScale = terminalSurface.width / monitorArtwork.aperture.width
+  const { aperturePadding, terminalFrame } = monitorArtwork
+  const apertureCenterX =
+    aperturePadding.left + (monitorArtwork.width - aperturePadding.left - aperturePadding.right) / 2
+  const apertureCenterY =
+    aperturePadding.top + (monitorArtwork.height - aperturePadding.top - aperturePadding.bottom) / 2
+  const artworkScale = terminalSurface.width / terminalFrame.width
   const monitorWidth = monitorArtwork.width * artworkScale
   const monitorHeight = monitorArtwork.height * artworkScale
-  const screenLeft = monitorArtwork.aperture.left * artworkScale
-  const screenTop = monitorArtwork.aperture.top * artworkScale
-  const screenCenterX = screenLeft + terminalSurface.width / 2
-  const screenCenterY = screenTop + (monitorArtwork.aperture.height * artworkScale) / 2
+  const screenCenterX = apertureCenterX * artworkScale
+  const screenCenterY = apertureCenterY * artworkScale
 
   return {
     terminalLeft: -terminalSurface.width / 2,
@@ -139,6 +133,8 @@ export function createPresentation(root: HTMLElement, config: AppConfig) {
   const terminalHost = requiredElement<HTMLElement>(root, '#terminal')
   const effectsHost = requiredElement<HTMLElement>(root, '#crt-effects')
   const monitorHost = requiredElement<HTMLElement>(root, '#monitor-overlay')
+  const rendererStatusHost = requiredElement<HTMLElement>(root, '#renderer-status')
+  const rendererStatusMessage = requiredElement<HTMLElement>(root, '#renderer-status-message')
   const state = presentationState(config)
   const { layout } = state
 
@@ -165,7 +161,7 @@ export function createPresentation(root: HTMLElement, config: AppConfig) {
     }
   }
 
-  for (const host of [terminalHost, effectsHost]) {
+  for (const host of [terminalHost, effectsHost, rendererStatusHost]) {
     host.style.left = `${layout.terminalLeft}px`
     host.style.top = `${layout.terminalTop}px`
     host.style.width = `${layout.terminalWidth}px`
@@ -193,6 +189,8 @@ export function createPresentation(root: HTMLElement, config: AppConfig) {
 
   return {
     terminalHost,
+    rendererStatusHost,
+    rendererStatusMessage,
     fit,
     dispose() {
       resizeObserver.disconnect()

@@ -146,11 +146,11 @@ Scope:
   while the unchanged addon renders backgrounds, glyphs, selection, and cursor.
 - Present one final pass into the same canvas synchronously from `Terminal.onRender`, then restore
   shared GL state and rebind the Termweave framebuffer before returning.
-- Add subtle barrel distortion, radial chromatic aberration, and restrained phosphor glow/bloom.
-- Retain Phase 4's vignette-free CSS scanlines and low-opacity noise.
-- Correct pointer coordinates using the same barrel mapping used by the shader.
-- Observe drawing-buffer dimension changes and recreate a complete target before xterm's next
-  redraw; recreate resources after successful context restoration.
+- Add subtle barrel distortion, separable-axis chromatic aberration, curved shader scanlines, and
+  restrained phosphor glow/bloom; retain Phase 4's low-opacity CSS noise.
+- Keep OpenTUI mouse tracking disabled and add no postprocessor input-remapping layer.
+- Observe drawing-buffer dimension changes and reallocate complete storage on the existing target
+  before xterm's next redraw; recreate the full resource set after successful context restoration.
 - Preserve config behavior, monitor layering, reduced motion, transactional activation fallback,
   permanent-context-loss disposal, and terminal lifetime.
 
@@ -171,12 +171,12 @@ Hard requirements:
 Verify the pinned source contract (`bindFramebuffer` absence and post-render `Terminal.onRender`
 ordering), same-context reacquisition, target binding before the first and every xterm render,
 shared GL-state restoration, shader/FBO construction and failure paths, steering-invariant failure,
-the one-time emergency blit, resize/DPR replacement before redraw, successful context restoration,
-exactly-once permanent-context-loss disposal, default-renderer continuity, pointer alignment, every
-monitor/CRT flag combination, reduced motion, fullscreen and aspect-ratio scaling, 1×/2× display
-scale, single-canvas topology, resource lifetime, absence of normal-frame copies, and the sustained
-full-resolution performance gate. Run `bun run check`, `bun run frontend:build`, the native visual
-matrix, and the final exclusion audit.
+the one-time emergency blit, resize/DPR storage reallocation before redraw, successful context
+restoration, exactly-once permanent-context-loss disposal, default-renderer continuity, the disabled
+mouse-input contract, every monitor/CRT flag combination, reduced motion, fullscreen and
+aspect-ratio scaling, 1×/2× display scale, single-canvas topology, resource lifetime, absence of
+normal-frame copies, and the sustained full-resolution performance gate. Run `bun run check`,
+`bun run frontend:build`, the native visual matrix, and the final exclusion audit.
 
 ### Phase 5
 

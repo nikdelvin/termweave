@@ -7,6 +7,7 @@ import {
   type ITerminalOptions,
 } from '@xterm/xterm'
 import type { AppConfig } from '../shared/config'
+import { CrtPostprocessor, discoverActivatedWebglCanvas } from './crt-postprocessor'
 import { terminalFontFamily } from './presentation'
 
 export type ProcessExit = Readonly<{
@@ -96,15 +97,73 @@ export interface WebglAddonLike extends ITerminalAddon {
 
 export type CreateWebglAddon = () => WebglAddonLike
 
+type RendererConfig = Pick<AppConfig, 'backgroundColor' | 'crtEffects'>
+
+export type WebglRendererStatus =
+  | Readonly<{
+      kind: 'active'
+      postprocessorActive: boolean
+    }>
+  | Readonly<{
+      kind: 'fallback'
+      message: string
+    }>
+
+export interface WebglRendererController extends IDisposable {
+  readonly status: WebglRendererStatus
+  onStatusChange(handler: (status: WebglRendererStatus) => void): IDisposable
+}
+
+const defaultRendererConfig: RendererConfig = {
+  backgroundColor: '#000000',
+  crtEffects: false,
+}
+
+type RendererTerminal = Pick<Terminal, 'element' | 'loadAddon' | 'onRender' | 'refresh' | 'rows'>
+
 export function enableWebglRenderer(
   terminal: Pick<Terminal, 'loadAddon'>,
-  createAddon: CreateWebglAddon = () => new WebglAddon(),
-): IDisposable {
+  createAddon?: CreateWebglAddon,
+): WebglRendererController
+export function enableWebglRenderer(
+  terminal: RendererTerminal,
+  config: RendererConfig,
+  createAddon?: CreateWebglAddon,
+): WebglRendererController
+export function enableWebglRenderer(
+  terminal: Pick<Terminal, 'loadAddon'> | RendererTerminal,
+  configOrCreateAddon: RendererConfig | CreateWebglAddon = defaultRendererConfig,
+  suppliedCreateAddon?: CreateWebglAddon,
+): WebglRendererController {
+  const config =
+    typeof configOrCreateAddon === 'function' ? defaultRendererConfig : configOrCreateAddon
+  const createAddon =
+    typeof configOrCreateAddon === 'function'
+      ? configOrCreateAddon
+      : (suppliedCreateAddon ?? (() => new WebglAddon(false)))
   let addon: WebglAddonLike | undefined
   let contextLossSubscription: IDisposable | undefined
+  let postprocessor: CrtPostprocessor | undefined
   let disposed = false
+  let fallbackLatched = false
+  let status: WebglRendererStatus = {
+    kind: 'fallback',
+    message: 'Renderer activation did not complete.',
+  }
+  const statusHandlers = new Set<(status: WebglRendererStatus) => void>()
 
-  const dispose = () => {
+  const setStatus = (nextStatus: WebglRendererStatus) => {
+    status = nextStatus
+    for (const handler of statusHandlers) {
+      try {
+        handler(status)
+      } catch {
+        // A diagnostic observer must not interrupt renderer fallback or disposal.
+      }
+    }
+  }
+
+  const disposeResources = () => {
     if (disposed) return
     disposed = true
     try {
@@ -114,6 +173,12 @@ export function enableWebglRenderer(
     }
     contextLossSubscription = undefined
     try {
+      postprocessor?.dispose()
+    } catch {
+      // Partial WebGL state must not prevent the stock addon from being removed.
+    }
+    postprocessor = undefined
+    try {
       addon?.dispose()
     } catch {
       // xterm's default renderer remains the final fallback.
@@ -121,15 +186,86 @@ export function enableWebglRenderer(
     addon = undefined
   }
 
-  try {
-    addon = createAddon()
-    contextLossSubscription = addon.onContextLoss(dispose)
-    terminal.loadAddon(addon)
-  } catch {
-    dispose()
+  const requestDefaultRendererRedraw = () => {
+    const redrawTerminal = terminal as Partial<RendererTerminal>
+    if (typeof redrawTerminal.refresh !== 'function' || typeof redrawTerminal.rows !== 'number')
+      return
+    try {
+      redrawTerminal.refresh(0, Math.max(0, redrawTerminal.rows - 1))
+    } catch {
+      // Default-renderer activation remains useful even if redraw scheduling fails.
+    }
   }
 
-  return { dispose }
+  const fallback = (message: string, failure?: { emergencyHandoff(): void }) => {
+    if (fallbackLatched || disposed) return
+    fallbackLatched = true
+    setStatus({ kind: 'fallback', message })
+    try {
+      failure?.emergencyHandoff()
+    } catch {
+      // Emergency handoff is best effort and never replaces renderer fallback.
+    }
+    disposeResources()
+    requestDefaultRendererRedraw()
+  }
+
+  try {
+    addon = createAddon()
+    const terminalElement = config.crtEffects
+      ? (terminal as Partial<RendererTerminal>).element
+      : undefined
+    if (config.crtEffects && !terminalElement) {
+      throw new Error('CRT effects require an open public xterm element')
+    }
+    const canvasesBeforeActivation = config.crtEffects
+      ? new Set(terminalElement!.querySelectorAll<HTMLCanvasElement>('canvas'))
+      : undefined
+
+    terminal.loadAddon(addon)
+
+    if (config.crtEffects) {
+      const { canvas, gl } = discoverActivatedWebglCanvas(
+        terminalElement!,
+        canvasesBeforeActivation!,
+      )
+      postprocessor = new CrtPostprocessor({
+        terminal: terminal as RendererTerminal,
+        canvas,
+        gl,
+        backgroundColor: config.backgroundColor,
+        onRuntimeFailure: (failure) =>
+          fallback(
+            'The CRT postprocessor failed a framebuffer, resize, restoration, or presentation check.',
+            failure,
+          ),
+      })
+    }
+    contextLossSubscription = addon.onContextLoss(() =>
+      fallback('The WebGL context was permanently lost.'),
+    )
+    setStatus({ kind: 'active', postprocessorActive: postprocessor !== undefined })
+  } catch (error) {
+    fallback(`Renderer activation failed: ${errorMessage(error)}`)
+  }
+
+  return {
+    get status() {
+      return status
+    },
+    onStatusChange(handler) {
+      statusHandlers.add(handler)
+      return {
+        dispose() {
+          statusHandlers.delete(handler)
+        },
+      }
+    },
+    dispose() {
+      disposeResources()
+      statusHandlers.clear()
+    },
+  }
 }
 
 function errorMessage(error: unknown) {

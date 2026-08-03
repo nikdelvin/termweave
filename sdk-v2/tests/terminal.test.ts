@@ -281,6 +281,7 @@ describe('xterm WebGL fallback', () => {
 
     expect(loaded).toEqual([addon])
     expect(addon.disposeCount).toBe(0)
+    expect(renderer.status).toEqual({ kind: 'active', postprocessorActive: false })
     renderer.dispose()
     renderer.dispose()
     expect(addon.contextLossSubscriptionDisposeCount).toBe(1)
@@ -304,8 +305,13 @@ describe('xterm WebGL fallback', () => {
     )
 
     addon.loseContext()
+    addon.loseContext()
     renderer.dispose()
 
+    expect(renderer.status).toEqual({
+      kind: 'fallback',
+      message: 'The WebGL context was permanently lost.',
+    })
     expect(loadCount).toBe(1)
     expect(terminalDisposeCount).toBe(0)
     expect(addon.contextLossSubscriptionDisposeCount).toBe(1)
@@ -326,6 +332,10 @@ describe('xterm WebGL fallback', () => {
     )
 
     expect(loadCount).toBe(0)
+    expect(renderer.status).toEqual({
+      kind: 'fallback',
+      message: 'Renderer activation failed: WebGL unavailable',
+    })
     expect(() => renderer.dispose()).not.toThrow()
   })
 
@@ -345,9 +355,118 @@ describe('xterm WebGL fallback', () => {
     )
 
     expect(terminalDisposeCount).toBe(0)
-    expect(addon.contextLossSubscriptionDisposeCount).toBe(1)
+    expect(addon.contextLossSubscriptionDisposeCount).toBe(0)
     expect(addon.disposeCount).toBe(1)
     expect(() => renderer.dispose()).not.toThrow()
+  })
+
+  test('does no canvas discovery or CRT allocation when CRT effects are disabled', () => {
+    const addon = new FakeWebglAddon()
+    let queryCount = 0
+    const terminal = {
+      element: {
+        querySelectorAll() {
+          queryCount += 1
+          return []
+        },
+      },
+      loadAddon() {},
+      onRender() {
+        throw new Error('CRT render subscription must not be installed')
+      },
+      refresh() {},
+      rows: 90,
+    }
+    const renderer = enableWebglRenderer(
+      terminal as unknown as Pick<
+        Terminal,
+        'element' | 'loadAddon' | 'onRender' | 'refresh' | 'rows'
+      >,
+      { backgroundColor: '#010416', crtEffects: false },
+      () => addon,
+    )
+
+    expect(queryCount).toBe(0)
+    expect(addon.disposeCount).toBe(0)
+    expect(renderer.status).toEqual({ kind: 'active', postprocessorActive: false })
+    renderer.dispose()
+    expect(addon.disposeCount).toBe(1)
+  })
+
+  test('transactionally returns to the default renderer when CRT canvas discovery fails', () => {
+    const addon = new FakeWebglAddon()
+    let refreshCount = 0
+    const terminal = {
+      element: { querySelectorAll: () => [] },
+      loadAddon() {},
+      onRender() {
+        throw new Error('no postprocessor should be subscribed')
+      },
+      refresh(start: number, end: number) {
+        expect([start, end]).toEqual([0, 89])
+        refreshCount += 1
+      },
+      rows: 90,
+    }
+    const renderer = enableWebglRenderer(
+      terminal as unknown as Pick<
+        Terminal,
+        'element' | 'loadAddon' | 'onRender' | 'refresh' | 'rows'
+      >,
+      { backgroundColor: '#010416', crtEffects: true },
+      () => addon,
+    )
+
+    expect(addon.disposeCount).toBe(1)
+    expect(addon.contextLossSubscriptionDisposeCount).toBe(0)
+    expect(refreshCount).toBe(1)
+    expect(renderer.status.kind).toBe('fallback')
+    if (renderer.status.kind === 'fallback') {
+      expect(renderer.status.message).toContain(
+        'Expected one newly activated xterm WebGL2 canvas, found 0',
+      )
+    }
+    renderer.dispose()
+    expect(addon.disposeCount).toBe(1)
+    expect(refreshCount).toBe(1)
+  })
+
+  test('reports a runtime fallback once and allows lifecycle subscribers to detach', () => {
+    const addon = new FakeWebglAddon()
+    const renderer = enableWebglRenderer(
+      {
+        loadAddon() {},
+      },
+      () => addon,
+    )
+    const statuses: unknown[] = []
+    const subscription = renderer.onStatusChange((status) => statuses.push(status))
+
+    addon.loseContext()
+    addon.loseContext()
+    subscription.dispose()
+    renderer.dispose()
+
+    expect(statuses).toEqual([
+      { kind: 'fallback', message: 'The WebGL context was permanently lost.' },
+    ])
+  })
+
+  test('keeps fallback and disposal intact when a status observer throws', () => {
+    const addon = new FakeWebglAddon()
+    const renderer = enableWebglRenderer(
+      {
+        loadAddon() {},
+      },
+      () => addon,
+    )
+    renderer.onStatusChange(() => {
+      throw new Error('diagnostic host was removed')
+    })
+
+    expect(() => addon.loseContext()).not.toThrow()
+    expect(renderer.status.kind).toBe('fallback')
+    expect(addon.disposeCount).toBe(1)
   })
 })
 

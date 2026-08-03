@@ -5,6 +5,10 @@ import { getAppConfig } from '../shared/config'
 
 function App() {
   const config = getAppConfig()
+  const cols = config.terminalGrid.cols
+  const rows = config.terminalGrid.rows
+  const centerX = Math.floor(cols / 2)
+  const centerY = Math.floor(rows / 2)
   const [count, setCount] = createSignal(0)
 
   useKeyboard((key) => {
@@ -21,18 +25,82 @@ function App() {
   })
 
   return (
-    <box
-      width="100%"
-      height="100%"
-      alignItems="center"
-      justifyContent="center"
-      flexDirection="column"
-      gap={1}
-      backgroundColor={config.backgroundColor}
-    >
-      <text fg={config.foregroundColor}>Termweave SDK v2</text>
-      <text fg={config.foregroundColor}>Use left and right arrows to change the value.</text>
-      <text fg={config.foregroundColor}>Value: {count()}</text>
+    <box width="100%" height="100%" backgroundColor={config.backgroundColor}>
+      <box
+        position="absolute"
+        top={0}
+        left={0}
+        width={cols}
+        height={rows}
+        border
+        borderStyle="heavy"
+        borderColor="#FFFFFF"
+      />
+      <box
+        position="absolute"
+        top={3}
+        left={6}
+        width={cols - 12}
+        height={rows - 6}
+        border
+        borderStyle="heavy"
+        borderColor="#FFFFFF"
+      />
+      <box
+        position="absolute"
+        top={8}
+        left={14}
+        width={cols - 28}
+        height={rows - 16}
+        border
+        borderStyle="heavy"
+        borderColor="#FFFFFF"
+      />
+
+      <text position="absolute" top={1} left={4} fg="#FFFFFF">
+        TOP LEFT
+      </text>
+      <text position="absolute" top={1} left={cols - 13} fg="#FFFFFF">
+        TOP RIGHT
+      </text>
+      <text position="absolute" top={rows - 2} left={4} fg="#FFFFFF">
+        BOTTOM LEFT
+      </text>
+      <text position="absolute" top={rows - 2} left={cols - 16} fg="#FFFFFF">
+        BOTTOM RIGHT
+      </text>
+
+      <text position="absolute" top={centerY - 1} left={centerX - 1} fg="#FFFFFF">
+        ┃
+      </text>
+      <text position="absolute" top={centerY} left={centerX - 7} fg="#FFFFFF">
+        ━━━━━━╋━━━━━━
+      </text>
+      <text position="absolute" top={centerY + 1} left={centerX - 1} fg="#FFFFFF">
+        ┃
+      </text>
+      <text position="absolute" top={centerY + 3} left={centerX - 8} fg={config.foregroundColor}>
+        CENTER REFERENCE
+      </text>
+      <text position="absolute" top={centerY + 5} left={centerX - 15} fg={config.foregroundColor}>
+        USE LEFT / RIGHT ARROWS TO CHANGE
+      </text>
+      <text position="absolute" top={centerY + 7} left={centerX - 4} fg={config.foregroundColor}>
+        VALUE: {count()}
+      </text>
+
+      <text position="absolute" top={5} left={centerX - 15} fg="#FFFFFF">
+        WHITE PHOSPHOR / RGB EDGE TEST
+      </text>
+      <text position="absolute" top={rows - 6} left={centerX - 14} fg="#FF4040">
+        RED
+      </text>
+      <text position="absolute" top={rows - 6} left={centerX - 5} fg="#40FF40">
+        GREEN
+      </text>
+      <text position="absolute" top={rows - 6} left={centerX + 7} fg="#4040FF">
+        BLUE
+      </text>
     </box>
   )
 }

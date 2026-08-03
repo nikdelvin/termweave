@@ -46,28 +46,28 @@ implemented from the v2 design in this document.
 
 ## 3. Scope and v1 disposition
 
-| V1 capability                             | V2 decision                 |
-| ----------------------------------------- | --------------------------- |
-| Tauri window and WebView                  | Keep                        |
-| xterm terminal emulation                  | Keep                        |
-| xterm WebGL addon                         | Keep with a simple fallback |
-| OpenTUI compiled sidecar                  | Keep                        |
-| Flat app configuration                    | Keep                        |
-| Fixed logical terminal grid               | Keep                        |
-| Monitor illustration                      | Keep one overlay asset      |
-| CRT scanlines/noise                       | Reimplement with CSS        |
-| V1 chromatic-aberration framebuffer capture | Remove                    |
-| Same-canvas CRT optical postprocessor      | Plan separately in Phase 4.5 |
-| Mirrored monitor-surround assets          | Remove                      |
-| Glyph-atlas reset/handoff machinery       | Remove                      |
-| WebSocket terminal server                 | Remove                      |
-| Port allocation and authentication tokens | Remove                      |
-| Frame IDs and acknowledgements            | Remove                      |
-| Sidecar reconnect/recovery cycles         | Remove                      |
-| Rust frontend-runtime command/state       | Remove                      |
-| MP4 playback                              | Remove                      |
-| FFmpeg binary and source resources        | Remove                      |
-| Video frame scheduler and media clock     | Remove                      |
+| V1 capability                               | V2 decision                                      |
+| ------------------------------------------- | ------------------------------------------------ |
+| Tauri window and WebView                    | Keep                                             |
+| xterm terminal emulation                    | Keep                                             |
+| xterm WebGL addon                           | Keep with a simple fallback                      |
+| OpenTUI compiled sidecar                    | Keep                                             |
+| Flat app configuration                      | Keep                                             |
+| Fixed logical terminal grid                 | Keep                                             |
+| Monitor illustration                        | Keep one overlay asset                           |
+| CRT scanlines/noise                         | CSS in Phase 4; shader scanlines in Phase 4.5    |
+| V1 chromatic-aberration framebuffer capture | Remove                                           |
+| Same-canvas CRT optical postprocessor       | Plan separately in Phase 4.5                     |
+| Mirrored monitor-surround assets            | Remove                                           |
+| Glyph-atlas reset/handoff machinery         | Remove                                           |
+| WebSocket terminal server                   | Remove                                           |
+| Port allocation and authentication tokens   | Remove                                           |
+| Frame IDs and acknowledgements              | Remove                                           |
+| Sidecar reconnect/recovery cycles           | Remove                                           |
+| Rust frontend-runtime command/state         | Remove                                           |
+| MP4 playback                                | Remove                                           |
+| FFmpeg binary and source resources          | Remove                                           |
+| Video frame scheduler and media clock       | Remove                                           |
 | Video audio playback                      | Remove                      |
 | CRT startup and ambient audio             | Remove                      |
 | Remote image fetching                     | Remove                      |
@@ -530,15 +530,16 @@ The remaining 45 lines in the 525-line timing belong to the vertical blanking in
 one off-picture retrace interval rather than 45 dark gaps distributed through the visible image,
 so they are not rendered inside the CSS aperture.
 
-For a 24-inch 16:9 reference tube, picture height is
-`24 in × 25.4 mm/in × 9 / sqrt(16² + 9²) = 298.9 mm`. A 480-line raster position is
-`298.9 mm / 480 = 0.623 mm` high, while illuminated 240p line starts are `1.245 mm` apart.
-Mapping the same picture height to the 1440-unit logical aperture gives a 3 px raster position and
-a 6 px illuminated-line pitch. Render each period as 3 px of untouched terminal followed by the
-fully dark 3 px alternate position, with the complete effect held at the configured 0.3 opacity.
-Integer logical dimensions avoid the aliasing and moiré produced by fractional 1.5 px VGA bands.
-Keep the scanline grid stationary; raster refresh does not make the grid crawl vertically for a
-viewer.
+Use the mass-market 16:9 Philips 28PW6006 consumer television as the physical reference rather
+than a rare professional broadcast monitor. Its nominal 28-inch tube has a 660 mm visible
+diagonal, giving a 575.240 × 323.572 mm picture. At 240p, illuminated line starts are
+`323.572 mm / 240 = 1.348218 mm` apart. Author the scanline grid directly in this 240-line source
+raster: every source-raster pixel is one complete bright/dark period. At a 1440-line output this
+naturally becomes a 6 px illuminated-line pitch, but 6 px is an output scale factor rather than the
+physical calibration. Render the first half of each period as untouched terminal and darken the
+alternate half by `15%`. Derivative antialiasing avoids moiré when the output height is not an
+integer multiple of 240. Keep the scanline grid stationary; raster refresh does not make the grid
+crawl vertically for a viewer.
 
 Noise may shift spatially, but its opacity stays constant to avoid reintroducing a whole-screen
 flicker. Retain the 128×128 grayscale v1 texture: it has an opaque, near-neutral luminance
@@ -689,16 +690,17 @@ surround assets.
 
 - Begin only after Phase 4 is committed as an independently shippable baseline.
 - Use one GPU-resident render target and one final pass inside xterm's existing WebGL canvas.
-- Add restrained barrel distortion, radial chromatic aberration, and phosphor glow/bloom.
-- Retain Phase 4's vignette-free CSS scanlines and low-opacity noise.
-- Correct pointer coordinates with the same barrel mapping used by the shader.
+- Add restrained barrel distortion, separable-axis chromatic aberration, and phosphor glow/bloom.
+- Move Phase 4's straight CSS scanlines into the curved shader pass and retain low-opacity CSS
+  noise.
+- Keep OpenTUI mouse tracking disabled and add no postprocessor input-remapping layer.
 - Preserve the stock default-renderer fallback on activation failure and context loss.
 - Follow the detailed architecture, exclusions, implementation order, and verification gates in
   [the Phase 4.5 plan](./phase-4.5-webgl-postprocessing.md).
 
 **Exit:** Static CRT optics render through the one xterm canvas without CPU frame capture,
-preserved default-framebuffer contents, a second canvas/context, broken pointer alignment, or loss
-of Phase 4 fallback behavior.
+preserved default-framebuffer contents, a second canvas/context, a postprocessor input-remapping
+layer, or loss of Phase 4 fallback behavior.
 
 ### Phase 5 — Image and GIF PixelRenderer
 
@@ -804,7 +806,8 @@ Also verify reduced-motion behavior, common window aspect ratios, fullscreen sca
 success, and default-renderer fallback.
 
 Phase 4.5 additionally verifies same-canvas topology, shader/FBO failures, context loss, barrel
-pointer mapping, 1×/2× display scale, GPU resource lifetime, and the performance gate defined in
+mapping, the disabled mouse-input contract, 1×/2× display scale, GPU resource lifetime, and the
+performance gate defined in
 [`phase-4.5-webgl-postprocessing.md`](./phase-4.5-webgl-postprocessing.md).
 
 ### Performance smoke test
@@ -872,7 +875,7 @@ adapter.
 | Tauri raw channel is too slow for a GIF          | Reduce/coalesce producer rendering; do not restore WebSockets                                  |
 | xterm WebGL fails                                | Dispose the addon and use xterm's default renderer                                             |
 | Phase 4.5 shader or framebuffer fails            | Dispose the enhanced addon and retain the Phase 4/default-renderer fallback                     |
-| Barrel distortion misaligns pointer input        | Block release until inverse coordinate mapping passes edge/corner tests                         |
+| Mouse tracking is enabled under curved optics    | Keep it disabled; require accepted coordinate mapping before future mouse support               |
 | Full-resolution Phase 4.5 target is too costly   | Use one deterministic visible-resolution target; do not add a multi-pass framebuffer chain     |
 | Sidecar crashes in production                    | Show the error and let the user close; do not auto-restart                                     |
 | Sidecar has a syntax error in development        | Keep launcher alive and retry on the next source edit                                          |
