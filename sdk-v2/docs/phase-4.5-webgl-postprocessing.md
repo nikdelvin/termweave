@@ -1,9 +1,9 @@
 # Phase 4.5 — Same-Canvas WebGL CRT Optics
 
-**Status:** Planned after Phase 4 is committed  
-**Depends on:** Completed Phase 4 streamlined visuals  
-**Target:** SDK v2 on macOS WKWebView, with portable WebGL behavior where practical  
-**Document date:** 2026-08-02
+**Status:** Planned; Phase 4 baseline committed
+**Depends on:** Completed Phase 4 streamlined visuals
+**Target:** SDK v2 on macOS WKWebView, with portable WebGL behavior where practical
+**Document date:** 2026-08-03
 
 ## 1. Purpose
 
@@ -34,7 +34,9 @@ Phase 4:
 
 Phase 4.5:
 
-- Replaces the stock addon with a pinned Termweave fork of the same addon version.
+- Keeps the stock pinned `@xterm/addon-webgl` 0.19.0 package unchanged.
+- Reacquires the addon's existing WebGL2 context from its display canvas.
+- Steers xterm rendering into a Termweave-owned texture-backed framebuffer.
 - Keeps exactly one visible xterm WebGL canvas.
 - Adds one GPU-resident render target and one final full-screen pass.
 - Retains CSS scanlines and low-opacity noise.
@@ -55,7 +57,7 @@ separate commit or pull request with a clean rollback point.
 
 Stock xterm also owns internal 2D link-layer and glyph-atlas canvases. Phase 4.5 does not remove,
 duplicate, postprocess, or count those as a second WebGL display surface. The topology requirement
-is that the enhanced renderer adds no canvas node and requests no additional WebGL context.
+is that the postprocessor adds no canvas node and requests no additional WebGL context.
 
 The internal framebuffer is a render destination, not a frame-capture subsystem. Terminal pixels
 remain on the GPU for the complete frame. The implementation must not use:
@@ -67,6 +69,10 @@ remain on the GPU for the complete frame. The implementation must not use:
 - CPU-accessible frame buffers.
 - A second display canvas or WebGL context.
 - Postprocessor uploads of captured terminal frames.
+
+The only permitted frame copy is a one-time, unscaled, GPU-only `blitFramebuffer` used to preserve
+the current raw terminal image during an unexpected runtime failure handoff. It is never part of
+the successful rendering path and does not read pixels into CPU memory.
 
 The pinned xterm renderer continues managing its existing glyph atlas and the texture updates
 needed to render newly encountered glyphs. Phase 4.5 adds no terminal-frame upload path.
@@ -84,7 +90,8 @@ glyph-local approximations, not the design in this document.
 - Keep the configured background visible outside the curved sample boundary.
 - Preserve the fixed 2560×1440 logical terminal and centered uniform scaling.
 - Preserve terminal text, selection, cursor, keyboard input, and mouse-enabled TUI behavior.
-- Dispose the enhanced WebGL renderer on context loss and continue with xterm's default renderer.
+- Dispose the postprocessor and stock WebGL addon on permanent context loss, then continue with
+  xterm's default renderer.
 - Avoid a continuous render loop for static optics.
 - Keep `crtEffects` as the only configuration switch for the complete CRT presentation.
 
@@ -119,16 +126,25 @@ use case.
 
 Phase 4.5 must not depend on SVG filters.
 
-### xterm WebGL API
+### xterm WebGL API and pinned renderer behavior
 
 The pinned `@xterm/addon-webgl` 0.19.0 package identifies upstream commit
 `f447274f430fd22513f6adbf9862d19524471c04`. Its supported API exposes activation, disposal,
 context loss, texture-atlas events, and atlas clearing. It does not expose the WebGL context,
 render target, render callback, or a postprocess hook.
 
-The implementation must not reach into runtime properties such as `_renderer`, `_canvas`, or
-`_gl`. A pinned source fork is required so the render pass is explicit, reviewable, and covered by
-tests.
+The stock addon does, however, append its WebGL canvas below the public `Terminal.element`.
+Enumerating descendant canvases and calling `getContext('webgl2')` identifies exactly one existing
+WebGL2 context; canvases that already own a 2D context return `null`. The pinned renderer also never
+calls `bindFramebuffer`; its rectangle and glyph renderers draw into whichever framebuffer is
+current. The pinned xterm render service calls the renderer and then synchronously fires the public
+`Terminal.onRender` event.
+
+Phase 4.5 deliberately uses those pinned implementation facts without reading runtime properties
+such as `_renderer`, `_canvas`, or `_gl`, patching package files, or replacing the addon. This is a
+controlled compatibility dependency, not a new xterm API guarantee. The exact package versions
+remain pinned, upgrades require a renderer-compatibility audit, and runtime framebuffer checks
+must fail safely if the assumptions do not hold.
 
 ## 7. Selected architecture
 
@@ -139,13 +155,17 @@ OpenTUI output
 xterm terminal model
      │
      ▼
-Termweave fork of @xterm/addon-webgl 0.19.0
+stock @xterm/addon-webgl 0.19.0
      │
-     ├── rectangles, glyphs, selection, and cursor
-     │       rendered directly into one GPU RGBA target
+     ├── its existing WebGL2 context is reacquired from the display canvas
+     └── rectangles, glyphs, selection, and cursor draw into the framebuffer
+             already bound by the Termweave CRT postprocessor
      │
      ▼
-one full-screen CRT pass
+public Terminal.onRender callback
+     │
+     ▼
+one synchronous full-screen CRT pass
      ├── inverse barrel sampling
      ├── radial RGB channel sampling
      └── small luminance bloom
@@ -157,10 +177,12 @@ the same visible xterm WebGL canvas
      └── one unprocessed monitor overlay above everything
 ```
 
-The final pass runs synchronously inside the addon's existing `renderRows` path, after xterm has
-drawn the complete render model and before the browser presents the default framebuffer. It does
-not depend on `Terminal.onRender`, `requestAnimationFrame`, or preserved default-framebuffer
-contents.
+The Termweave postprocessor binds its framebuffer before xterm's scheduled render. Because the
+pinned addon does not change framebuffer bindings, xterm draws directly into the texture-backed
+target. The final pass runs synchronously from `Terminal.onRender`, after the pinned render service
+has called the addon's `renderRows` method and before the browser presents the default framebuffer.
+It does not use a second `requestAnimationFrame`, preserved default-framebuffer contents, or a copy
+from the default framebuffer.
 
 ### Layer order
 
@@ -178,50 +200,111 @@ they are intentionally not uploaded as WebGL textures and do not require continu
 
 ### Initialization
 
-When `crtEffects` is enabled, renderer activation will:
+When `crtEffects` is enabled, activation will:
 
-1. Create the normal xterm WebGL2 canvas and context with `preserveDrawingBuffer: false`.
-2. Compile and link one full-screen vertex shader and one CRT fragment shader.
-3. Allocate one RGBA8 2D texture matching the selected render-target dimensions.
-4. Attach the texture to one framebuffer.
-5. Verify shader status, link status, framebuffer completeness, and texture-size limits.
-6. Create one full-screen triangle or quad vertex buffer.
-7. Continue only if every resource is valid.
+1. Construct and load the unchanged stock `WebglAddon` with `preserveDrawingBuffer: false`.
+2. Locate the addon's WebGL display canvas below the public terminal element.
+3. Reacquire the canvas's already-created WebGL2 context; no second context is requested.
+4. Verify the pinned renderer compatibility assumptions before steering begins.
+5. Compile and link one full-screen vertex shader and one CRT fragment shader.
+6. Allocate one full-size RGBA8 2D texture and attach it to one framebuffer.
+7. Verify texture-size limits, shader status, link status, and framebuffer completeness.
+8. Create one full-screen triangle or quad vertex buffer and vertex-array state.
+9. Subscribe to `Terminal.onRender`, canvas drawing-buffer dimension changes, and context events.
+10. Bind the Termweave framebuffer before xterm's first scheduled render.
 
-Any failure throws through addon activation. The host catches it, disposes partial state, and
-continues with xterm's default renderer exactly as Phase 4 does.
+Initialization is transactional. Steering does not begin until all resources, subscriptions, and
+compatibility checks are valid. Any failure disposes partial postprocessor and addon state, binds
+the default framebuffer when possible, and continues with xterm's default renderer exactly as
+Phase 4 does.
 
-When `crtEffects` is disabled, the enhanced addon will use the normal direct rendering path and
-will not allocate postprocessing resources.
+When `crtEffects` is disabled, the application loads the unchanged stock addon directly. It does
+not locate or reacquire the context, allocate postprocessing resources, subscribe to presentation
+events, or change framebuffer bindings.
+
+### Steering invariant
+
+While the postprocessor is active and xterm is not being presented, the Termweave framebuffer is
+the current draw framebuffer. The pinned addon therefore renders directly into the attached
+texture without knowing about the postprocessor.
+
+At the start of every presentation callback, the implementation must verify that:
+
+- The callback belongs to the currently active addon and postprocessor generation.
+- The WebGL context is healthy.
+- The target texture dimensions equal the canvas drawing-buffer dimensions.
+- The current target generation was validated complete after its most recent allocation.
+- `DRAW_FRAMEBUFFER_BINDING` is the expected Termweave framebuffer.
+
+An invariant failure must not attempt a potentially invalid shader pass. It triggers the fail-safe
+path described in section 13.
 
 ### Frame rendering
 
 For each xterm render:
 
-1. Bind the internal framebuffer.
-2. Set its viewport and clear it with `backgroundColor`.
-3. Render xterm backgrounds, glyphs, selection, and cursor using the existing addon code.
-4. Bind the default framebuffer.
-5. Set the visible canvas viewport.
-6. Bind the internal texture.
-7. Draw the final full-screen pass.
-8. Leave the renderer in the explicit state expected by the next xterm frame.
+1. Enter xterm's scheduled render with the Termweave framebuffer already bound.
+2. Let the unchanged addon render backgrounds, glyphs, selection, and cursor into the target.
+3. Receive the synchronous `Terminal.onRender` callback after the addon's `renderRows` call.
+4. Validate the steering invariant.
+5. Save the WebGL state that the presentation pass will modify.
+6. Bind the default framebuffer and set the visible canvas viewport.
+7. Bind the internal texture and draw the final full-screen CRT pass.
+8. Restore texture-unit, program, vertex-array, blend, viewport, and other modified state.
+9. Rebind the Termweave framebuffer before returning to xterm or the browser event loop.
 
 There is no copy from the default framebuffer. xterm renders directly into the texture-backed
 framebuffer, and the final shader samples that texture once during presentation.
 
+The presentation callback must be reentrancy-safe and enclosed in a fail-safe `try`/`finally`
+boundary. It must not call `terminal.refresh` from the successful per-frame path, add another
+`requestAnimationFrame`, or run continuously while terminal contents are unchanged.
+
+### WebGL state ownership
+
+Termweave owns its program, vertex-array state, buffer, texture, and framebuffer. It does not own
+xterm's programs, buffers, texture units, glyph textures, blend state, or render model.
+
+The postprocessor must save and restore every shared state value it changes. In particular, it
+must restore the previous binding on any texture unit used for the source texture because the
+pinned glyph renderer expects its atlas textures to remain bound between frames. The one deliberate
+exception is the draw-framebuffer binding: the Termweave framebuffer must be current again when
+the callback returns.
+
+No `gl.finish`, `gl.flush`, fence, synchronous CPU readback, or per-frame resource allocation is
+required.
+
+### Drawable-size changes
+
+The target must be resized before xterm draws at new canvas dimensions. The implementation will
+observe the WebGL canvas's drawing-buffer `width` and `height` attributes, not only its CSS box.
+When either dimension changes while the context is healthy, it will:
+
+1. Mark presentation temporarily unavailable.
+2. Reallocate the one target texture to the exact new drawing-buffer size.
+3. Reattach and validate the framebuffer.
+4. Restore the steering binding before xterm's scheduled redraw.
+5. Resume presentation only after the complete replacement succeeds.
+
+The observer and xterm's device-pixel resize scheduling must be verified in WKWebView. If Termweave
+cannot guarantee that the resized target is bound before xterm draws, it must stop steering and
+fall back rather than present a clipped, stale, or partial frame.
+
 ### Resource lifetime
 
-The enhanced renderer owns and deletes:
+The postprocessor owns and deletes:
 
 - CRT program and shaders.
 - Full-screen vertex buffer and vertex-array state.
 - Render-target texture.
 - Render-target framebuffer.
 
-Disposal must be idempotent and safe after partial initialization. Resources are recreated only
-for a legitimate drawable-size or device-pixel-ratio change while the context remains healthy.
-They are not recreated after the host receives terminal context loss; the addon is disposed and
+It also owns its `Terminal.onRender`, dimension-observer, and canvas-context subscriptions.
+Disposal must be idempotent and safe after partial initialization.
+
+Resources are recreated for a legitimate drawable-size/device-pixel-ratio change and after a
+successful WebGL context restoration while the addon remains active. They are not recreated after
+the addon's permanent context-loss notification; the postprocessor and addon are disposed and
 xterm's default renderer remains active.
 
 ## 9. CRT shader design
@@ -280,17 +363,18 @@ reduces text clarity.
 The fixed logical stage may create a 5120×2880 WebGL drawable on a 2× display. One RGBA8 render
 target at that size is approximately 56.25 MiB; at 2560×1440 it is approximately 14.06 MiB.
 
-The first correctness implementation will use one full-resolution render target and no bloom
-scratch textures. Before acceptance it must be profiled at 1× and 2× device pixel ratios.
+The implementation uses one full-resolution render target and no bloom scratch textures. Stock
+xterm calculates its viewport, projection, glyph metrics, and render dimensions from the display
+canvas. FBO steering therefore cannot silently substitute a smaller target without changing addon
+behavior or clipping the frame.
 
-If the full-resolution target fails the performance or memory gate, the allowed optimization is a
-single bounded render target sized to the terminal's actual visible physical pixels, followed by
-the final pass into the existing canvas. The optimization must preserve the fixed terminal grid
-and must not add a second framebuffer, canvas, or renderer. Silent allocation downscaling is not
-allowed; the chosen policy must be deterministic and tested.
+Before acceptance, the full-resolution target must be profiled at 1× and 2× device pixel ratios.
+If it fails the performance or memory gate, Phase 4.5 is blocked on this architecture and falls
+back to Phase 4. It must not add a same-context copy/downsample pass, second framebuffer, second
+canvas, or implicit resolution reduction as an optimization.
 
-The renderer must query `MAX_TEXTURE_SIZE`, check framebuffer completeness, and fall back before
-showing a partial or black terminal.
+The postprocessor must query `MAX_TEXTURE_SIZE`, check framebuffer completeness, and fall back
+before showing a partial or black terminal.
 
 ## 11. Mouse and pointer coordinate mapping
 
@@ -320,13 +404,13 @@ is not acceptable.
 
 No public configuration schema changes are planned.
 
-| Configuration                      | Shader optics                 | CSS scanlines/noise | Monitor |
-| ---------------------------------- | ----------------------------- | ------------------- | ------- |
-| `crtEffects: true`, monitor on     | Enabled                       | Visible             | Visible |
-| `crtEffects: true`, monitor off    | Enabled                       | Visible             | Hidden  |
-| `crtEffects: false`, monitor on    | Direct WebGL rendering        | Host hidden         | Visible |
-| `crtEffects: false`, monitor off   | Direct WebGL rendering        | Host hidden         | Hidden  |
-| WebGL failure or context loss      | Unavailable; default renderer | Follows config      | Follows config |
+| Configuration                      | WebGL path                         | CSS scanlines/noise | Monitor |
+| ---------------------------------- | ---------------------------------- | ------------------- | ------- |
+| `crtEffects: true`, monitor on     | Steered FBO plus shader pass       | Visible             | Visible |
+| `crtEffects: true`, monitor off    | Steered FBO plus shader pass       | Visible             | Hidden  |
+| `crtEffects: false`, monitor on    | Unchanged direct stock addon       | Host hidden         | Visible |
+| `crtEffects: false`, monitor off   | Unchanged direct stock addon       | Host hidden         | Hidden  |
+| WebGL failure or context loss      | Unavailable; default renderer      | Follows config      | Follows config |
 
 `backgroundColor` supplies xterm's background, unused native-window space, render-target clears,
 and out-of-bounds curved samples. `foregroundColor` continues through xterm's theme and therefore
@@ -343,49 +427,82 @@ continuous render loop.
 
 The terminal remains the product; optics are optional.
 
-- Shader construction failure: dispose partial addon state and keep xterm's default renderer.
-- Shader compilation or linking failure: same fallback.
+- Canvas/context discovery failure: do not begin steering; dispose the addon and keep xterm's
+  default renderer.
+- Shader construction, compilation, or linking failure: same fallback.
 - Unsupported texture size or incomplete framebuffer: same fallback.
 - Addon activation failure: same fallback.
-- WebGL context loss: dispose the subscription and addon exactly once; do not reload it.
+- Steering invariant failure before presentation: do not run the CRT shader. If the default
+  framebuffer contains the current raw xterm frame, leave it visible; otherwise use the emergency
+  raw presentation path before disabling steering.
+- Presentation failure after xterm rendered into the target: bind the target as the read
+  framebuffer and the canvas as the draw framebuffer, then use one unscaled `blitFramebuffer` to
+  preserve the current undistorted terminal frame when the context is healthy. This is a failure
+  handoff, not a normal frame-copy pipeline.
+- Failure-handoff completion: unbind the Termweave framebuffer, dispose the postprocessor and
+  addon exactly once, and request one full redraw through xterm's default renderer.
+- Temporary WebGL context loss: mark postprocessing unavailable and create no replacement resources
+  until the context is restored.
+- Successful context restoration: recreate, validate, and bind Termweave resources after the stock
+  addon recreates its state and before its requested redraw.
+- Permanent addon context-loss notification: dispose all subscriptions, the postprocessor, and the
+  addon exactly once; do not reload it.
 - Default renderer lifetime: terminal text, process output, input, focus, and cleanup continue.
 - CSS effects: remain controlled by `crtEffects` even when shader optics are unavailable.
 - Diagnostics: development may log one concise renderer reason; production must not repeatedly
   report or retry.
 
-No renderer-recovery loop, atlas reset call, or delayed WebGL reactivation is added.
+The emergency blit is permitted only after an unexpected runtime steering/presentation failure. It
+must never occur during a successful frame and must be counted in tests. No renderer-recovery loop,
+atlas reset call, delayed WebGL reactivation, or switch to a same-context copy renderer is added.
 
-## 14. Fork and dependency strategy
+## 14. Stock-addon compatibility and dependency strategy
 
-The postprocess hook belongs inside the renderer, but xterm does not expose that hook publicly.
-The preferred delivery is a small Termweave fork of `@xterm/addon-webgl` based exactly on 0.19.0 /
-upstream commit `f447274f430fd22513f6adbf9862d19524471c04`.
+Phase 4.5 continues consuming the unchanged published packages:
 
-Before implementation begins, choose one reproducible delivery form:
+- `@xterm/addon-webgl` 0.19.0, based on upstream commit
+  `f447274f430fd22513f6adbf9862d19524471c04`.
+- `@xterm/xterm` 6.0.0.
 
-1. A dedicated Termweave addon package pinned to an immutable package version and source commit.
-2. A vendored, source-controlled addon fork with its upstream MIT license and deterministic build
-   instructions, without a nested application package or second lockfile.
+The lockfile remains the reproducible delivery mechanism. No additional renderer dependency or
+package is introduced.
+
+Before implementation and before every future xterm upgrade, verify against the exact installed
+source that:
+
+1. The addon creates one WebGL2 canvas with `preserveDrawingBuffer: false`.
+2. Its normal render path does not call `bindFramebuffer` or otherwise select a render target.
+3. Backgrounds, glyphs, selection, and cursor render before `Terminal.onRender` fires.
+4. Its draw path restores or explicitly selects the program, VAO, buffers, and viewport it needs
+   after the Termweave presentation callback.
+5. Reacquiring `webgl2` from the discovered display canvas returns the existing context.
+6. Context restoration scheduling leaves a point where Termweave can recreate and bind its target
+   before the next xterm redraw.
+
+These checks should be represented by focused source-contract and runtime integration tests where
+practical. The runtime framebuffer-binding guard remains required even when the source audit passes.
 
 The implementation must not:
 
 - Patch `node_modules` at runtime.
+- Fork, vendor, rebuild, or republish `@xterm/addon-webgl`.
 - Depend on mutable Git branches.
 - Reach into stock addon's private fields.
-- Commit only an unexplained minified bundle.
+- Import xterm's private source modules.
+- Monkey-patch `HTMLCanvasElement`, `WebGL2RenderingContext`, or animation-frame globals.
 - Pull the full xterm repository during ordinary SDK install, development, or build.
-
-Only the WebGL addon is forked. `@xterm/xterm` remains pinned and consumed through its ordinary
-public terminal API.
 
 ## 15. Expected SDK integration
 
 The application-facing integration should remain concentrated in the existing visual modules:
 
-- `src/terminal.ts`: construct the enhanced addon, retain the small fallback, and own disposal.
+- `src/terminal.ts`: construct the stock addon, coordinate postprocessor activation, retain the
+  small fallback, and own exactly-once disposal.
 - `src/presentation.ts`: continue applying config and expose any pure shared optics constants.
 - `src/styles.css`: retain the vignette-free scanlines, noise, and reduced-motion rules.
-- A small private CRT module: pure barrel math and pointer mapping.
+- A private CRT postprocessor module: canvas/context discovery, FBO steering, shader presentation,
+  dimension observation, state restoration, emergency handoff, and resource disposal.
+- A small private optics module: pure barrel math and pointer mapping shared with the shader.
 - Focused tests under `tests/`: geometry, lifecycle, configuration combinations, and pointer mapping.
 
 `src/main.ts`, raw sidecar transport, development lifecycle, shared public configuration, and
@@ -394,16 +511,17 @@ The application-facing integration should remain concentrated in the existing vi
 ## 16. Implementation plan
 
 - [ ] Commit and tag the completed Phase 4 baseline before renderer work begins.
-- [ ] Select and document the immutable fork delivery method, upstream commit, license retention,
-      and reproduction command.
+- [ ] Record the exact stock-addon compatibility contract and add an upgrade audit for framebuffer
+      binding, render-event order, canvas discovery, and context restoration.
 - [ ] Add pure aspect-corrected barrel mapping and inverse pointer helpers with center, symmetry,
       boundary, and non-finite-input tests.
-- [ ] Add the enhanced renderer's single RGBA8 target, framebuffer validation, explicit GL state,
-      and idempotent partial-resource disposal.
+- [ ] Add the postprocessor's single RGBA8 target, framebuffer validation, explicit GL-state
+      restoration, dimension observation, and idempotent partial-resource disposal.
 - [ ] Add the one-pass barrel, radial RGB split, and restrained luminance-bloom shader with internal
       constants and no animation clock.
-- [ ] Route xterm's existing rectangle/glyph/cursor rendering into the target and run the final
-      pass into the same display canvas.
+- [ ] Reacquire the stock addon's existing context, bind the target before xterm rendering, and run
+      the final pass synchronously from `Terminal.onRender` into the same display canvas.
+- [ ] Add invariant guards and the one-time emergency raw-frame blit for unexpected runtime failure.
 - [ ] Integrate `crtEffects`, `backgroundColor`, WebGL activation failure, and context-loss fallback
       through `src/terminal.ts` without changing the public config schema.
 - [ ] Retain Phase 4's vignette-free CSS scanlines/noise, complete host hiding, and reduced-motion
@@ -431,6 +549,8 @@ The application-facing integration should remain concentrated in the existing vi
 
 ### Renderer lifecycle tests
 
+- Display-canvas discovery and reacquisition of the already-created WebGL2 context.
+- Compatibility failure when the display canvas or existing context cannot be identified.
 - Normal shader/program/framebuffer construction.
 - Vertex shader compilation failure.
 - Fragment shader compilation failure.
@@ -438,7 +558,16 @@ The application-facing integration should remain concentrated in the existing vi
 - Texture allocation failure.
 - Framebuffer incompleteness.
 - Addon activation failure after partial allocation.
-- Context loss and exactly-once disposal.
+- Target framebuffer is bound before the first and every subsequent xterm render.
+- `Terminal.onRender` presents only after xterm has drawn into the target.
+- Modified programs, VAOs, texture units, atlas bindings, blend state, and viewport are restored.
+- Unexpected draw-framebuffer binding triggers fallback rather than shader presentation.
+- Drawing-buffer dimension changes replace and bind the target before xterm's redraw.
+- Temporary context loss suspends presentation without allocating resources.
+- Successful context restoration recreates and rebinds resources before redraw.
+- Permanent context loss and exactly-once disposal.
+- Emergency raw-frame blit occurs once on an injected runtime presentation failure and never on a
+  successful frame.
 - Repeated disposal.
 - Drawable-size/device-pixel-ratio resource replacement without leaks.
 - `crtEffects: false` bypass with no postprocess allocation.
@@ -479,10 +608,14 @@ For each applicable case verify:
 
 ### WebGL and fallback checks
 
-- Confirm the enhanced WebGL renderer is active in the success case.
+- Confirm the published stock addon remains installed and unmodified.
+- Confirm the Termweave framebuffer is active during xterm rendering in the success case.
+- Confirm the final pass runs synchronously from `Terminal.onRender` without another animation frame.
 - Force shader/FBO failure through an injected test seam.
+- Force a steering-binding mismatch and confirm the shader does not run.
+- Force a runtime presentation failure and confirm one emergency raw blit prevents a black frame.
 - Force `WEBGL_lose_context` and wait for the addon's context-loss path.
-- Confirm the enhanced addon is disposed and not recreated.
+- Confirm the postprocessor and stock addon are disposed and not recreated after permanent loss.
 - Confirm terminal output and input continue through xterm's default renderer.
 - Confirm no black frame, duplicate canvas, or duplicate terminal process appears.
 
@@ -494,8 +627,7 @@ For each applicable case verify:
 - Confirm no render-target resources accumulate across resize/fullscreen transitions.
 - Measure the 5120×2880 target on a 2× display.
 - Reject a continuous postprocess loop when terminal contents are unchanged.
-- If full resolution misses the gate, implement and re-test only the single-target visible-resolution
-  policy described in section 10.
+- If full resolution misses the gate, reject Phase 4.5 on this architecture and retain Phase 4.
 
 ### Final exclusion audit
 
@@ -505,8 +637,11 @@ Search authored runtime code and report the absence of:
 - `readPixels` and preserved drawing buffers.
 - Canvas/WebView/window snapshot paths.
 - Postprocessor uploads of terminal-frame pixels.
+- Normal-frame `copyTexImage2D`, `copyTexSubImage2D`, `drawImage`, or `blitFramebuffer` calls; the
+  only permitted framebuffer blit is the explicit one-time runtime failure handoff.
 - SVG displacement filters.
-- Renderer handoff or recovery loops.
+- Continuous renderer-handoff or recovery loops.
+- A forked, vendored, rebuilt, patched, or privately imported xterm addon.
 - Custom glyph-atlas reset logic.
 - Mirrored surround images.
 - Flicker, vertical sweep, vignette, audio, and video.
@@ -516,9 +651,17 @@ Search authored runtime code and report the absence of:
 Phase 4.5 is complete only when:
 
 - Barrel distortion, chromatic aberration, and bloom render in the existing xterm canvas.
-- The enhanced renderer adds no canvas; xterm retains one WebGL display canvas/context and its
-  unchanged internal 2D canvases.
+- The published stock addon remains unchanged and consumes the same locked package version.
+- The postprocessor adds no canvas; xterm retains one WebGL display canvas/context and its unchanged
+  internal 2D canvases.
 - The implementation uses one GPU-only render target and no CPU frame capture/readback.
+- The target framebuffer is bound while xterm renders, and the successful frame path performs no
+  copy from the default framebuffer.
+- The final shader pass runs synchronously from `Terminal.onRender` and rebinds the target before
+  returning.
+- Drawing-buffer size changes and successful context restoration bind a complete replacement target
+  before xterm redraws.
+- A violated steering invariant fails safely without presenting a partial or black terminal.
 - The monitor overlay remains single, sharp, and above the processed terminal.
 - The complete CRT pool is scanlines, low-opacity noise, barrel distortion, chromatic aberration,
   and phosphor glow/bloom.
@@ -537,8 +680,12 @@ Phase 4.5 is complete only when:
 
 Phase 4 is the rollback path. Reverting Phase 4.5 must require only:
 
-- Restoring stock `@xterm/addon-webgl` 0.19.0 construction.
-- Removing the private optics and pointer-mapping modules.
+- Removing the CRT postprocessor activation and returning `src/terminal.ts` to Phase 4's direct
+  stock-addon lifecycle.
+- Removing the private postprocessor, optics, and pointer-mapping modules.
+
+No dependency or vendored renderer rollback is needed because Phase 4.5 never replaces or modifies
+the stock addon.
 
 Raw transport, sidecar lifecycle, fixed-stage layout, monitor asset, font, configuration, and CSS
 scanlines/noise must remain unaffected by that rollback.
@@ -547,6 +694,8 @@ scanlines/noise must remain unaffected by that rollback.
 
 - [xterm.js repository and WebGL addon](https://github.com/xtermjs/xterm.js/tree/f447274f430fd22513f6adbf9862d19524471c04/addons/addon-webgl)
 - [Pinned WebGL addon API](https://github.com/xtermjs/xterm.js/blob/f447274f430fd22513f6adbf9862d19524471c04/addons/addon-webgl/typings/addon-webgl.d.ts)
+- [Pinned WebGL renderer source](https://github.com/xtermjs/xterm.js/blob/f447274f430fd22513f6adbf9862d19524471c04/addons/addon-webgl/src/WebglRenderer.ts)
+- [Pinned xterm render service](https://github.com/xtermjs/xterm.js/blob/f447274f430fd22513f6adbf9862d19524471c04/src/browser/services/RenderService.ts)
 - [Khronos: Handling WebGL context loss](https://www.khronos.org/webgl/wiki/HandlingContextLost)
 - [Tauri WebView versions](https://v2.tauri.app/reference/webview-versions/)
 - [Apple: WKWebView](https://developer.apple.com/documentation/webkit/wkwebview)
