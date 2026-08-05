@@ -76,7 +76,9 @@ the current raw terminal image during an unexpected runtime failure handoff. It 
 the successful rendering path and does not read pixels into CPU memory.
 
 The pinned xterm renderer continues managing its existing glyph atlas and the texture updates
-needed to render newly encountered glyphs. Phase 4.5 adds no terminal-frame upload path.
+needed to render newly encountered glyphs. Termweave observes only the addon's public atlas-canvas
+events and recreates the stock addon four pages before its WebGL texture-unit limit. Phase 4.5 adds
+no terminal-frame upload path or retained handoff frame.
 
 If the project later defines "no framebuffer" to prohibit even a GPU-only render target, this
 phase cannot provide a true full-image postprocessor. The fallback would be limited CSS and
@@ -110,7 +112,8 @@ Phase 4.5 will not add or restore:
 - The v1 framebuffer readback/capture pipeline.
 - The v1 chromatic-aberration renderer, shader files, or renderer handoff machinery.
 - Mirrored monitor-surround images.
-- Glyph-atlas reset or reload logic beyond the pinned xterm addon's existing internals.
+- The v1 glyph-atlas capture/handoff subsystem or direct atlas mutation. A bounded stock-addon
+  recycle driven by public atlas events is included.
 - Dynamic CRT sliders or new public configuration fields.
 - User-selectable renderer modes.
 - Flicker, a vertical sweep, vignette, audio, or video.
@@ -185,8 +188,10 @@ The Termweave postprocessor binds its framebuffer before xterm's scheduled rende
 pinned addon does not change framebuffer bindings, xterm draws directly into the texture-backed
 target. The final pass runs synchronously from `Terminal.onRender`, after the pinned render service
 has called the addon's `renderRows` method and before the browser presents the default framebuffer.
-It does not use a second `requestAnimationFrame`, preserved default-framebuffer contents, or a copy
-from the default framebuffer.
+The postprocessing path does not use a second `requestAnimationFrame`, preserved
+default-framebuffer contents, or a copy from the default framebuffer. Atlas pressure may schedule
+one animation-frame callback solely to coalesce stock-addon replacement; it does not render or
+copy a terminal frame.
 
 ### Layer order
 
@@ -534,8 +539,10 @@ The terminal remains the product; optics are optional.
   report or retry.
 
 The emergency blit is permitted only after an unexpected runtime steering/presentation failure. It
-must never occur during a successful frame and must be counted in tests. No renderer-recovery loop,
-atlas reset call, delayed WebGL reactivation, or switch to a same-context copy renderer is added.
+must never occur during a successful frame and must be counted in tests. No renderer-recovery loop
+or switch to a same-context copy renderer is added. The independent atlas-pressure safeguard
+disposes and immediately recreates the published addon in one coalesced animation-frame callback,
+then requests one full terminal refresh.
 
 ## 14. Stock-addon compatibility and dependency strategy
 
@@ -742,7 +749,8 @@ Search authored runtime code and report the absence of:
 - SVG displacement filters.
 - Continuous renderer-handoff or recovery loops.
 - A forked, vendored, rebuilt, patched, or privately imported xterm addon.
-- Custom glyph-atlas reset logic.
+- Direct atlas clearing/mutation or retained-frame atlas handoff logic; the bounded public-event
+  stock-addon recycle remains permitted.
 - Mirrored surround images.
 - Flicker, vertical sweep, vignette, audio, and video.
 

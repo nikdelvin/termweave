@@ -218,6 +218,7 @@ describe('fixed xterm configuration', () => {
       scrollback: 0,
       cursorBlink: false,
       convertEol: false,
+      customGlyphs: true,
       theme: {
         background: '#010416',
         foreground: '#F59B5A',
@@ -264,6 +265,61 @@ class FakeWebglAddon implements WebglAddonLike {
     const handler = this.contextLossHandler
     handler?.()
   }
+}
+
+class FakeAtlasWebglAddon extends FakeWebglAddon {
+  private readonly addHandlers = new Set<(canvas: HTMLCanvasElement) => void>()
+  private readonly changeHandlers = new Set<(canvas: HTMLCanvasElement) => void>()
+  private readonly removeHandlers = new Set<(canvas: HTMLCanvasElement) => void>()
+
+  private subscribe(
+    handlers: Set<(canvas: HTMLCanvasElement) => void>,
+    handler: (canvas: HTMLCanvasElement) => void,
+  ) {
+    handlers.add(handler)
+    return { dispose: () => handlers.delete(handler) }
+  }
+
+  onAddTextureAtlasCanvas(handler: (canvas: HTMLCanvasElement) => void) {
+    return this.subscribe(this.addHandlers, handler)
+  }
+
+  onChangeTextureAtlas(handler: (canvas: HTMLCanvasElement) => void) {
+    return this.subscribe(this.changeHandlers, handler)
+  }
+
+  onRemoveTextureAtlasCanvas(handler: (canvas: HTMLCanvasElement) => void) {
+    return this.subscribe(this.removeHandlers, handler)
+  }
+
+  addAtlasPage(canvas = {} as HTMLCanvasElement) {
+    for (const handler of this.addHandlers) handler(canvas)
+    return canvas
+  }
+
+  changeAtlasPage(canvas = {} as HTMLCanvasElement) {
+    for (const handler of this.changeHandlers) handler(canvas)
+  }
+
+  removeAtlasPage(canvas: HTMLCanvasElement) {
+    for (const handler of this.removeHandlers) handler(canvas)
+  }
+}
+
+function fakeWebglCanvas(maximumTextureUnits = 16) {
+  const maximumTextureUnitsParameter = 0x8872
+  const gl = {
+    MAX_TEXTURE_IMAGE_UNITS: maximumTextureUnitsParameter,
+    getParameter(parameter: number) {
+      expect(parameter).toBe(maximumTextureUnitsParameter)
+      return maximumTextureUnits
+    },
+  } as unknown as WebGL2RenderingContext
+  return {
+    getContext(type: string) {
+      return type === 'webgl2' ? gl : null
+    },
+  } as unknown as HTMLCanvasElement
 }
 
 describe('xterm WebGL fallback', () => {
@@ -355,22 +411,25 @@ describe('xterm WebGL fallback', () => {
     )
 
     expect(terminalDisposeCount).toBe(0)
-    expect(addon.contextLossSubscriptionDisposeCount).toBe(0)
+    expect(addon.contextLossSubscriptionDisposeCount).toBe(1)
     expect(addon.disposeCount).toBe(1)
     expect(() => renderer.dispose()).not.toThrow()
   })
 
-  test('does no canvas discovery or CRT allocation when CRT effects are disabled', () => {
+  test('discovers the WebGL limit without allocating CRT effects when they are disabled', () => {
     const addon = new FakeWebglAddon()
     let queryCount = 0
+    const canvases: HTMLCanvasElement[] = []
     const terminal = {
       element: {
         querySelectorAll() {
           queryCount += 1
-          return []
+          return canvases
         },
       },
-      loadAddon() {},
+      loadAddon() {
+        canvases.push(fakeWebglCanvas())
+      },
       onRender() {
         throw new Error('CRT render subscription must not be installed')
       },
@@ -386,11 +445,95 @@ describe('xterm WebGL fallback', () => {
       () => addon,
     )
 
-    expect(queryCount).toBe(0)
+    expect(queryCount).toBe(2)
     expect(addon.disposeCount).toBe(0)
     expect(renderer.status).toEqual({ kind: 'active', postprocessorActive: false })
     renderer.dispose()
     expect(addon.disposeCount).toBe(1)
+  })
+
+  test('recreates the addon before atlas exhaustion and refreshes the full terminal', async () => {
+    const addons: FakeAtlasWebglAddon[] = []
+    const canvases: HTMLCanvasElement[] = []
+    const refreshes: [number, number][] = []
+    const terminal = {
+      element: { querySelectorAll: () => canvases },
+      loadAddon(candidate: WebglAddonLike) {
+        expect(candidate).toBe(addons[addons.length - 1])
+        canvases.push(fakeWebglCanvas(16))
+      },
+      onRender() {
+        throw new Error('CRT render subscription must not be installed')
+      },
+      refresh(start: number, end: number) {
+        refreshes.push([start, end])
+      },
+      rows: 90,
+    }
+    const renderer = enableWebglRenderer(
+      terminal as unknown as Pick<
+        Terminal,
+        'element' | 'loadAddon' | 'onRender' | 'refresh' | 'rows'
+      >,
+      { backgroundColor: '#010416', crtEffects: false },
+      () => {
+        const addon = new FakeAtlasWebglAddon()
+        addons.push(addon)
+        return addon
+      },
+    )
+
+    for (let page = 0; page < 12; page += 1) addons[0]!.addAtlasPage()
+    await new Promise((resolve) => setTimeout(resolve, 5))
+
+    expect(addons).toHaveLength(2)
+    expect(addons[0]!.disposeCount).toBe(1)
+    expect(addons[0]!.contextLossSubscriptionDisposeCount).toBe(1)
+    expect(addons[1]!.disposeCount).toBe(0)
+    expect(refreshes).toEqual([[0, 89]])
+    expect(renderer.status).toEqual({ kind: 'active', postprocessorActive: false })
+
+    renderer.dispose()
+    expect(addons[1]!.disposeCount).toBe(1)
+  })
+
+  test('falls back safely when atlas-driven addon recreation fails', async () => {
+    const first = new FakeAtlasWebglAddon()
+    const canvases: HTMLCanvasElement[] = []
+    let creations = 0
+    let refreshCount = 0
+    const renderer = enableWebglRenderer(
+      {
+        element: { querySelectorAll: () => canvases },
+        loadAddon() {
+          canvases.push(fakeWebglCanvas(8))
+        },
+        onRender() {
+          throw new Error('CRT render subscription must not be installed')
+        },
+        refresh() {
+          refreshCount += 1
+        },
+        rows: 90,
+      } as unknown as Pick<Terminal, 'element' | 'loadAddon' | 'onRender' | 'refresh' | 'rows'>,
+      { backgroundColor: '#010416', crtEffects: false },
+      () => {
+        creations += 1
+        if (creations > 1) throw new Error('replacement unavailable')
+        return first
+      },
+    )
+
+    for (let page = 0; page < 4; page += 1) first.addAtlasPage()
+    await new Promise((resolve) => setTimeout(resolve, 5))
+
+    expect(renderer.status).toEqual({
+      kind: 'fallback',
+      message: 'Renderer reactivation failed: replacement unavailable',
+    })
+    expect(first.disposeCount).toBe(1)
+    expect(refreshCount).toBe(1)
+    renderer.dispose()
   })
 
   test('transactionally returns to the default renderer when CRT canvas discovery fails', () => {
@@ -418,7 +561,7 @@ describe('xterm WebGL fallback', () => {
     )
 
     expect(addon.disposeCount).toBe(1)
-    expect(addon.contextLossSubscriptionDisposeCount).toBe(0)
+    expect(addon.contextLossSubscriptionDisposeCount).toBe(1)
     expect(refreshCount).toBe(1)
     expect(renderer.status.kind).toBe('fallback')
     if (renderer.status.kind === 'fallback') {

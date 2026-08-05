@@ -20,7 +20,7 @@ export default tseslint.config(
       'src/**/*.{ts,tsx}',
       'scripts/**/*.ts',
       'shared/**/*.ts',
-      'tests/**/*.ts',
+      'tests/**/*.{ts,tsx}',
       'vite.config.ts',
     ],
     languageOptions: {

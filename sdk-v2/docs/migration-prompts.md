@@ -57,7 +57,8 @@ Transport requirements:
 - Abnormal exit displays an error and leaves the window open.
 - Window close kills the child before completing.
 - Production must not retry or reconnect.
-- OpenTUI must use `process.stdin` and `process.stdout` directly with the fixed grid.
+- OpenTUI must use `process.stdin` and a fixed-grid stdout adapter whose `write` delegates unchanged
+  to `process.stdout`; the distinct object must retain OpenTUI's callback-aware native feed.
 - Diagnostics must use stderr.
 
 Keep this phase visually minimal. Do not implement the development watcher, monitor overlay, CRT effects, PixelRenderer, or router template yet.
@@ -122,7 +123,7 @@ Visual requirements:
 - Respect `prefers-reduced-motion`.
 - Dispose the xterm WebGL addon on context loss and continue with xterm’s default renderer.
 
-Do not migrate mirrored surround images, chromatic-aberration shaders, framebuffer capture, a second WebGL canvas, texture uploads, glyph-atlas reset logic, audio, or video.
+Do not migrate mirrored surround images, chromatic-aberration shaders, framebuffer capture, a second WebGL canvas, texture uploads, the v1 glyph-atlas capture/handoff machinery, audio, or video. A later bounded stock-addon recycle may use the public atlas events without retaining a frame.
 
 Keep the visual implementation small: prefer CSS pseudo-elements and at most one dedicated noise element. Keep `sdk/` untouched.
 
@@ -212,7 +213,7 @@ GIF requirements:
 - Use monotonic scheduling and skip expired frames after long pauses.
 - Clean up timers and pending work on unmount or source change.
 
-Use Jimp core PNG/JPEG plugins and `gifuct-js`. Do not add FFmpeg, video, remote fetching, audio, media clocks, manual quadrant fitting, RGB332 quantization, or intermediate framebuffers.
+Use Jimp core PNG/JPEG plugins and `gifuct-js`. Do not add FFmpeg, video, remote fetching, audio, media clocks, manual quadrant fitting, or intermediate framebuffers. Reduce final opaque image colors to RGB333 plus the configured background anchor so custom glyphs remain bounded without RGB332's blue-channel loss.
 
 Add comprehensive tests for decoding, signatures, sizing, centering, transparency, GIF timing/disposal, errors, cancellation, cleanup, source changes, and child overlays. Run the full checks and a sustained animated-GIF responsiveness test.
 

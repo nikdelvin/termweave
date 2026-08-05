@@ -59,7 +59,7 @@ implemented from the v2 design in this document.
 | V1 chromatic-aberration framebuffer capture | Remove                                           |
 | Same-canvas CRT optical postprocessor       | Plan separately in Phase 4.5                     |
 | Mirrored monitor-surround assets            | Remove                                           |
-| Glyph-atlas reset/handoff machinery         | Remove                                           |
+| V1 glyph-atlas reset/handoff machinery      | Replace with bounded stock-addon recycling       |
 | WebSocket terminal server                   | Remove                                           |
 | Port allocation and authentication tokens   | Remove                                           |
 | Frame IDs and acknowledgements              | Remove                                           |
@@ -99,7 +99,7 @@ implemented from the v2 design in this document.
 │               │                              ▼                    │
 │  ┌────────────────────────────────────────────────────────────┐   │
 │  │ Compiled Bun sidecar                                       │   │
-│  │ OpenTUI renderer over process.stdin/process.stdout         │   │
+│  │ OpenTUI over process.stdin + fixed stdout adapter          │   │
 │  │ Solid application + local #termweave module                │   │
 │  └────────────────────────────────────────────────────────────┘   │
 │                                                                   │
@@ -125,7 +125,8 @@ child-process streams instead of running a second application protocol.
 
 **Sidecar**
 
-- Create OpenTUI directly over `process.stdin` and `process.stdout`.
+- Create OpenTUI over `process.stdin` and a fixed-geometry stdout adapter that delegates every
+  write unchanged to `process.stdout` and selects OpenTUI's callback-aware `NativeSpanFeed` path.
 - Render the Solid template.
 - Read the shared app configuration at compile time/runtime.
 - Exit cleanly after OpenTUI is destroyed.
@@ -377,9 +378,12 @@ decoded content/signatures rather than trusting the file extension.
   one terminal cell.
 - The fitted image is centered in the component's current cell bounds.
 - RGBA transparency is composited against the configured background color.
+- Opaque output is reduced to a uniform RGB333 cube plus the exact configured background color.
+  This bounds custom-glyph atlas growth while retaining materially better blue and shadow detail
+  than RGB332; the background anchor keeps transparent edges seamless with the component box.
 - Decoded pixel bytes are drawn directly with OpenTUI's native
   `OptimizedBuffer.drawSuperSampleBuffer`.
-- No manual glyph selection, RGB332 quantization, intermediate `OptimizedBuffer`, or framebuffer
+- No manual glyph selection, quadrant fitting, intermediate `OptimizedBuffer`, or framebuffer
   copying is implemented in TypeScript.
 - Changing `uri` or component dimensions cancels the current load/playback and starts a new one.
 - An empty URI renders the background and a concise error banner.
@@ -434,8 +438,11 @@ hidden.
 
 ### Sidecar renderer
 
-The production sidecar passes `process.stdin` and `process.stdout` directly to
-`createCliRenderer`, along with:
+The production sidecar passes `process.stdin` and a distinct fixed-geometry stdout adapter to
+`createCliRenderer`. The adapter delegates `write` unchanged to `process.stdout`; because it is a
+distinct object, pinned OpenTUI uses its callback-aware `NativeSpanFeed` and waits for pending pipe
+writes instead of overrunning the sidecar channel. This is byte-preserving flow control, not a
+custom transport or framing protocol. Renderer options also include:
 
 - Fixed width and height from the shared grid.
 - `remote: true`.
@@ -557,8 +564,10 @@ Use CSS pseudo-elements and at most one dedicated noise element. Respect
 `prefers-reduced-motion` by disabling animations. When `crtEffects` is false, the entire effect
 host is hidden.
 
-The v1 chromatic-aberration shader, second WebGL context, texture upload, rendered-frame handoff,
-and texture-atlas reset logic are intentionally not migrated.
+The v1 chromatic-aberration shader, second WebGL context, texture upload, and rendered-frame
+handoff are intentionally not migrated. V2 separately monitors the public stock-addon atlas events
+and recreates that addon before its reported WebGL texture-page limit; it does not retain captured
+frames or introduce another render surface.
 
 Phase 4.5 may later replace the stock WebGL addon with a pinned same-canvas renderer fork. That
 work is additive and separately reviewed; it does not reinterpret the v1 capture pipeline as part
