@@ -1,6 +1,8 @@
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { join, resourceDir } from '@tauri-apps/api/path'
 import { Command } from '@tauri-apps/plugin-shell'
 import { getAppConfig } from '../shared/config'
+import { opentuiAssetRootDirectory } from '../shared/opentui-assets'
 import { createPresentation, terminalFontFamily } from './presentation'
 import {
   createTerminal,
@@ -71,7 +73,11 @@ void (async () => {
   renderRendererStatus(renderer.status)
   rendererStatusSubscription = renderer.onStatusChange(renderRendererStatus)
 
-  const command = Command.sidecar('binaries/opentui-sidecar', [], { encoding: 'raw' })
+  const opentuiAssetRoot = await join(await resourceDir(), opentuiAssetRootDirectory)
+  const command = Command.sidecar('binaries/opentui-sidecar', [], {
+    encoding: 'raw',
+    env: { DEBUG: '', OTUI_ASSET_ROOT: opentuiAssetRoot },
+  })
   session = createTerminalSession({
     terminal,
     command,

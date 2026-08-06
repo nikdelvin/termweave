@@ -75,17 +75,45 @@ describe('local termweave module contract', () => {
     }
   })
 
-  test('uses the Phase 5 module and bundled GIF without adding Phase 6 routes', async () => {
+  test('uses the final native Solid screen template without a router or patch', async () => {
+    const appFiles = await Promise.all(
+      [
+        'app/App.tsx',
+        'app/screen-state.ts',
+        'app/components/ScreenControls.tsx',
+        'app/screens/HomeScreen.tsx',
+        'app/screens/GalleryScreen.tsx',
+        'app/screens/PlainScreen.tsx',
+      ].map((file) => readFile(new URL(`../${file}`, import.meta.url), 'utf8')),
+    )
+    const implementation = appFiles.join('\n')
     const appIndex = await readFile(new URL('../app/index.tsx', import.meta.url), 'utf8')
-    expect(appIndex).toContain("from '#termweave'")
-    expect(appIndex).toContain("from './assets/campfire.gif' with { type: 'file' }")
-    expect(appIndex).toContain('<PixelRenderer uri={campfireUri} width="100%" height="100%">')
-    expect(appIndex).toContain('</PixelRenderer>')
-    expect(appIndex).not.toContain('HomeRoute')
-    expect(appIndex).not.toContain('GalleryRoute')
+    const packageJson = await readFile(new URL('../package.json', import.meta.url), 'utf8')
+    const lockfile = await readFile(new URL('../bun.lock', import.meta.url), 'utf8')
+
+    expect(appIndex).toContain("import { App } from './App'")
+    expect(appIndex).toContain("createReadStream('/dev/fd/0', {")
+    expect(appIndex).toContain('autoClose: true')
+    expect(appIndex).toContain('stdin: sidecarStdin')
+    expect(appIndex).not.toContain('stdin: process.stdin')
+    expect(appIndex).toContain('await render(() => <App />, renderer)')
+    expect(implementation).toContain(
+      'export type ScreenId = typeof HOME_SCREEN | typeof GALLERY_SCREEN | typeof PLAIN_SCREEN',
+    )
+    expect(implementation).toContain('<Switch>')
+    expect(implementation.match(/useKeyboard\(/g)).toHaveLength(1)
+    expect(implementation.match(/<PixelRenderer /g)).toHaveLength(2)
+    expect(appFiles[5]).not.toContain('PixelRenderer')
+    expect(implementation).toContain("from '../assets/campfire.gif' with { type: 'file' }")
+    expect(implementation).toContain("from '../assets/gallery.png' with { type: 'file' }")
+    expect(implementation).not.toMatch(/MemoryRouter|useNavigate|createContext|@solidjs\/router/)
+    expect(packageJson).not.toContain('@solidjs/router')
+    expect(lockfile).not.toContain('@solidjs/router')
     expect(await Array.fromAsync(new Bun.Glob('app/routes/**').scan('.'))).toEqual([])
-    expect(await Array.fromAsync(new Bun.Glob('app/assets/**').scan('.'))).toEqual([
+    expect(await Array.fromAsync(new Bun.Glob('patches/**').scan('.'))).toEqual([])
+    expect((await Array.fromAsync(new Bun.Glob('app/assets/**').scan('.'))).sort()).toEqual([
       'app/assets/campfire.gif',
+      'app/assets/gallery.png',
     ])
   })
 })

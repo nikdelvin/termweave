@@ -74,7 +74,6 @@ export async function buildSidecar({
 
   if (mode === 'production') {
     buildOptions.define = {
-      'process.env.DEBUG': 'undefined',
       'process.env.NODE_ENV': JSON.stringify('production'),
     }
     buildOptions.plugins = [solidPlugin]

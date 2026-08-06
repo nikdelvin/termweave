@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { readFile } from 'node:fs/promises'
 import packageManifest from '../package.json'
 import capabilities from '../src-tauri/capabilities/default.json'
 import tauriConfig from '../src-tauri/tauri.conf.json'
@@ -27,6 +28,17 @@ describe('Tauri Phase 2 configuration', () => {
     expect(csp).toContain('ipc: http://ipc.localhost')
     expect(csp).toContain("style-src 'self' 'unsafe-inline'")
     expect(csp).not.toMatch(/wss?:|127\.0\.0\.1|localhost:\d/)
+  })
+
+  test('passes the packaged OpenTUI native-asset root to the sidecar', async () => {
+    const [main, prepare] = await Promise.all([
+      readFile(new URL('../src/main.ts', import.meta.url), 'utf8'),
+      readFile(new URL('../scripts/prepare.ts', import.meta.url), 'utf8'),
+    ])
+
+    expect(prepare).toContain('[nativeAsset.sourcePath]: nativeAsset.resourcePath')
+    expect(main).toContain('await join(await resourceDir(), opentuiAssetRootDirectory)')
+    expect(main).toContain("env: { DEBUG: '', OTUI_ASSET_ROOT: opentuiAssetRoot }")
   })
 })
 

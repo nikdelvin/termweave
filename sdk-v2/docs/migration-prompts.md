@@ -10,7 +10,7 @@ Scope for this pass:
 - Add the minimal base Tauri project and configuration.
 - Add `scripts/prepare.ts` to validate configuration, verify the icon, generate ignored icons, and create the ignored Tauri override.
 - Add required manifests, TypeScript/Vite configuration, ignore rules, and focused config/preparation tests.
-- Do not implement terminal transport, xterm, the OpenTUI sidecar, visuals, PixelRenderer, or router template yet.
+- Do not implement terminal transport, xterm, the OpenTUI sidecar, visuals, PixelRenderer, or screen template yet.
 
 Requirements:
 - Keep `sdk/` completely untouched.
@@ -57,15 +57,24 @@ Transport requirements:
 - Abnormal exit displays an error and leaves the window open.
 - Window close kills the child before completing.
 - Production must not retry or reconnect.
-- OpenTUI must use `process.stdin` and a fixed-grid stdout adapter whose `write` delegates unchanged
-  to `process.stdout`; the distinct object must retain OpenTUI's callback-aware native feed.
+- Do not constant-fold mutable dependency environment properties such as `process.env.DEBUG` in
+  the Bun build; the bundled `debug` package assigns to and deletes that property.
+- Bundle the platform-native OpenTUI library as a Tauri resource, resolve its physical resource
+  directory in the WebView, and pass it to the sidecar as `OTUI_ASSET_ROOT`. A compiled Bun
+  executable cannot `dlopen` the library directly from `$bunfs`.
+- OpenTUI must use a dedicated read stream over `/dev/fd/0` and a fixed-grid stdout adapter whose
+  `write` delegates unchanged to `process.stdout`; the distinct stdout object must retain
+  OpenTUI's callback-aware native feed. The fd 0 reader duplicates the existing raw Tauri pipe and
+  adds no protocol, PTY, polling, or alternate input path.
 - Diagnostics must use stderr.
 
-Keep this phase visually minimal. Do not implement the development watcher, monitor overlay, CRT effects, PixelRenderer, or router template yet.
+Keep this phase visually minimal. Do not implement the development watcher, monitor overlay, CRT effects, PixelRenderer, or screen template yet.
 
 Keep `sdk/` untouched. Do not add WebSockets, ports, tokens, frame acknowledgements, PTYs, custom Rust runtime state, or general shell permissions.
 
-Add focused tests for raw-byte preservation, split UTF-8/escape-sequence chunks, ordered input, first-frame reveal, stderr decoding, process exits, spawn failure, and cleanup.
+Add focused tests for raw-byte preservation, split UTF-8/escape-sequence chunks, ordered input,
+first-frame reveal, stderr decoding, process exits, spawn failure, cleanup, generated native-resource
+mapping, and a real compiled production-sidecar startup.
 
 Run all relevant tests, type checks, linting, formatting checks, Rust formatting/checks, and a basic Tauri launch smoke test. Summarize the implementation and verification results.
 
@@ -225,22 +234,30 @@ Read `sdk-v2/docs/migration-plan.md` completely and verify PixelRenderer and pri
 
 Scope:
 - Turn `app/` into the final copyable OpenTUI + Solid template.
-- Add two routes:
+- Add three screens:
   - `/` using a bundled animated GIF.
   - `/gallery` using a bundled PNG or JPEG.
-- Use Solid Router’s memory integration directly.
-- Add keyboard navigation and a small reactive signal demonstration.
-- Use PixelRenderer on both routes with OpenTUI children layered above the media.
-
-Router requirements:
-- Use `MemoryRouter`, `Route`, and `useNavigate`.
-- Use OpenTUI’s `useKeyboard` for route navigation.
-- Use up/down or tab for route changes.
-- Use left/right to update a Solid signal.
-- Repeated navigation must work without a connected-route graph, preload system, manual history adapter, or keyed router remount.
-- Route disposal must stop GIF playback from the previous route.
-- Retain only the minimal package-export patch if the pinned Solid Router version demonstrably requires it.
+  - `/plain` using ordinary Solid/OpenTUI renderables and no PixelRenderer.
+- Add `ScreenId = '/' | '/gallery' | '/plain'` as opaque in-process identifiers.
+- Keep the active screen in one App-owned signal and render one component with `Switch`/`Match`.
+- Keep exactly one App-level `useKeyboard` registration. Map unmodified Up/Down to the
+  previous/next screen in a wraparound cycle; do not use Tab for screen changes.
+- Put PixelRenderer directly inside Home and Gallery with OpenTUI children layered above the
+  media. Plain must not import or render PixelRenderer.
+- Put the reactive counter, typed value, focused input, and Left/Right handling inside each mounted
+  screen so disposal resets them naturally.
+- Give OpenTUI a bootstrap-owned `createReadStream('/dev/fd/0')` so disposing Home's GIF timer does
+  not let Bun end the input stream on the static screen; destroy it during shutdown.
+- Repeated switching must retain input through the native path while stopping GIF playback and
+  stale drawing from the previous screen.
+- Add no router dependency, context, component registry, history, URL integration, preload system,
+  connected graph, adapter, compatibility layer, or package patch.
 
 Keep the template concise and instructional. Include no video, remote media, audio, updater, source synchronization, or compatibility adapters. Keep `sdk/` untouched.
 
-Test both routes, repeated navigation, signal updates, focus/input behavior, GIF cleanup, decode errors, and child overlay ordering. Run the template manually in development and execute the complete check suite.
+Test all three initial screens, every directed GIF/PNG/plain transition, repeated cycling, stable
+listener count, local signal/input reset, focus after every switch, Tab non-navigation, GIF cleanup,
+no native draws on Plain, decode errors, and child overlay ordering. Exercise raw bytes through
+OpenTUI’s parser and a real child-process stdin pipe rather than constructing `KeyEvent` directly.
+Run the complete check suite and manually verify GIF → PNG → Plain plus both reverse/direct return
+paths repeatedly through the native Tauri/xterm application.

@@ -2,6 +2,7 @@ import { mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises
 import { relative, resolve, sep } from 'node:path'
 import process from 'node:process'
 import { parseAppConfig, type AppConfig } from '../shared/config'
+import { opentuiAssetRootDirectory } from '../shared/opentui-assets'
 
 const projectRoot = resolve(import.meta.dir, '..')
 
@@ -22,7 +23,16 @@ export type GenerateIcons = (options: {
 type PrepareOptions = {
   root?: string
   generateIcons?: GenerateIcons
+  platform?: NodeJS.Platform
+  arch?: NodeJS.Architecture
 }
+
+export type OpenTuiNativeAsset = Readonly<{
+  packageName: string
+  fileName: string
+  sourcePath: string
+  resourcePath: string
+}>
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -78,6 +88,49 @@ async function resolveIcon(root: string, config: AppConfig): Promise<string> {
   return iconPath
 }
 
+export function getOpenTuiNativeAsset(
+  root: string,
+  platform: NodeJS.Platform = process.platform,
+  arch: NodeJS.Architecture = process.arch,
+): OpenTuiNativeAsset {
+  const fileName =
+    platform === 'darwin'
+      ? 'libopentui.dylib'
+      : platform === 'linux'
+        ? 'libopentui.so'
+        : platform === 'win32'
+          ? 'opentui.dll'
+          : undefined
+
+  if (fileName === undefined || (arch !== 'arm64' && arch !== 'x64')) {
+    throw new Error(`OpenTUI does not provide a native runtime for ${platform}-${arch}`)
+  }
+
+  const packageName = `@opentui/core-${platform}-${arch}`
+  return {
+    packageName,
+    fileName,
+    sourcePath: resolve(root, 'node_modules', packageName, fileName),
+    resourcePath: `${opentuiAssetRootDirectory}/${packageName}/${fileName}`,
+  }
+}
+
+async function requireOpenTuiNativeAsset(
+  root: string,
+  platform: NodeJS.Platform,
+  arch: NodeJS.Architecture,
+) {
+  const asset = getOpenTuiNativeAsset(root, platform, arch)
+  try {
+    if (!(await stat(asset.sourcePath)).isFile()) throw new Error('not a file')
+  } catch {
+    throw new Error(
+      `OpenTUI native runtime is missing: ${relative(root, asset.sourcePath)}; run \`bun install\` for ${platform}-${arch}`,
+    )
+  }
+  return asset
+}
+
 async function generateTauriIcons({
   root,
   iconPath,
@@ -110,7 +163,7 @@ async function generateTauriIcons({
   }
 }
 
-function createOverride(config: AppConfig) {
+function createOverride(config: AppConfig, nativeAsset: OpenTuiNativeAsset) {
   return {
     productName: config.name,
     version: config.version,
@@ -126,6 +179,9 @@ function createOverride(config: AppConfig) {
     },
     bundle: {
       icon: desktopIconFiles.map((icon) => `.generated/icons/${icon}`),
+      resources: {
+        [nativeAsset.sourcePath]: nativeAsset.resourcePath,
+      },
     },
   }
 }
@@ -133,9 +189,12 @@ function createOverride(config: AppConfig) {
 export async function prepareProject({
   root = projectRoot,
   generateIcons = generateTauriIcons,
+  platform = process.platform,
+  arch = process.arch,
 }: PrepareOptions = {}) {
   const config = await loadConfig(root)
   const iconPath = await resolveIcon(root, config)
+  const nativeAsset = await requireOpenTuiNativeAsset(root, platform, arch)
   const generatedDirectory = resolve(root, 'src-tauri/.generated')
   const iconOutputDirectory = resolve(generatedDirectory, 'icons')
   const overridePath = resolve(generatedDirectory, 'override.json')
@@ -155,7 +214,10 @@ export async function prepareProject({
       }
     }
 
-    await writeFile(overridePath, `${JSON.stringify(createOverride(config), null, 2)}\n`)
+    await writeFile(
+      overridePath,
+      `${JSON.stringify(createOverride(config, nativeAsset), null, 2)}\n`,
+    )
   } catch (error) {
     await rm(generatedDirectory, { recursive: true, force: true })
     throw error

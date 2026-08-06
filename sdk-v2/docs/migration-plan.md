@@ -3,7 +3,7 @@
 **Status:** Ready for implementation after review  
 **SDK target:** 2.0.0  
 **Initial platform:** macOS  
-**Document date:** 2026-07-29
+**Document date:** 2026-08-07
 
 ## 1. Purpose
 
@@ -17,7 +17,7 @@ The retained product surface is:
 - A configurable monitor overlay.
 - Streamlined CRT effects.
 - A `PixelRenderer` for bundled PNG, JPEG, and animated GIF assets.
-- A copyable OpenTUI + Solid template using Solid Router.
+- A copyable OpenTUI + Solid template with native screen switching.
 - Native macOS development and application bundling.
 
 The rewrite is successful when a copied `sdk-v2` directory can install dependencies, run the
@@ -99,7 +99,7 @@ implemented from the v2 design in this document.
 │               │                              ▼                    │
 │  ┌────────────────────────────────────────────────────────────┐   │
 │  │ Compiled Bun sidecar                                       │   │
-│  │ OpenTUI over process.stdin + fixed stdout adapter          │   │
+│  │ OpenTUI over dedicated fd 0 reader + fixed stdout adapter  │   │
 │  │ Solid application + local #termweave module                │   │
 │  └────────────────────────────────────────────────────────────┘   │
 │                                                                   │
@@ -125,8 +125,10 @@ child-process streams instead of running a second application protocol.
 
 **Sidecar**
 
-- Create OpenTUI over `process.stdin` and a fixed-geometry stdout adapter that delegates every
-  write unchanged to `process.stdout` and selects OpenTUI's callback-aware `NativeSpanFeed` path.
+- Open a dedicated read stream over `/dev/fd/0` and pass it to OpenTUI with a fixed-geometry stdout
+  adapter that delegates every write unchanged to `process.stdout` and selects OpenTUI's
+  callback-aware `NativeSpanFeed` path. The stream is a duplicate of Tauri's raw stdin pipe, not a
+  protocol or PTY.
 - Render the Solid template.
 - Read the shared app configuration at compile time/runtime.
 - Exit cleanly after OpenTUI is destroyed.
@@ -149,18 +151,21 @@ and one dependency installation.
 sdk-v2/
 ├── app/
 │   ├── assets/
-│   │   ├── example.gif
-│   │   └── example.png
-│   ├── routes/
-│   │   ├── HomeRoute.tsx
-│   │   └── GalleryRoute.tsx
+│   │   ├── campfire.gif
+│   │   └── gallery.png
+│   ├── components/
+│   │   └── ScreenControls.tsx
+│   ├── screens/
+│   │   ├── GalleryScreen.tsx
+│   │   ├── HomeScreen.tsx
+│   │   └── PlainScreen.tsx
 │   ├── termweave/
 │   │   ├── image.ts
 │   │   ├── index.ts
 │   │   └── PixelRenderer.tsx
 │   ├── App.tsx
 │   ├── index.tsx
-│   └── routes.ts
+│   └── screen-state.ts
 ├── docs/
 │   ├── migration-plan.md
 │   ├── migration-prompts.md
@@ -170,7 +175,8 @@ sdk-v2/
 │   ├── dev-sidecar.ts
 │   └── prepare.ts
 ├── shared/
-│   └── config.ts
+│   ├── config.ts
+│   └── opentui-assets.ts
 ├── src/
 │   ├── assets/
 │   │   ├── crt-noise.png
@@ -212,7 +218,7 @@ The root `package.json` defines the standard package-internal import:
 }
 ```
 
-Template routes import the local SDK surface from `#termweave`. Nothing is published as
+Template screens import the local SDK surface from `#termweave`. Nothing is published as
 `@termweave/sdk` in v2.
 
 ## 6. Configuration contract
@@ -342,7 +348,7 @@ interface PixelRendererProps {
 }
 ```
 
-`PixelRenderer` also accepts Solid children and paints them after the image so routes can overlay
+`PixelRenderer` also accepts Solid children and paints them after the image so screens can overlay
 OpenTUI controls and text.
 
 ### Supported inputs
@@ -358,7 +364,7 @@ Template usage:
 import background from "../assets/example.gif" with { type: "file" };
 import { PixelRenderer } from "#termweave";
 
-export function HomeRoute() {
+export function HomeScreen() {
   return (
     <PixelRenderer uri={background} width="100%" height="100%">
       <text>Overlay content</text>
@@ -413,7 +419,9 @@ PNG and JPEG decoding use Jimp's core PNG/JPEG plugins. GIF parsing uses `gifuct
 2. Create xterm with the fixed grid, configured font, colors, no scrollback, and no cursor blink.
 3. Open xterm while the native window remains hidden.
 4. Attempt to load `@xterm/addon-webgl`; continue with xterm's default renderer on failure.
-5. Construct `Command.sidecar("binaries/opentui-sidecar", [], { encoding: "raw" })`.
+5. Resolve the bundled OpenTUI native-asset directory and construct
+   `Command.sidecar("binaries/opentui-sidecar", [], { encoding: "raw", env: {
+   OTUI_ASSET_ROOT } })`.
 6. Register stdout, stderr, error, and close listeners before spawning.
 7. Spawn the child.
 8. Subscribe to xterm input.
@@ -438,11 +446,18 @@ hidden.
 
 ### Sidecar renderer
 
-The production sidecar passes `process.stdin` and a distinct fixed-geometry stdout adapter to
-`createCliRenderer`. The adapter delegates `write` unchanged to `process.stdout`; because it is a
-distinct object, pinned OpenTUI uses its callback-aware `NativeSpanFeed` and waits for pending pipe
-writes instead of overrunning the sidecar channel. This is byte-preserving flow control, not a
-custom transport or framing protocol. Renderer options also include:
+The production sidecar passes a dedicated `createReadStream('/dev/fd/0')` and a distinct
+fixed-geometry stdout adapter to `createCliRenderer`. Opening `/dev/fd/0` gives OpenTUI its own
+descriptor for Tauri's existing raw pipe. This is required on the supported macOS/Bun path:
+`process.stdin` can reach EOF when OpenTUI becomes quiescent after a static native-media frame,
+even though Tauri still owns the pipe. The dedicated stream remains live until shutdown and is
+destroyed after OpenTUI. It adds no polling, timer, framing, compatibility layer, or second input
+path.
+
+The stdout adapter delegates `write` unchanged to `process.stdout`; because it is a distinct
+object, pinned OpenTUI uses its callback-aware `NativeSpanFeed` and waits for pending pipe writes
+instead of overrunning the sidecar channel. This is byte-preserving flow control, not a custom
+transport or framing protocol. Renderer options also include:
 
 - Fixed width and height from the shared grid.
 - `remote: true`.
@@ -573,25 +588,29 @@ Phase 4.5 may later replace the stock WebGL addon with a pinned same-canvas rend
 work is additive and separately reviewed; it does not reinterpret the v1 capture pipeline as part
 of Phase 4. See [Phase 4.5 — Same-Canvas WebGL CRT Optics](./phase-4.5-webgl-postprocessing.md).
 
-## 12. Solid Router template
+## 12. Native Solid screen template
 
-The template contains two routes:
+The template contains three screens identified by the closed `ScreenId` union
+`'/' | '/gallery' | '/plain'`:
 
-- `/` displays a bundled animated GIF.
-- `/gallery` displays a bundled PNG or JPEG.
+- `/` displays the bundled animated campfire GIF.
+- `/gallery` displays a bundled PNG.
+- `/plain` displays ordinary Solid/OpenTUI content with no `PixelRenderer`.
 
-It uses Solid Router's memory integration because there is no browser URL:
+These values are opaque in-process identifiers, not browser URLs. `App` owns one Solid signal and
+one `useKeyboard` registration, maps unmodified Up/Down to the previous/next screen in a closed
+cycle, and renders exactly one component with `Switch`/`Match`. The cycle makes every pairwise
+GIF/PNG/plain transition directly reachable. Tab never changes screens.
 
-- `MemoryRouter` owns route state.
-- `Route` declares each component directly.
-- `useNavigate` changes routes.
-- OpenTUI's `useKeyboard` maps up/down or tab keys to route changes.
-- Left/right keys update a small Solid signal to demonstrate reactive state.
+Home and Gallery each own their `PixelRenderer`; Plain intentionally has none. Every screen owns a
+mounted `ScreenControls` instance. The controls own a local counter, typed value, and OpenTUI
+input; they focus that input on mount, handle unmodified Left/Right locally, and leave ordinary
+typing to the input. Switching screens destroys the old Solid owner and renderables, resets its
+local state, and runs any `PixelRenderer` cleanup so decoding, GIF playback, and native drawing
+cannot remain active.
 
-There is no connected-route graph, image preload, manual history adapter, or keyed router remount.
-Repeated navigation must preserve correct focus and render the destination route without a
-workaround. The existing small package-export patch may be retained only if the pinned Solid
-Router release still requires its universal export; no behavioral fork of Solid Router is added.
+There is no routing dependency, context, component registry, browser history, URL parsing, image
+preload, screen cache, connected graph, adapter, compatibility layer, or package patch.
 
 ## 13. Build and command surface
 
@@ -619,11 +638,18 @@ in Tauri's standard bundle directory.
 - Adds `.exe` only on Windows, although Windows is not initially supported.
 - Writes `src-tauri/binaries/opentui-sidecar-$TARGET_TRIPLE`.
 - Uses the OpenTUI Solid Bun build plugin for production.
+- Defines only read-only production constants. It must not replace `process.env.DEBUG`, because the
+  bundled `debug` package assigns to and deletes that mutable property. The host disables debug
+  output at process-spawn time with the ordinary runtime value `DEBUG: ''`.
 - Compiles `scripts/dev-sidecar.ts` instead for development.
 - Fails with Bun build diagnostics and no fallback behavior.
 
-The production `.app` must contain the compiled sidecar and run without a separately installed
-Bun.
+OpenTUI's FFI library cannot be loaded directly from Bun's virtual compiled filesystem. Preparation
+therefore verifies the host's optional `@opentui/core-$PLATFORM-$ARCH` package and maps its native
+library into the generated Tauri resource configuration under `opentui-assets/@opentui/...`. The
+WebView resolves the physical resource directory and passes it as `OTUI_ASSET_ROOT` when spawning
+the sidecar. The production `.app` must contain that library and the compiled sidecar, and run
+without a separately installed Bun or `node_modules` tree.
 
 ### Tauri configuration
 
@@ -718,14 +744,37 @@ layer, or loss of Phase 4 fallback behavior.
 - Add focused unit and component tests.
 
 **Exit:** Local PNG, JPEG, and animated GIF assets render correctly with child overlays and clean
-up on route changes.
+up on screen changes.
 
-### Phase 6 — Solid Router template
+### Phase 6 — Native Solid screen template
 
-- Add the two routes, local assets, navigation component, and reactive signal example.
-- Verify repeated navigation and route disposal.
+- Split the importable Solid application from the sidecar bootstrap.
+- Add `/`, `/gallery`, and `/plain` as a closed TypeScript union; they are in-process identifiers
+  and have no browser URL or history semantics.
+- Keep the active screen in one App-owned Solid signal and render exactly one screen with
+  `Switch`/`Match`.
+- Keep one stable App-level `useKeyboard` registration. Map unmodified Up/Down to the
+  previous/next screen in a wraparound cycle, consume only those navigation keys, and do not use
+  Tab for screen changes.
+- Give OpenTUI a bootstrap-owned duplicate of the raw fd 0 pipe so static screens cannot terminate
+  the input stream when Home's animation timer is disposed; destroy it during shutdown.
+- Let each screen own its local signals and focused OpenTUI input. Let Home and Gallery own their
+  `PixelRenderer` and cleanup, while Plain contains no `PixelRenderer`. Handle Left/Right in the
+  focused input to demonstrate screen-local reactivity while ordinary typing remains input-owned.
+- Use the existing bundled GIF on Home, a bundled PNG on Gallery, and only ordinary OpenTUI
+  renderables on Plain. Keep JSX children above native media drawing and keep decode failures local
+  to the affected `PixelRenderer`.
+- Add no router dependency, package patch, history implementation, screen cache, preload layer,
+  connected graph, adapter, or compatibility API.
+- Verify all three initial screens, every directed GIF/PNG/plain transition, repeated switching,
+  state reset, focus, GIF cleanup, absence of native draws on Plain, overlay ordering,
+  decode-error isolation, raw stdin parsing, and the complete native
+  WebView/xterm/Tauri/sidecar input path.
 
-**Exit:** The copyable template demonstrates every retained public v2 feature.
+**Exit:** The copyable template demonstrates all three screens and every retained public v2
+feature; GIF → PNG → Plain and both reverse/direct return paths remain responsive through the
+native application, disposed media cannot draw on Plain, and the package and lockfile contain no
+routing dependency or patch.
 
 ### Phase 7 — Packaging and audit
 
@@ -767,6 +816,9 @@ up on route changes.
 - Apple Silicon and Intel macOS target-suffixed sidecar paths.
 - `.exe` suffix behavior as a portability check.
 - Failed build diagnostics.
+- Mutable `process.env.DEBUG` access remains intact in the compiled dependency graph.
+- Preparation fails before icon generation when the platform-native OpenTUI runtime is absent.
+- A real compiled production executable boots against a physical native-asset root.
 
 ### Transport and lifecycle tests
 
@@ -791,14 +843,22 @@ up on route changes.
 - Clean child exit closes the launcher.
 - SIGINT/SIGTERM reach the child and close watchers.
 
-### Router and component tests
+### Screen and component tests
 
-- Both routes render.
-- Repeated forward/back navigation works.
-- Route changes stop the previous GIF timer.
-- Left/right signal changes render without navigation.
+- All three supported initial screens render with exactly one focused input.
+- Repeated Home/Gallery/Plain cycling destroys the old input, focuses the new input, and does not
+  replace the App-level keyboard listener.
+- Leaving and returning resets each screen's local signals and input.
+- Screen changes stop the previous GIF timer and prevent stale image draws; Plain performs no
+  native pixel drawing.
+- Left/right signal changes render without switching; Tab does not switch and typing still works.
 - PixelRenderer children remain above the image.
-- Decode failure displays the component error without crashing the app.
+- Decode failure displays the component error without crashing controls or the app.
+- Raw CSI and SS3 bytes are parsed through OpenTUI, including a real child-process stdin pipe.
+- A real sidecar process keeps its dedicated fd 0 reader open while the static screen redraws;
+  counter changes and multiple typed bytes work before and after returning to the animated screen.
+- A native Tauri/xterm smoke verifies every directed GIF/PNG/plain transition, focus, typing,
+  counters, and repeated switching.
 
 ### Visual matrix
 
@@ -821,13 +881,13 @@ performance gate defined in
 
 ### Performance smoke test
 
-Run an animated GIF route continuously for at least ten minutes while repeatedly navigating and
-sending input. Confirm:
+Run the animated GIF screen continuously for at least ten minutes while repeatedly cycling through
+GIF, PNG, and Plain and sending input. Confirm:
 
 - Input remains responsive.
 - The xterm write queue does not grow without bound.
 - Memory stabilizes after initial GIF decoding.
-- Timers do not multiply after route changes.
+- Timers do not multiply after screen changes.
 - No output frames are routed through a WebSocket/TCP server.
 
 This is a correctness gate, not a request for a new scheduling subsystem.
@@ -835,11 +895,11 @@ This is a correctness gate, not a request for a new scheduling subsystem.
 ### Production package test
 
 - `bun run build` produces a macOS `.app`.
-- The bundle contains exactly the Tauri executable, compiled OpenTUI sidecar, required frontend
-  assets, and ordinary macOS metadata.
+- The bundle contains exactly the Tauri executable, compiled OpenTUI sidecar, platform-native
+  OpenTUI library, required frontend assets, and ordinary macOS metadata.
 - It contains no FFmpeg binary/source archive or media/audio assets.
 - Launching from Finder works without Bun on `PATH`.
-- Keyboard input, routing, PNG/JPEG/GIF rendering, overlay flags, and clean shutdown work.
+- Keyboard input, screen switching, PNG/JPEG/GIF rendering, overlay flags, and clean shutdown work.
 - No loopback listener is opened.
 
 ## 16. Release acceptance criteria
@@ -853,7 +913,7 @@ SDK v2.0 is ready when:
 - Development source changes restart the sidecar without restarting Tauri.
 - The flat config drives metadata, colors, grid, icon, monitor, and CRT options.
 - PNG, JPEG, and GIF PixelRenderer behavior matches this document.
-- The Solid memory-router template navigates reliably.
+- The native Solid screen template switches reliably with one stable global keyboard listener.
 - The production `.app` requires no separately installed Bun.
 - No v1 files under `sdk/` were modified.
 - No v2 implementation contains WebSocket transport, port/token allocation, FFmpeg, MP4, audio,
@@ -868,10 +928,10 @@ V2 is not an in-place upgrade. A v1 project migrates manually:
 1. Copy a clean SDK v2 template.
 2. Copy compatible values into the new flat `app.config.json`.
 3. Copy the icon.
-4. Move OpenTUI route/component source into `app/`.
+4. Move OpenTUI screen/component source into `app/`.
 5. Replace `@termweave/sdk` imports with `#termweave`.
 6. Keep only PNG, JPEG, and GIF PixelRenderer usage.
-7. Replace custom route history/preloading with the v2 memory-router pattern.
+7. Replace custom route history/preloading with the v2 App-local screen-signal pattern.
 8. Rebuild and verify the visual matrix.
 
 Video, remote-image, audio, updater, and managed-checkout behaviors have no v2 compatibility
@@ -887,9 +947,12 @@ adapter.
 | Mouse tracking is enabled under curved optics    | Keep it disabled; require accepted coordinate mapping before future mouse support               |
 | Full-resolution Phase 4.5 target is too costly   | Use one deterministic visible-resolution target; do not add a multi-pass framebuffer chain     |
 | Sidecar crashes in production                    | Show the error and let the user close; do not auto-restart                                     |
+| Bun folds a mutable dependency environment field | Define only read-only build constants and boot-test the compiled executable                    |
+| OpenTUI FFI path resolves inside `$bunfs`         | Bundle its platform library as a Tauri resource and pass the physical `OTUI_ASSET_ROOT`         |
 | Sidecar has a syntax error in development        | Keep launcher alive and retry on the next source edit                                          |
 | GIF consumes excessive memory                    | Validate dimensions/frame data and document practical asset limits; do not add video streaming |
-| Solid Router requires its universal export patch | Retain the minimal package-export patch only                                                   |
+| Screen switching loses focus or input            | Keep one App keyboard listener, focus each mounted input, and require the native xterm/Tauri smoke |
+| Static native media ends Bun's stdin wrapper      | Give OpenTUI a dedicated `/dev/fd/0` stream and destroy it only during sidecar shutdown             |
 | Config changes during development                | Require restarting `bun run dev`                                                               |
 | Future platform needs require a PTY              | Treat that as a separately designed post-v2 feature                                            |
 

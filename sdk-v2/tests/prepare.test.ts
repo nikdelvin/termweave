@@ -1,8 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, relative, resolve } from 'node:path'
-import { desktopIconFiles, prepareProject, type GenerateIcons } from '../scripts/prepare'
+import { dirname, join, relative, resolve } from 'node:path'
+import {
+  desktopIconFiles,
+  getOpenTuiNativeAsset,
+  prepareProject,
+  type GenerateIcons,
+} from '../scripts/prepare'
 import { validAppConfig } from './fixtures'
 
 let root = ''
@@ -11,13 +16,21 @@ async function writeJson(path: string, value: unknown) {
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`)
 }
 
-async function createProject(config: Record<string, unknown> = validAppConfig()) {
+async function createProject(
+  config: Record<string, unknown> = validAppConfig(),
+  includeNativeAsset = true,
+) {
   await mkdir(resolve(root, 'src-tauri'), { recursive: true })
   await writeJson(resolve(root, 'app.config.json'), config)
   await writeFile(resolve(root, 'app.icon.png'), 'test icon')
   await writeFile(resolve(root, 'package.json'), '{"private":true}\n')
   await writeFile(resolve(root, 'bun.lock'), 'lockfile\n')
   await writeFile(resolve(root, 'src-tauri/tauri.conf.json'), '{"bundle":{}}\n')
+  if (includeNativeAsset) {
+    const asset = getOpenTuiNativeAsset(root)
+    await mkdir(dirname(asset.sourcePath), { recursive: true })
+    await writeFile(asset.sourcePath, 'native runtime')
+  }
 }
 
 async function createIcons(outputDirectory: string) {
@@ -84,6 +97,9 @@ describe('preparation', () => {
       },
       bundle: {
         icon: desktopIconFiles.map((icon) => `.generated/icons/${icon}`),
+        resources: {
+          [getOpenTuiNativeAsset(root).sourcePath]: getOpenTuiNativeAsset(root).resourcePath,
+        },
       },
     })
 
@@ -162,6 +178,21 @@ describe('preparation', () => {
         },
       }),
     ).rejects.toThrow('icon file does not exist: app.icon.png')
+    expect(generated).toBe(false)
+  })
+
+  test('reports a missing platform-native OpenTUI runtime before generation', async () => {
+    await createProject(validAppConfig(), false)
+    let generated = false
+
+    await expect(
+      prepareProject({
+        root,
+        generateIcons: async () => {
+          generated = true
+        },
+      }),
+    ).rejects.toThrow('OpenTUI native runtime is missing')
     expect(generated).toBe(false)
   })
 

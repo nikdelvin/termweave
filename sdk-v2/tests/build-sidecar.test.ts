@@ -31,7 +31,7 @@ describe('production sidecar build', () => {
     )
   })
 
-  test('uses the production entry, Solid plugin, and target-suffixed output', async () => {
+  test('uses the production entry and preserves mutable DEBUG environment access', async () => {
     let buildOptions: Parameters<typeof Bun.build>[0] | undefined
     const outputPath = await buildProductionSidecar({
       root,
@@ -49,9 +49,9 @@ describe('production sidecar build', () => {
     expect(buildOptions?.entrypoints).toEqual([resolve(root, 'app/index.tsx')])
     expect(buildOptions?.compile).toEqual({ outfile: outputPath })
     expect(buildOptions?.define).toEqual({
-      'process.env.DEBUG': 'undefined',
       'process.env.NODE_ENV': '"production"',
     })
+    expect(buildOptions?.define).not.toHaveProperty('process.env.DEBUG')
     expect(buildOptions?.plugins).toHaveLength(1)
   })
 
