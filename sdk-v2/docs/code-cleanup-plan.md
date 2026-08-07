@@ -22,6 +22,14 @@ Transport, rendering, fallback, packaging, and lifecycle guarantees remain uncha
 - Keep `app/screens.ts` as the only screen registry and keep `ScreenKey` inferred from that registry.
 - Rename `ScreenControls` to `AppStatePanel` because it demonstrates application state, focus, input,
   and screen context rather than owning navigation controls.
+- Rename `HomeScreen` to `AnimationScreen` and `GalleryScreen` to `PictureScreen` so the starter
+  filenames describe the media behavior they demonstrate.
+- Give the three starter screens the non-route keys `animation`, `picture`, and `plain`; Termweave
+  navigation is screen selection, not URL routing.
+- Store both `campfire.gif` and a committed first-frame `campfire.png` under `app/assets/`; stop using
+  `app.icon.png` as example media.
+- Consolidate CRT renderer code, optics, postprocessing, palette conversion, atlas support, CSS, and
+  the noise asset under `termweave/host/crt-effects/`.
 - Expand the `#termweave` runtime API from two to three exports by adding
   `createScreenNavigation`. This explicitly supersedes the previous exact-two-export constraint.
 - Retain `getTermweaveConfig`; its name remains appropriate for a resolved component-facing SDK view
@@ -42,7 +50,8 @@ Transport, rendering, fallback, packaging, and lifecycle guarantees remain uncha
 - Generic SDK screen-navigation ownership and its typed integration in `app/store.ts`.
 - Cohesion-driven splits of `termweave/host/terminal.ts` and
   `termweave/components/image.ts`.
-- Shared color parsing used by PixelRenderer, monitor presentation, and CRT postprocessing.
+- Exact starter-screen and bundled-media naming.
+- Consolidation of CRT-owned files under `termweave/host/crt-effects/`.
 - Internal test seams and test filenames.
 - Authored-source contract cleanup, import-boundary validation, documentation, and build-path updates.
 - Full static, behavioral, native-build, packaging, and clean-copy validation.
@@ -98,12 +107,13 @@ Additional invariants:
 sdk-v2/
 ├── app/
 │   ├── assets/
-│   │   └── campfire.gif
+│   │   ├── campfire.gif
+│   │   └── campfire.png
 │   ├── components/
 │   │   └── AppStatePanel.tsx
 │   ├── screens/
-│   │   ├── GalleryScreen.tsx
-│   │   ├── HomeScreen.tsx
+│   │   ├── AnimationScreen.tsx
+│   │   ├── PictureScreen.tsx
 │   │   └── PlainScreen.tsx
 │   ├── App.tsx
 │   ├── index.tsx
@@ -112,7 +122,6 @@ sdk-v2/
 ├── termweave/
 │   ├── components/
 │   │   ├── PixelRenderer.tsx
-│   │   ├── crt-palette.ts
 │   │   ├── image-controller.ts
 │   │   ├── image-decoder.ts
 │   │   ├── image-playback.ts
@@ -120,17 +129,21 @@ sdk-v2/
 │   │   └── pixel-frame.ts
 │   ├── host/
 │   │   ├── assets/
-│   │   ├── crt-optics.ts
-│   │   ├── crt-postprocessor.ts
-│   │   ├── crt-renderer.ts
-│   │   ├── glyph-atlas.ts
+│   │   ├── crt-effects/
+│   │   │   ├── assets/
+│   │   │   │   └── crt-noise.png
+│   │   │   ├── crt-styles.css
+│   │   │   ├── crt-optics.ts
+│   │   │   ├── crt-palette.ts
+│   │   │   ├── crt-postprocessor.ts
+│   │   │   ├── crt-renderer.ts
+│   │   │   └── glyph-atlas.ts
 │   │   ├── monitor-presentation.ts
 │   │   ├── sidecar-session.ts
 │   │   ├── webview-entry.ts
 │   │   ├── webview-host.ts
-│   │   ├── webview.css
+│   │   ├── webview-styles.css
 │   │   └── xterm-terminal.ts
-│   ├── color.ts
 │   ├── config.ts
 │   ├── constants.ts
 │   ├── index.ts
@@ -147,9 +160,9 @@ sdk-v2/
 └── index.html
 ```
 
-This tree is a target, not a mandate to fragment cohesive sensitive code. `crt-optics.ts`,
-`crt-postprocessor.ts`, `glyph-atlas.ts`, `config.ts`, and `constants.ts` remain intact unless the
-implementation reveals a concrete ownership problem.
+This tree is a target, not a mandate to fragment cohesive sensitive code. The CRT files move as one
+ownership group, but `crt-optics.ts`, `crt-postprocessor.ts`, `glyph-atlas.ts`, `config.ts`, and
+`constants.ts` remain internally intact unless implementation reveals a concrete ownership problem.
 
 ## Application state
 
@@ -192,8 +205,8 @@ Rename `app/components/ScreenControls.tsx` and its component to `AppStatePanel`.
 - Keep the `InputRenderable` reference and mount-time focus local to the component.
 - Rename `screenInputId()` to `appStateInputId()` or another component-specific name.
 
-The counter and input text now persist when navigating Home → Gallery → Plain → Home. Component
-focus still re-establishes on mount, and media/component resources still dispose normally.
+The counter and input text now persist when navigating Animation → Picture → Plain → Animation.
+Component focus still re-establishes on mount, and media/component resources still dispose normally.
 
 ## SDK screen navigation
 
@@ -224,7 +237,7 @@ Requirements:
 Instantiate the SDK primitive alongside application state rather than creating another wiring file:
 
 ```ts
-createScreenNavigation<ScreenKey>('/')
+createScreenNavigation<ScreenKey>('animation')
 ```
 
 Export the typed `screen` accessor and `navigate()` action with the application state/actions.
@@ -253,6 +266,32 @@ ScreenNavigation
 `AppConfig`, `getAppConfig`, fixed constants, sidecar bootstrap, host APIs, image pipeline types, and
 navigation setters remain internal.
 
+## Starter screens and assets
+
+Use demonstration-purpose names throughout the registry, components, labels, documentation, and
+tests:
+
+```ts
+export const screens = {
+  animation: AnimationScreen,
+  picture: PictureScreen,
+  plain: PlainScreen,
+}
+```
+
+`AnimationScreen.tsx` demonstrates animated GIF playback with `app/assets/campfire.gif`.
+`PictureScreen.tsx` demonstrates still PNG rendering with `app/assets/campfire.png`.
+`PlainScreen.tsx` continues demonstrating ordinary OpenTUI content without PixelRenderer.
+
+Generate `campfire.png` once from the first fully composited frame of `campfire.gif`, preserve its
+RGBA/transparency and dimensions, and commit it as an application asset. Use the existing pinned
+image dependencies or a macOS-native conversion tool; do not add a dependency or generate it during
+install, preparation, development, or build. Add a test that decodes both assets with the same target
+size and theme background and proves the PNG output matches the GIF's first rendered frame.
+
+`app.icon.png` returns to one responsibility: application icon input. Remove the dual-use icon
+documentation and every example-media import of the root icon.
+
 ## File and symbol naming decisions
 
 ### Entrypoints and orchestration
@@ -263,7 +302,7 @@ navigation setters remain internal.
 | `runTermweaveApp` | `startTermweaveSidecar` | Names the process being started and avoids implying that it owns the whole desktop app. |
 | `termweave/host/main.ts` | `termweave/host/webview-entry.ts` | Identifies the Vite/WebView entrypoint explicitly. |
 | top-level host orchestration in `main.ts` | `startWebviewHost` in `webview-host.ts` | Makes startup ordering behavior-testable without authored-source assertions. |
-| `styles.css` | `webview.css` | Associates styles with the WebView host rather than an unspecified global surface. |
+| `styles.css` | `webview-styles.css` | Associates styles with the WebView host rather than an unspecified global surface. |
 
 `webview-entry.ts` should be deliberately tiny: import host CSS, invoke `startWebviewHost()`, and
 surface an unrecoverable startup failure once. `webview-host.ts` owns terminal construction,
@@ -286,13 +325,14 @@ ownership, and cleanup together in this module.
 
 ### Xterm and CRT renderer
 
-Split `host/terminal.ts` into three modules:
+Split `host/terminal.ts` into three modules and place the complete CRT-owned group under
+`host/crt-effects/`:
 
 1. `xterm-terminal.ts`
    - `terminalOptions()` → `createXtermOptions()`
    - `createTerminal()` → `createXtermTerminal()`
    - Own fixed xterm configuration and wheel suppression only.
-2. `crt-renderer.ts`
+2. `crt-effects/crt-renderer.ts`
    - `enableWebglRenderer()` → `activateCrtRenderer()`
    - `WebglRendererStatus` → `CrtRendererStatus`
    - `WebglRendererController` → `CrtRendererController`
@@ -310,8 +350,18 @@ Split `host/terminal.ts` into three modules:
    - Own raw stdout, incremental stderr decoding, ordered stdin writes, window reveal/focus,
      close handling, child termination, and idempotent disposal.
 
-The split must not change activation ordering: the stock WebGL addon activates before the CRT
-postprocessor, renderer status is subscribed before the sidecar starts, and every failure path
+Move `crt-optics.ts`, `crt-postprocessor.ts`, `crt-palette.ts`, and `glyph-atlas.ts` beside the CRT
+renderer. Move `crt-noise.png` into `crt-effects/assets/` and extract the CRT noise/status styling
+from `webview-styles.css` into `crt-effects/crt-styles.css`. Keep monitor artwork/filtering in
+`monitor-presentation.ts`, the monitor asset in `host/assets/`, and xterm/session code outside the
+CRT folder.
+
+The PixelRenderer frame pipeline may import the leaf `applyCrtPalette()` module and its byte-channel
+RGB tuple type from `host/crt-effects/crt-palette.ts`. That palette module must not import
+`termweave/components/`, preserving an acyclic dependency direction.
+
+The split and move must not change activation ordering: the stock WebGL addon activates before the
+CRT postprocessor, renderer status is subscribed before the sidecar starts, and every failure path
 returns to the live default renderer.
 
 ### Pixel image pipeline
@@ -340,34 +390,20 @@ Rename key functions for precision:
 | `pixelRendererErrorMessage()` | `formatPixelRendererError()` |
 | `drawPixelFrame()` | `drawPixelFrameToBuffer()` |
 
-Keep `PixelRenderer` and `PixelRendererProps` unchanged as public names. Keep `crt-palette.ts`
-because the palette conversion is a coherent CRT-presentation policy and is already accurately
-named.
+Keep `PixelRenderer` and `PixelRendererProps` unchanged as public names. Keep the
+`crt-palette.ts`/`applyCrtPalette()` names, but move their ownership to
+`host/crt-effects/` because palette conversion is part of the fixed CRT presentation policy.
 
-## Shared color handling
+## Small helper policy
 
-Add `termweave/color.ts` instead of allowing separate parsers in PixelRenderer, monitor
-presentation, and CRT optics. It should provide domain-specific primitives rather than a generic
-utility collection:
+Do not create shared modules for a few lines of conversion code. Keep six-digit theme validation in
+`config.ts`, byte-channel RGB handling with `crt-palette.ts`, normalized CRT parsing with
+`crt-optics.ts`, and bezel conversion with `monitor-presentation.ts`. Their units and error contexts
+are different, so the small local duplication is clearer than another abstraction.
 
-```text
-Rgb8                   integer channels from 0 through 255
-RgbUnit                normalized channels from 0 through 1
-isHexRgbColor(value)   six-digit hexadecimal validation
-parseHexRgb8(value)    hexadecimal to byte tuple
-normalizeRgb(rgb)      byte tuple to normalized tuple
-```
-
-Use the shared parser for:
-
-- PixelRenderer transparency composition and palette anchoring.
-- Monitor bezel filtering.
-- CRT clear color and bright-pass threshold construction.
-- `app.config.json` theme validation while preserving the existing concise field-specific error.
-
-Do not centralize unrelated one-line helpers such as local `errorMessage()` functions into a
-generic `utils.ts`. Keep `constants.ts` as the single 15-line fixed-policy module unless it grows
-into genuinely separate domains.
+Likewise, keep local `errorMessage()` helpers local rather than adding a generic `utils.ts`. Keep
+`constants.ts` as the single small fixed-policy module unless it develops genuinely separate
+responsibilities.
 
 ## Build and development tooling
 
@@ -407,7 +443,8 @@ Behavioral changes to test explicitly:
 - A same-screen navigation remains a no-op.
 - Direct and nested typed `navigate()` calls continue to work.
 - The App-level keyboard listener count remains stable.
-- Home GIF cleanup, Gallery PNG disposal, Plain no-draw behavior, and error isolation remain intact.
+- Animation GIF cleanup, Picture PNG disposal, Plain no-draw behavior, and error isolation remain
+  intact.
 
 Replace authored-source checks for local implementation spelling with executable contracts:
 
@@ -438,6 +475,8 @@ Retain narrow source checks only where pinned upstream behavior is the contract:
   three-export public runtime surface.
 - Document that starter state persists across screen navigation and that truly local state still
   belongs inside individual components.
+- Document the Animation/Picture/Plain demonstrations, dedicated campfire assets, non-route screen
+  keys, and CRT-effects folder boundary.
 - Preserve historical `src/*` names in `phase-4.5-webgl-postprocessing.md` when they describe the
   historical implementation. Add a short current-location note rather than rewriting history.
 - Update this document if implementation evidence changes a target name; do not leave a mismatch
@@ -461,6 +500,10 @@ Retain narrow source checks only where pinned upstream behavior is the contract:
   counter/input state into the same application-state module.
 - [ ] Replace navigation and state imports in `App.tsx`, components, screens, and tests.
 - [ ] Rename `ScreenControls` to `AppStatePanel` and bind it to the global app store.
+- [ ] Rename Home/Gallery to Animation/Picture and align registry keys, labels, transitions, and
+  tests.
+- [ ] Generate and commit `app/assets/campfire.png` from the GIF's first composited frame and stop
+  using `app.icon.png` as example media.
 - [ ] Update lifecycle tests from local reset to intentional global persistence.
 
 ### 3. Entrypoint and presentation naming
@@ -473,14 +516,17 @@ Retain narrow source checks only where pinned upstream behavior is the contract:
 ### 4. Terminal responsibility split
 
 - [ ] Extract xterm construction into `xterm-terminal.ts`.
-- [ ] Extract CRT activation/fallback into `crt-renderer.ts`.
+- [ ] Create `host/crt-effects/` and move CRT optics, postprocessing, palette, atlas support, CSS,
+  and noise into it.
+- [ ] Extract CRT activation/fallback into `crt-effects/crt-renderer.ts`.
 - [ ] Extract sidecar transport/window lifecycle into `sidecar-session.ts`.
 - [ ] Rename controller, status, factory, process, and capability types.
 - [ ] Preserve startup order, fallback latching, atlas recycling, redraw, diagnostics, and disposal.
 
 ### 5. Pixel image responsibility split
 
-- [ ] Add shared color primitives and migrate all three color consumers.
+- [ ] Move palette-owned RGB typing into `crt-palette.ts` and keep the other short color conversions
+  local.
 - [ ] Extract image source, frame operations, decoding, playback, and controller modules.
 - [ ] Rename internal functions and update PixelRenderer imports.
 - [ ] Split tests by domain while retaining decode, GIF disposal, drift, cancellation, stale-result,
@@ -527,8 +573,9 @@ Require:
 - Counter and input text persist across all six directed screen transitions and repeated traversal.
 - `resetAppState()` resets both fields between tests.
 - Focus, typing, direct/nested navigation, same-screen no-op, and stable listener count remain covered.
-- Home GIF, Gallery PNG, Plain no-media, media disposal, stale-frame suppression, and decode-error
-  isolation remain covered.
+- Animation GIF, Picture PNG, Plain no-media, media disposal, stale-frame suppression, and
+  decode-error isolation remain covered.
+- The committed campfire PNG decodes to the same rendered pixels as the GIF's first frame.
 - Terminal options remain 128×72 at 20px with fixed foreground/cursor colors.
 - Monitor/noise remain always present and CRT initialization is always attempted.
 - WebGL activation, context loss, resize, restoration, or presentation failure leaves a live default
@@ -542,7 +589,8 @@ Require:
 ## Native and packaging acceptance
 
 - Build and launch the `.app` through Tauri.
-- Traverse every screen and confirm the counter/input persist while focus re-establishes.
+- Traverse Animation, Picture, and Plain and confirm the counter/input persist while focus
+  re-establishes.
 - Exercise Left/Right, Tab/text input, all Up/Down transitions, and a nested direct navigation call.
 - Force WebGL activation failure and context loss; verify one diagnostic and continued default-renderer
   input/output.
@@ -566,8 +614,8 @@ Require:
 - If extracting `startWebviewHost()` makes dependency injection more complex than the source checks
   it replaces, keep a small orchestration module and inject only terminal, renderer, command, and
   window factories.
-- If an image split introduces cycles, move only shared value types and color primitives downward;
-  do not create a generic catch-all module.
+- If an image split introduces cycles, fix the dependency direction in the owning modules; do not
+  create a shared catch-all module for a few types or helper lines.
 - If native 1×/2× output differs after mechanical cleanup, stop and compare bundles and execution
   order before proceeding.
 
@@ -579,8 +627,11 @@ The cleanup is complete when a new application author can infer the architecture
 - `app/store.ts` is the single application-state entrypoint, including the typed navigation
   instance.
 - `termweave/navigation-store.ts` is the reusable SDK navigation mechanism.
+- `AnimationScreen.tsx`, `PictureScreen.tsx`, and `PlainScreen.tsx` state their demonstration purpose
+  directly, with matching dedicated application assets.
 - Sidecar runtime, WebView host, monitor presentation, xterm construction, CRT renderer, sidecar
-  session, and pixel pipeline each have one clearly named owner.
+  session, and pixel pipeline each have one clearly named owner; all CRT-owned files live under
+  `host/crt-effects/`.
 
 All automated and native acceptance checks must pass, the packaged application must remain clean,
 and protected dependencies, lockfiles, Cargo files, transport/rendering behavior, and `sdk/` must be
