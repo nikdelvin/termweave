@@ -17,9 +17,8 @@ export default tseslint.config(
   {
     files: [
       'app/**/*.{ts,tsx}',
-      'src/**/*.{ts,tsx}',
+      'termweave/**/*.{ts,tsx}',
       'scripts/**/*.ts',
-      'shared/**/*.ts',
       'tests/**/*.{ts,tsx}',
       'vite.config.ts',
     ],

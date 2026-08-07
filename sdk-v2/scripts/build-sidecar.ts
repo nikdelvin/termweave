@@ -24,13 +24,8 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error)
 }
 
-export function getSidecarOutputPath(
-  root: string,
-  triple: string,
-  platform: NodeJS.Platform = process.platform,
-) {
-  const extension = platform === 'win32' ? '.exe' : ''
-  return resolve(root, `src-tauri/binaries/opentui-sidecar-${triple}${extension}`)
+export function getSidecarOutputPath(root: string, triple: string) {
+  return resolve(root, `src-tauri/binaries/opentui-sidecar-${triple}`)
 }
 
 export async function getHostTuple() {
@@ -61,8 +56,14 @@ export async function buildSidecar({
   bunExecutable = process.execPath,
   build = Bun.build,
 }: BuildSidecarOptions = {}) {
+  if (platform !== 'darwin') {
+    throw new Error(`Termweave v2 sidecars support only macOS, not ${platform}`)
+  }
   const hostTuple = triple ?? (await getHostTuple())
-  const outputPath = getSidecarOutputPath(root, hostTuple, platform)
+  if (!hostTuple.includes('apple-darwin')) {
+    throw new Error(`Termweave v2 requires an Apple Darwin host tuple, not ${hostTuple}`)
+  }
+  const outputPath = getSidecarOutputPath(root, hostTuple)
   await mkdir(resolve(root, 'src-tauri/binaries'), { recursive: true })
 
   const buildOptions: Parameters<typeof Bun.build>[0] = {

@@ -4,7 +4,16 @@ import packageManifest from '../package.json'
 import capabilities from '../src-tauri/capabilities/default.json'
 import tauriConfig from '../src-tauri/tauri.conf.json'
 
-describe('Tauri Phase 2 configuration', () => {
+describe('Tauri runtime configuration', () => {
+  test('keeps tracked metadata SDK-owned until the generated application override is applied', () => {
+    expect(tauriConfig.productName).toBe('Termweave SDK Runtime')
+    expect(tauriConfig.version).toBe('2.0.0')
+    expect(tauriConfig.identifier).toBe('dev.termweave.sdk')
+    expect(tauriConfig.app.windows[0]?.title).toBe('Termweave SDK Runtime')
+    expect(tauriConfig.app.windows[0]).not.toHaveProperty('backgroundColor')
+    expect(tauriConfig.bundle.icon).toEqual(['../termweave/host/assets/crt-noise.png'])
+  })
+
   test('bundles exactly the OpenTUI sidecar and permits only scoped process operations', () => {
     expect(tauriConfig.bundle.externalBin).toEqual(['binaries/opentui-sidecar'])
     expect(capabilities.permissions).toEqual([
@@ -32,17 +41,17 @@ describe('Tauri Phase 2 configuration', () => {
 
   test('passes the packaged OpenTUI native-asset root to the sidecar', async () => {
     const [main, prepare] = await Promise.all([
-      readFile(new URL('../src/main.ts', import.meta.url), 'utf8'),
+      readFile(new URL('../termweave/host/main.ts', import.meta.url), 'utf8'),
       readFile(new URL('../scripts/prepare.ts', import.meta.url), 'utf8'),
     ])
 
     expect(prepare).toContain('[nativeAsset.sourcePath]: nativeAsset.resourcePath')
-    expect(main).toContain('await join(await resourceDir(), opentuiAssetRootDirectory)')
+    expect(main).toContain('await join(await resourceDir(), OPENTUI_ASSET_ROOT_DIRECTORY)')
     expect(main).toContain("env: { DEBUG: '', OTUI_ASSET_ROOT: opentuiAssetRoot }")
   })
 })
 
-describe('Tauri Phase 3 development command', () => {
+describe('Tauri development command', () => {
   test('builds the development launcher before starting Tauri', () => {
     expect(packageManifest.scripts.dev).toBe(
       'bun run prepare && bun scripts/build-sidecar.ts development && tauri dev --config src-tauri/.generated/override.json',

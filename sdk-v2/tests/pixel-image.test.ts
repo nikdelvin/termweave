@@ -6,7 +6,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { applyCrtPalette } from '../app/termweave/crt-palette'
+import { applyCrtPalette } from '../termweave/components/crt-palette'
 import {
   centeredViewport,
   compositeAgainstBackground,
@@ -24,7 +24,7 @@ import {
   type AnimationFrame,
   type GifPatchFrame,
   type TimerClock,
-} from '../app/termweave/image'
+} from '../termweave/components/image'
 
 const TestImage = createJimp({ formats: [jpeg, png] })
 const twoFrameGif = Uint8Array.from(

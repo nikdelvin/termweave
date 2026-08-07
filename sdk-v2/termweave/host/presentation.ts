@@ -1,7 +1,5 @@
-import type { AppConfig } from '../shared/config'
-import { terminalSurface } from '../shared/config'
-
-export const terminalFontFamily = '"Kreative Square", monospace'
+import type { AppConfig } from '../config'
+import { TERMINAL_FONT_FAMILY, TERMINAL_FOREGROUND_COLOR, TERMINAL_SURFACE } from '../constants'
 
 const monitorArtwork = {
   width: 3_000,
@@ -18,26 +16,16 @@ const monitorArtwork = {
   },
 } as const
 
-const crtEffectDefaults = {
-  noiseVisibility: 0.025,
-} as const
-
 export type PresentationLayout = Readonly<{
   terminalLeft: number
   terminalTop: number
-  terminalWidth: 2560
-  terminalHeight: 1440
+  terminalWidth: typeof TERMINAL_SURFACE.width
+  terminalHeight: typeof TERMINAL_SURFACE.height
   monitorLeft: number
   monitorTop: number
   monitorWidth: number
   monitorHeight: number
   windowInset: number
-}>
-
-export type PresentationState = Readonly<{
-  layout: PresentationLayout
-  monitorHidden: boolean
-  effectsHidden: boolean
 }>
 
 export function monitorBezelFilter(color: string) {
@@ -71,44 +59,28 @@ export function monitorBezelFilter(color: string) {
   }
 }
 
-export function crtEffectStyleVariables() {
-  return {
-    '--crt-noise-opacity': crtEffectDefaults.noiseVisibility,
-  } as const
-}
-
-export function presentationLayout(monitorOverlay: boolean): PresentationLayout {
+export function presentationLayout(): PresentationLayout {
   const { aperturePadding, terminalFrame } = monitorArtwork
   const apertureCenterX =
     aperturePadding.left + (monitorArtwork.width - aperturePadding.left - aperturePadding.right) / 2
   const apertureCenterY =
     aperturePadding.top + (monitorArtwork.height - aperturePadding.top - aperturePadding.bottom) / 2
-  const artworkScale = terminalSurface.width / terminalFrame.width
+  const artworkScale = TERMINAL_SURFACE.width / terminalFrame.width
   const monitorWidth = monitorArtwork.width * artworkScale
   const monitorHeight = monitorArtwork.height * artworkScale
   const screenCenterX = apertureCenterX * artworkScale
   const screenCenterY = apertureCenterY * artworkScale
 
   return {
-    terminalLeft: -terminalSurface.width / 2,
-    terminalTop: -terminalSurface.height / 2,
-    terminalWidth: terminalSurface.width,
-    terminalHeight: terminalSurface.height,
+    terminalLeft: -TERMINAL_SURFACE.width / 2,
+    terminalTop: -TERMINAL_SURFACE.height / 2,
+    terminalWidth: TERMINAL_SURFACE.width,
+    terminalHeight: TERMINAL_SURFACE.height,
     monitorLeft: -screenCenterX,
     monitorTop: -screenCenterY,
     monitorWidth,
     monitorHeight,
-    windowInset: monitorOverlay ? 64 : 0,
-  }
-}
-
-export function presentationState(
-  config: Pick<AppConfig, 'monitorOverlay' | 'crtEffects'>,
-): PresentationState {
-  return {
-    layout: presentationLayout(config.monitorOverlay),
-    monitorHidden: !config.monitorOverlay,
-    effectsHidden: !config.crtEffects,
+    windowInset: 64,
   }
 }
 
@@ -135,15 +107,16 @@ export function createPresentation(root: HTMLElement, config: AppConfig) {
   const monitorHost = requiredElement<HTMLElement>(root, '#monitor-overlay')
   const rendererStatusHost = requiredElement<HTMLElement>(root, '#renderer-status')
   const rendererStatusMessage = requiredElement<HTMLElement>(root, '#renderer-status-message')
-  const state = presentationState(config)
-  const { layout } = state
+  const layout = presentationLayout()
 
-  root.style.setProperty('--termweave-background', config.backgroundColor)
-  root.style.setProperty('--termweave-foreground', config.foregroundColor)
-  root.dataset.monitorOverlay = config.monitorOverlay ? 'on' : 'off'
-  root.dataset.crtEffects = config.crtEffects ? 'on' : 'off'
+  const styleRoots = new Set([root, root.ownerDocument?.documentElement].filter(Boolean))
+  for (const styleRoot of styleRoots) {
+    styleRoot!.style.setProperty('--termweave-theme-color', config.themeColor)
+    styleRoot!.style.setProperty('--termweave-terminal-foreground', TERMINAL_FOREGROUND_COLOR)
+    styleRoot!.style.setProperty('--termweave-terminal-font', TERMINAL_FONT_FAMILY)
+  }
 
-  const bezel = monitorBezelFilter(config.backgroundColor)
+  const bezel = monitorBezelFilter(config.themeColor)
   const monitorStyles = {
     '--monitor-bezel-brightness': bezel.brightness,
     '--monitor-bezel-contrast': bezel.contrast,
@@ -153,12 +126,6 @@ export function createPresentation(root: HTMLElement, config: AppConfig) {
   }
   for (const [property, value] of Object.entries(monitorStyles)) {
     monitorHost.style.setProperty(property, String(value))
-  }
-
-  if (config.crtEffects) {
-    for (const [property, value] of Object.entries(crtEffectStyleVariables())) {
-      effectsHost.style.setProperty(property, String(value))
-    }
   }
 
   for (const host of [terminalHost, effectsHost, rendererStatusHost]) {
@@ -172,9 +139,6 @@ export function createPresentation(root: HTMLElement, config: AppConfig) {
   monitorHost.style.top = `${layout.monitorTop}px`
   monitorHost.style.width = `${layout.monitorWidth}px`
   monitorHost.style.height = `${layout.monitorHeight}px`
-
-  monitorHost.hidden = state.monitorHidden
-  effectsHost.hidden = state.effectsHidden
 
   const fit = () => {
     stage.style.setProperty(

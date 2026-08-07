@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { Terminal } from '@xterm/xterm'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { getAppConfig } from '../shared/config'
+import { TERMINAL_GRID } from '../termweave/constants'
 
 const projectRoot = fileURLToPath(new URL('../', import.meta.url))
 
@@ -26,10 +26,9 @@ describe('real sidecar stdin parsing', () => {
         resolve()
       })
     })
-    const config = getAppConfig()
     const terminal = new Terminal({
-      cols: config.terminalGrid.cols,
-      rows: config.terminalGrid.rows,
+      cols: TERMINAL_GRID.cols,
+      rows: TERMINAL_GRID.rows,
       scrollback: 0,
     })
     let inputWrite = Promise.resolve()

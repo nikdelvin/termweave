@@ -22,7 +22,13 @@ export default defineConfig({
         }
       : undefined,
     watch: {
-      ignored: ['**/src-tauri/**', '**/app/**', '**/shared/**', '**/app.config.json'],
+      ignored: [
+        '**/src-tauri/**',
+        '**/app/**',
+        '**/termweave/components/**',
+        '**/termweave/index.ts',
+        '**/termweave/sidecar.tsx',
+      ],
     },
   },
 })

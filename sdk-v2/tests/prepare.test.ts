@@ -57,6 +57,24 @@ afterEach(async () => {
 })
 
 describe('preparation', () => {
+  test('selects only the Apple Silicon and Intel macOS native runtimes', () => {
+    expect(getOpenTuiNativeAsset('/sdk', 'darwin', 'arm64')).toMatchObject({
+      packageName: '@opentui/core-darwin-arm64',
+      fileName: 'libopentui.dylib',
+      resourcePath: 'opentui-assets/@opentui/core-darwin-arm64/libopentui.dylib',
+    })
+    expect(getOpenTuiNativeAsset('/sdk', 'darwin', 'x64')).toMatchObject({
+      packageName: '@opentui/core-darwin-x64',
+      fileName: 'libopentui.dylib',
+    })
+    expect(() => getOpenTuiNativeAsset('/sdk', 'linux', 'x64')).toThrow(
+      'supports only macOS arm64 and x64',
+    )
+    expect(() => getOpenTuiNativeAsset('/sdk', 'darwin', 'ia32')).toThrow(
+      'supports only macOS arm64 and x64',
+    )
+  })
+
   test('writes only generated icons and the exact Tauri override', async () => {
     await createProject()
     const originalFiles = await listFiles(root)

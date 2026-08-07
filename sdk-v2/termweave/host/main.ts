@@ -1,9 +1,13 @@
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { join, resourceDir } from '@tauri-apps/api/path'
 import { Command } from '@tauri-apps/plugin-shell'
-import { getAppConfig } from '../shared/config'
-import { opentuiAssetRootDirectory } from '../shared/opentui-assets'
-import { createPresentation, terminalFontFamily } from './presentation'
+import { getAppConfig } from '../config'
+import {
+  OPENTUI_ASSET_ROOT_DIRECTORY,
+  TERMINAL_FONT_FAMILY,
+  TERMINAL_FONT_SIZE,
+} from '../constants'
+import { createPresentation } from './presentation'
 import {
   createTerminal,
   createTerminalSession,
@@ -27,13 +31,7 @@ let session: ReturnType<typeof createTerminalSession> | undefined
 let cleanupPromise: Promise<void> | undefined
 
 function renderRendererStatus(status: WebglRendererStatus) {
-  let failureMessage: string | undefined
-  if (config.crtEffects) {
-    if (status.kind === 'fallback') failureMessage = status.message
-    else if (!status.postprocessorActive) {
-      failureMessage = 'The renderer started without the CRT postprocessor.'
-    }
-  }
+  const failureMessage = status.kind === 'fallback' ? status.message : undefined
   presentation.rendererStatusHost.hidden = failureMessage === undefined
   presentation.rendererStatusMessage.textContent = failureMessage
     ? `CRT POSTPROCESSOR INACTIVE — ${failureMessage} The default renderer is active.`
@@ -62,7 +60,7 @@ import.meta.hot?.dispose(() => void cleanup())
 
 void (async () => {
   try {
-    await document.fonts.load(`${config.terminalGrid.fontSize}px ${terminalFontFamily}`)
+    await document.fonts.load(`${TERMINAL_FONT_SIZE}px ${TERMINAL_FONT_FAMILY}`)
   } catch {
     // The bundled font is preferred, but a font-loading failure must not hide the application.
   }
@@ -73,7 +71,7 @@ void (async () => {
   renderRendererStatus(renderer.status)
   rendererStatusSubscription = renderer.onStatusChange(renderRendererStatus)
 
-  const opentuiAssetRoot = await join(await resourceDir(), opentuiAssetRootDirectory)
+  const opentuiAssetRoot = await join(await resourceDir(), OPENTUI_ASSET_ROOT_DIRECTORY)
   const command = Command.sidecar('binaries/opentui-sidecar', [], {
     encoding: 'raw',
     env: { DEBUG: '', OTUI_ASSET_ROOT: opentuiAssetRoot },

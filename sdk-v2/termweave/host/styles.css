@@ -7,8 +7,8 @@
 }
 
 :root {
-  color: var(--termweave-foreground, #f59b5a);
-  background: var(--termweave-background, #010416);
+  color: var(--termweave-terminal-foreground);
+  background: var(--termweave-theme-color);
   font-synthesis: none;
 }
 
@@ -19,7 +19,7 @@ body,
   height: 100%;
   margin: 0;
   overflow: hidden;
-  background: var(--termweave-background, #010416);
+  background: var(--termweave-theme-color);
 }
 
 * {
@@ -53,7 +53,7 @@ body,
 #terminal {
   z-index: 1;
   overflow: hidden;
-  background: var(--termweave-background, #010416);
+  background: var(--termweave-theme-color);
   filter: brightness(0.99) contrast(1.025) saturate(1.04);
 }
 
@@ -71,7 +71,7 @@ body,
   background: url('./assets/crt-noise.png') repeat;
   background-size: 128px 128px;
   mix-blend-mode: soft-light;
-  opacity: var(--crt-noise-opacity, 0.025);
+  opacity: 0.025;
   animation: crt-noise-shift 133.467ms steps(1, end) infinite;
   will-change: transform;
 }

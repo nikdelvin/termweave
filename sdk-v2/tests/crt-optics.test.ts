@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { terminalSurface } from '../shared/config'
+import { TERMINAL_SURFACE } from '../termweave/constants'
 import {
   CRT_BARREL_APERTURE_GAIN,
   CRT_BARREL_COEFFICIENT,
@@ -31,7 +31,7 @@ import {
   crtFragmentShaderSource,
   mapCrtDestinationToSource,
   parseRgbHex,
-} from '../src/crt-optics'
+} from '../termweave/host/crt-optics'
 
 describe('physically calibrated CRT optics', () => {
   test('keeps the reference display and measured optics constants internally consistent', () => {
@@ -71,7 +71,7 @@ describe('physically calibrated CRT optics', () => {
   })
 
   test('preserves the physical convergence-to-scanline ratio through the 6x logical scale', () => {
-    const logicalScale = terminalSurface.height / CRT_REFERENCE_RASTER_HEIGHT
+    const logicalScale = TERMINAL_SURFACE.height / CRT_REFERENCE_RASTER_HEIGHT
     const horizontalMillimetersPerRasterPixel =
       CRT_REFERENCE_PICTURE_WIDTH_MM / CRT_REFERENCE_RASTER_WIDTH
     const redToBlueRasterPixels = CRT_CHROMA_SHIFT_RASTER_PIXELS * 2

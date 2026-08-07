@@ -6,10 +6,20 @@ import {
   type ITerminalInitOnlyOptions,
   type ITerminalOptions,
 } from '@xterm/xterm'
-import type { AppConfig } from '../shared/config'
-import { CrtPostprocessor, discoverActivatedWebglCanvas } from './crt-postprocessor'
+import type { AppConfig } from '../config'
+import {
+  TERMINAL_CURSOR_COLOR,
+  TERMINAL_FONT_FAMILY,
+  TERMINAL_FONT_SIZE,
+  TERMINAL_FOREGROUND_COLOR,
+  TERMINAL_GRID,
+} from '../constants'
+import {
+  CrtPostprocessor,
+  discoverActivatedWebglCanvas,
+  type CrtPostprocessorOptions,
+} from './crt-postprocessor'
 import { browserAnimationFrameScheduler, createGlyphAtlasMonitor } from './glyph-atlas'
-import { terminalFontFamily } from './presentation'
 
 export type ProcessExit = Readonly<{
   code: number | null
@@ -62,12 +72,14 @@ type TerminalSessionOptions = {
   appWindow: AppWindowLike
 }
 
-export function terminalOptions(config: AppConfig): ITerminalOptions & ITerminalInitOnlyOptions {
+export function terminalOptions(
+  config: Pick<AppConfig, 'themeColor'>,
+): ITerminalOptions & ITerminalInitOnlyOptions {
   return {
-    cols: config.terminalGrid.cols,
-    rows: config.terminalGrid.rows,
-    fontFamily: terminalFontFamily,
-    fontSize: config.terminalGrid.fontSize,
+    cols: TERMINAL_GRID.cols,
+    rows: TERMINAL_GRID.rows,
+    fontFamily: TERMINAL_FONT_FAMILY,
+    fontSize: TERMINAL_FONT_SIZE,
     letterSpacing: 0,
     lineHeight: 1,
     scrollback: 0,
@@ -75,14 +87,14 @@ export function terminalOptions(config: AppConfig): ITerminalOptions & ITerminal
     convertEol: false,
     customGlyphs: true,
     theme: {
-      background: config.backgroundColor,
-      foreground: config.foregroundColor,
-      cursor: config.foregroundColor,
+      background: config.themeColor,
+      foreground: TERMINAL_FOREGROUND_COLOR,
+      cursor: TERMINAL_CURSOR_COLOR,
     },
   }
 }
 
-export function createTerminal(config: AppConfig) {
+export function createTerminal(config: Pick<AppConfig, 'themeColor'>) {
   const terminal = new Terminal(terminalOptions(config))
   terminal.attachCustomWheelEventHandler((event) => {
     event.preventDefault()
@@ -101,13 +113,15 @@ export interface WebglAddonLike extends ITerminalAddon {
 }
 
 export type CreateWebglAddon = () => WebglAddonLike
+export type CreateCrtPostprocessor = (
+  options: CrtPostprocessorOptions,
+) => Pick<CrtPostprocessor, 'dispose'>
 
-type RendererConfig = Pick<AppConfig, 'backgroundColor' | 'crtEffects'>
+type RendererConfig = Pick<AppConfig, 'themeColor'>
 
 export type WebglRendererStatus =
   | Readonly<{
       kind: 'active'
-      postprocessorActive: boolean
     }>
   | Readonly<{
       kind: 'fallback'
@@ -119,36 +133,18 @@ export interface WebglRendererController extends IDisposable {
   onStatusChange(handler: (status: WebglRendererStatus) => void): IDisposable
 }
 
-const defaultRendererConfig: RendererConfig = {
-  backgroundColor: '#000000',
-  crtEffects: false,
-}
-
 type RendererTerminal = Pick<Terminal, 'element' | 'loadAddon' | 'onRender' | 'refresh' | 'rows'>
 
-export function enableWebglRenderer(
-  terminal: Pick<Terminal, 'loadAddon'>,
-  createAddon?: CreateWebglAddon,
-): WebglRendererController
 export function enableWebglRenderer(
   terminal: RendererTerminal,
   config: RendererConfig,
   createAddon?: CreateWebglAddon,
-): WebglRendererController
-export function enableWebglRenderer(
-  terminal: Pick<Terminal, 'loadAddon'> | RendererTerminal,
-  configOrCreateAddon: RendererConfig | CreateWebglAddon = defaultRendererConfig,
-  suppliedCreateAddon?: CreateWebglAddon,
+  createPostprocessor: CreateCrtPostprocessor = (options) => new CrtPostprocessor(options),
 ): WebglRendererController {
-  const config =
-    typeof configOrCreateAddon === 'function' ? defaultRendererConfig : configOrCreateAddon
-  const createAddon =
-    typeof configOrCreateAddon === 'function'
-      ? configOrCreateAddon
-      : (suppliedCreateAddon ?? (() => new WebglAddon(false)))
+  const createWebglAddon = createAddon ?? (() => new WebglAddon(false))
   type RendererGeneration = {
     addon: WebglAddonLike
-    postprocessor?: CrtPostprocessor
+    postprocessor?: Pick<CrtPostprocessor, 'dispose'>
     subscriptions: IDisposable[]
   }
 
@@ -227,16 +223,14 @@ export function enableWebglRenderer(
   }
 
   const activateGeneration = () => {
-    const addon = createAddon()
+    const addon = createWebglAddon()
     const current: RendererGeneration = { addon, subscriptions: [] }
     generation = current
-    const terminalElement = (terminal as Partial<RendererTerminal>).element ?? undefined
-    if (config.crtEffects && !terminalElement) {
-      throw new Error('CRT effects require an open public xterm element')
-    }
-    const canvasesBeforeActivation = terminalElement
-      ? new Set(terminalElement!.querySelectorAll<HTMLCanvasElement>('canvas'))
-      : undefined
+    const terminalElement = terminal.element
+    if (!terminalElement) throw new Error('CRT effects require an open public xterm element')
+    const canvasesBeforeActivation = new Set(
+      terminalElement.querySelectorAll<HTMLCanvasElement>('canvas'),
+    )
 
     try {
       current.subscriptions.push(
@@ -268,41 +262,29 @@ export function enableWebglRenderer(
 
       terminal.loadAddon(addon)
 
-      let activatedCanvas: HTMLCanvasElement | undefined
-      let activatedGl: WebGL2RenderingContext | undefined
-      if (terminalElement && canvasesBeforeActivation) {
-        const activated = discoverActivatedWebglCanvas(terminalElement, canvasesBeforeActivation)
-        activatedCanvas = activated.canvas
-        activatedGl = activated.gl
-        const textureUnits = activatedGl.getParameter(activatedGl.MAX_TEXTURE_IMAGE_UNITS)
-        if (
-          typeof textureUnits !== 'number' ||
-          !Number.isFinite(textureUnits) ||
-          textureUnits < 1
-        ) {
-          throw new Error('The WebGL glyph-atlas page limit is unavailable')
-        }
-        atlasMonitor.setMaximumPages(Math.min(32, Math.floor(textureUnits)))
+      const activated = discoverActivatedWebglCanvas(terminalElement, canvasesBeforeActivation)
+      const textureUnits = activated.gl.getParameter(activated.gl.MAX_TEXTURE_IMAGE_UNITS)
+      if (typeof textureUnits !== 'number' || !Number.isFinite(textureUnits) || textureUnits < 1) {
+        throw new Error('The WebGL glyph-atlas page limit is unavailable')
       }
+      atlasMonitor.setMaximumPages(Math.min(32, Math.floor(textureUnits)))
       if (addon.textureAtlas) atlasMonitor.addPage(addon.textureAtlas)
 
-      if (config.crtEffects) {
-        current.postprocessor = new CrtPostprocessor({
-          terminal: terminal as RendererTerminal,
-          canvas: activatedCanvas!,
-          gl: activatedGl!,
-          backgroundColor: config.backgroundColor,
-          onRuntimeFailure: (failure) => {
-            if (generation === current) {
-              fallback(
-                'The CRT postprocessor failed a framebuffer, resize, restoration, or presentation check.',
-                failure,
-              )
-            }
-          },
-        })
-      }
-      setStatus({ kind: 'active', postprocessorActive: current.postprocessor !== undefined })
+      current.postprocessor = createPostprocessor({
+        terminal,
+        canvas: activated.canvas,
+        gl: activated.gl,
+        themeColor: config.themeColor,
+        onRuntimeFailure: (failure) => {
+          if (generation === current) {
+            fallback(
+              'The CRT postprocessor failed a framebuffer, resize, restoration, or presentation check.',
+              failure,
+            )
+          }
+        },
+      })
+      setStatus({ kind: 'active' })
     } catch (error) {
       if (generation === current) disposeGeneration()
       throw error

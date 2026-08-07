@@ -19,16 +19,32 @@ afterEach(async () => {
 })
 
 describe('production sidecar build', () => {
-  test('uses Tauri external-binary names for macOS and Windows targets', () => {
-    expect(getSidecarOutputPath('/sdk', 'aarch64-apple-darwin', 'darwin')).toBe(
+  test('uses Tauri external-binary names for both macOS architectures', () => {
+    expect(getSidecarOutputPath('/sdk', 'aarch64-apple-darwin')).toBe(
       '/sdk/src-tauri/binaries/opentui-sidecar-aarch64-apple-darwin',
     )
-    expect(getSidecarOutputPath('/sdk', 'x86_64-apple-darwin', 'darwin')).toBe(
+    expect(getSidecarOutputPath('/sdk', 'x86_64-apple-darwin')).toBe(
       '/sdk/src-tauri/binaries/opentui-sidecar-x86_64-apple-darwin',
     )
-    expect(getSidecarOutputPath('/sdk', 'x86_64-pc-windows-msvc', 'win32')).toBe(
-      '/sdk/src-tauri/binaries/opentui-sidecar-x86_64-pc-windows-msvc.exe',
-    )
+  })
+
+  test('rejects non-macOS platforms and host tuples before building', async () => {
+    await expect(
+      buildProductionSidecar({
+        root,
+        triple: 'x86_64-pc-windows-msvc',
+        platform: 'win32',
+        build: async () => ({ success: true, logs: [] }),
+      }),
+    ).rejects.toThrow('support only macOS')
+    await expect(
+      buildProductionSidecar({
+        root,
+        triple: 'x86_64-unknown-linux-gnu',
+        platform: 'darwin',
+        build: async () => ({ success: true, logs: [] }),
+      }),
+    ).rejects.toThrow('requires an Apple Darwin host tuple')
   })
 
   test('uses the production entry and preserves mutable DEBUG environment access', async () => {

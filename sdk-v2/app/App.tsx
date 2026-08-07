@@ -1,10 +1,10 @@
 import { Dynamic, useKeyboard } from '@opentui/solid'
-import { getAppConfig } from '../shared/config'
+import { getTermweaveConfig } from '#termweave'
 import { navigate, screen } from './app-store'
 import { screens } from './screens'
 
 export function App() {
-  const config = getAppConfig()
+  const config = getTermweaveConfig()
 
   // This callback is the template user's keyboard configuration. navigate() itself is key-agnostic.
   useKeyboard((key) => {
@@ -33,7 +33,7 @@ export function App() {
   })
 
   return (
-    <box width="100%" height="100%" backgroundColor={config.backgroundColor}>
+    <box width="100%" height="100%" backgroundColor={config.themeColor}>
       <Dynamic component={screens[screen()]} />
     </box>
   )

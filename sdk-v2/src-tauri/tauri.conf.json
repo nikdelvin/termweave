@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Termweave App",
-  "version": "0.1.0",
-  "identifier": "com.example.termweave-app",
+  "productName": "Termweave SDK Runtime",
+  "version": "2.0.0",
+  "identifier": "dev.termweave.sdk",
   "build": {
     "beforeDevCommand": "bun run frontend:dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Termweave App",
+        "title": "Termweave SDK Runtime",
         "width": 1536,
         "height": 864,
         "closable": true,
@@ -23,8 +23,7 @@
         "fullscreen": false,
         "decorations": true,
         "center": true,
-        "visible": false,
-        "backgroundColor": "#010416"
+        "visible": false
       }
     ],
     "security": {
@@ -34,7 +33,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": ["../app.icon.png"],
+    "icon": ["../termweave/host/assets/crt-noise.png"],
     "externalBin": ["binaries/opentui-sidecar"]
   }
 }

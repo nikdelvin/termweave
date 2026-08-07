@@ -1,14 +1,5 @@
 import rawAppConfig from '../app.config.json'
-
-export const terminalSurface = Object.freeze({ width: 2560, height: 1440 } as const)
-
-export type TerminalGrid = Readonly<{
-  cols: number
-  rows: number
-  fontSize: number
-  width: 2560
-  height: 1440
-}>
+import { TERMINAL_FOREGROUND_COLOR } from './constants'
 
 export type AppConfig = Readonly<{
   name: string
@@ -17,19 +8,13 @@ export type AppConfig = Readonly<{
   bundleIdentifier: string
   version: string
   authors: readonly string[]
-  fontSize: number
-  backgroundColor: string
-  foregroundColor: string
-  monitorOverlay: boolean
-  crtEffects: boolean
+  themeColor: string
   icon: string
-  terminalGrid: TerminalGrid
 }>
 
 export interface TermweaveConfig {
-  readonly backgroundColor: string
-  readonly foregroundColor: string
-  readonly terminalGrid: TerminalGrid
+  readonly themeColor: string
+  readonly terminalForegroundColor: string
 }
 
 type JsonObject = Record<string, unknown>
@@ -61,11 +46,6 @@ function requireString(value: unknown, field: string): string {
   if (typeof value !== 'string' || value.trim() === '') {
     fail(`${field} must be a non-empty string`)
   }
-  return value
-}
-
-function requireBoolean(value: unknown, field: string): boolean {
-  if (typeof value !== 'boolean') fail(`${field} must be a boolean`)
   return value
 }
 
@@ -127,27 +107,6 @@ export function parseAppConfig(value: unknown): AppConfig {
     config.authors.map((author, index) => requireString(author, `authors[${index}]`)),
   )
 
-  if (typeof config.fontSize !== 'number' || !Number.isFinite(config.fontSize)) {
-    fail('fontSize must be a finite number greater than zero')
-  }
-  if (config.fontSize <= 0) fail('fontSize must be greater than zero')
-
-  const cols = terminalSurface.width / config.fontSize
-  const rows = terminalSurface.height / config.fontSize
-  if (!Number.isInteger(cols) || !Number.isInteger(rows)) {
-    fail(
-      `fontSize ${config.fontSize} must divide the fixed ${terminalSurface.width}x${terminalSurface.height} terminal surface into whole columns and rows`,
-    )
-  }
-
-  const terminalGrid: TerminalGrid = Object.freeze({
-    cols,
-    rows,
-    fontSize: config.fontSize,
-    width: terminalSurface.width,
-    height: terminalSurface.height,
-  })
-
   return Object.freeze({
     name: requireString(config.name, 'name'),
     description: requireString(config.description, 'description'),
@@ -155,13 +114,8 @@ export function parseAppConfig(value: unknown): AppConfig {
     bundleIdentifier,
     version,
     authors,
-    fontSize: config.fontSize,
-    backgroundColor: requireColor(config.backgroundColor, 'backgroundColor'),
-    foregroundColor: requireColor(config.foregroundColor, 'foregroundColor'),
-    monitorOverlay: requireBoolean(config.monitorOverlay, 'monitorOverlay'),
-    crtEffects: requireBoolean(config.crtEffects, 'crtEffects'),
+    themeColor: requireColor(config.themeColor, 'themeColor'),
     icon: requireIconPath(config.icon),
-    terminalGrid,
   })
 }
 
@@ -173,9 +127,8 @@ export function getAppConfig(): AppConfig {
 export function getTermweaveConfig(): Readonly<TermweaveConfig> {
   const config = getAppConfig()
   cachedTermweaveConfig ??= Object.freeze({
-    backgroundColor: config.backgroundColor,
-    foregroundColor: config.foregroundColor,
-    terminalGrid: config.terminalGrid,
+    themeColor: config.themeColor,
+    terminalForegroundColor: TERMINAL_FOREGROUND_COLOR,
   })
   return cachedTermweaveConfig
 }

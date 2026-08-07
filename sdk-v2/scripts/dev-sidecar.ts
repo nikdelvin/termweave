@@ -233,7 +233,7 @@ export function runDevelopmentLauncher({
   }
 
   try {
-    for (const directory of ['app', 'shared']) {
+    for (const directory of ['app', 'termweave']) {
       const watcher = watch(resolve(root, directory), { recursive: true }, handleSourceChange)
       watcher.on('error', handleWatcherError)
       watchers.push(watcher)

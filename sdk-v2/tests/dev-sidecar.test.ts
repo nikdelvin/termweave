@@ -170,7 +170,7 @@ describe('development sidecar startup', () => {
       })),
     ).toEqual([
       { path: resolve('/sdk-v2', 'app'), recursive: true },
-      { path: resolve('/sdk-v2', 'shared'), recursive: true },
+      { path: resolve('/sdk-v2', 'termweave'), recursive: true },
     ])
     expect(harness.spawnCalls).toHaveLength(1)
     expect(harness.spawnCalls[0]?.command).toEqual([

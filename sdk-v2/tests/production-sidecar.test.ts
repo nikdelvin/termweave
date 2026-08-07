@@ -6,11 +6,8 @@ import { fileURLToPath } from 'node:url'
 import { buildProductionSidecar } from '../scripts/build-sidecar'
 
 const projectRoot = fileURLToPath(new URL('../', import.meta.url))
-const smokeTriple = 'production-smoke'
-const outputPath = resolve(
-  projectRoot,
-  `src-tauri/binaries/opentui-sidecar-${smokeTriple}${process.platform === 'win32' ? '.exe' : ''}`,
-)
+const smokeTriple = 'production-smoke-apple-darwin'
+const outputPath = resolve(projectRoot, `src-tauri/binaries/opentui-sidecar-${smokeTriple}`)
 
 afterEach(async () => {
   await rm(outputPath, { force: true })

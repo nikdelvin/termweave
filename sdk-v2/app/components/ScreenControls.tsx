@@ -26,9 +26,7 @@ export function ScreenControls(props: ScreenControlsProps) {
   let input: InputRenderable | undefined
   const screenKey = screen()
   const config = getTermweaveConfig()
-  const panelWidth = Math.min(72, config.terminalGrid.cols - 8)
-  const panelLeft = Math.floor((config.terminalGrid.cols - panelWidth) / 2)
-  const panelTop = Math.floor(config.terminalGrid.rows / 2) + 9
+  const panelWidth = 72
   const [count, setCount] = createSignal(0)
   const [draft, setDraft] = createSignal('')
 
@@ -43,16 +41,13 @@ export function ScreenControls(props: ScreenControlsProps) {
 
   return (
     <box
-      position="absolute"
-      top={panelTop}
-      left={panelLeft}
       width={panelWidth}
       height={9}
       padding={1}
       border
       borderStyle="rounded"
       borderColor="#FFFFFF"
-      backgroundColor={config.backgroundColor}
+      backgroundColor={config.themeColor}
       flexDirection="column"
       zIndex={3}
     >

@@ -10,8 +10,9 @@ describe('Vite production configuration', () => {
     expect(viteConfig.server?.watch?.ignored).toEqual([
       '**/src-tauri/**',
       '**/app/**',
-      '**/shared/**',
-      '**/app.config.json',
+      '**/termweave/components/**',
+      '**/termweave/index.ts',
+      '**/termweave/sidecar.tsx',
     ])
   })
 })

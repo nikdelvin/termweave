@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { discoverActivatedWebglCanvas } from '../src/crt-postprocessor'
+import { discoverActivatedWebglCanvas } from '../termweave/host/crt-postprocessor'
 
 const project = new URL('../', import.meta.url)
 const read = (path: string) => Bun.file(new URL(path, project)).text()
@@ -32,7 +32,7 @@ describe('pinned stock xterm WebGL source contract', () => {
     expect(addon).not.toContain('bindFramebuffer')
     expect(renderer).not.toContain('bindFramebuffer')
 
-    const terminalIntegration = await read('src/terminal.ts')
+    const terminalIntegration = await read('termweave/host/terminal.ts')
     expect(terminalIntegration).toContain('new WebglAddon(false)')
   })
 
@@ -57,10 +57,10 @@ describe('pinned stock xterm WebGL source contract', () => {
   })
 
   test('registers Termweave render and restoration listeners only after stock activation', async () => {
-    const terminal = await read('src/terminal.ts')
-    const postprocessor = await read('src/crt-postprocessor.ts')
+    const terminal = await read('termweave/host/terminal.ts')
+    const postprocessor = await read('termweave/host/crt-postprocessor.ts')
     const stockActivation = terminal.indexOf('terminal.loadAddon(addon)')
-    const postprocessorConstruction = terminal.indexOf('postprocessor = new CrtPostprocessor')
+    const postprocessorConstruction = terminal.indexOf('postprocessor = createPostprocessor')
     const contextRestoredListener = postprocessor.indexOf(
       "canvas.addEventListener('webglcontextrestored'",
     )
@@ -72,7 +72,7 @@ describe('pinned stock xterm WebGL source contract', () => {
   })
 
   test('registers the window reveal gate after CRT renderer setup', async () => {
-    const main = await read('src/main.ts')
+    const main = await read('termweave/host/main.ts')
     const rendererSetup = main.indexOf('renderer = enableWebglRenderer(terminal, config)')
     const sessionSetup = main.indexOf('session = createTerminalSession({')
     expect(rendererSetup).toBeGreaterThan(-1)
@@ -80,8 +80,8 @@ describe('pinned stock xterm WebGL source contract', () => {
   })
 
   test('uses the backpressure-aware native stdout feed and initializes the raw canvas background', async () => {
-    const app = await read('app/index.tsx')
-    const postprocessor = await read('src/crt-postprocessor.ts')
+    const sidecar = await read('termweave/sidecar.tsx')
+    const postprocessor = await read('termweave/host/crt-postprocessor.ts')
     const opentuiChunks = await Array.fromAsync(
       new Bun.Glob('node_modules/@opentui/core/chunk-bun-*.js').scan('.'),
     )
@@ -92,10 +92,10 @@ describe('pinned stock xterm WebGL source contract', () => {
     expect(rendererSources).toHaveLength(1)
     const opentui = rendererSources[0]!
 
-    expect(app).toContain('const nativeFeedStdout = {')
-    expect(app).toContain('write: process.stdout.write.bind(process.stdout)')
-    expect(app).toContain('stdout: nativeFeedStdout')
-    expect(app).not.toContain('stdout: process.stdout')
+    expect(sidecar).toContain('const nativeFeedStdout = {')
+    expect(sidecar).toContain('write: process.stdout.write.bind(process.stdout)')
+    expect(sidecar).toContain('stdout: nativeFeedStdout')
+    expect(sidecar).not.toContain('stdout: process.stdout')
     expect(opentui).toContain('this._usesProcessStdout = stdout === process.stdout;')
     expect(opentui).toContain(
       'const useFeedOutput = !this._usesProcessStdout && !useMemoryBufferedOutput;',
@@ -105,7 +105,7 @@ describe('pinned stock xterm WebGL source contract', () => {
     expect(opentui).toContain('if (this._feed?.isBackpressured()) {')
     expect(postprocessor).toContain('function clearRenderSurfaces(')
     expect(postprocessor).toContain('for (const framebuffer of [targetFramebuffer, null])')
-    expect(postprocessor).toContain('canvas.style.backgroundColor = backgroundColor')
+    expect(postprocessor).toContain('canvas.style.backgroundColor = themeColor')
     expect(postprocessor).not.toMatch(/2026|synchronizedOutputEnd/)
   })
 
@@ -143,10 +143,10 @@ describe('pinned stock xterm WebGL source contract', () => {
 
   test('shipping code contains no private imports, readback, capture, or extra render surface', async () => {
     const integration = [
-      await read('src/terminal.ts'),
-      await read('src/crt-postprocessor.ts'),
-      await read('src/crt-optics.ts'),
-      await read('src/glyph-atlas.ts'),
+      await read('termweave/host/terminal.ts'),
+      await read('termweave/host/crt-postprocessor.ts'),
+      await read('termweave/host/crt-optics.ts'),
+      await read('termweave/host/glyph-atlas.ts'),
     ].join('\n')
     expect(integration).not.toContain("from '@xterm/xterm/src")
     expect(integration).not.toContain("from '@xterm/addon-webgl/src")
@@ -158,8 +158,8 @@ describe('pinned stock xterm WebGL source contract', () => {
   })
 
   test('keeps custom glyphs and recycles the stock addon before atlas exhaustion', async () => {
-    const terminal = await read('src/terminal.ts')
-    const atlas = await read('src/glyph-atlas.ts')
+    const terminal = await read('termweave/host/terminal.ts')
+    const atlas = await read('termweave/host/glyph-atlas.ts')
     expect(terminal).toContain('customGlyphs: true')
     expect(terminal).toContain('new WebglAddon(false)')
     expect(terminal).toContain('createGlyphAtlasMonitor')
@@ -172,16 +172,16 @@ describe('pinned stock xterm WebGL source contract', () => {
   })
 
   test('keeps application mouse tracking disabled without installing a remapping layer', async () => {
-    const app = await read('app/index.tsx')
-    const terminal = await read('src/terminal.ts')
-    const postprocessor = await read('src/crt-postprocessor.ts')
-    expect(app).toContain('useMouse: false')
-    expect(app).toContain('enableMouseMovement: false')
+    const sidecar = await read('termweave/sidecar.tsx')
+    const terminal = await read('termweave/host/terminal.ts')
+    const postprocessor = await read('termweave/host/crt-postprocessor.ts')
+    expect(sidecar).toContain('useMouse: false')
+    expect(sidecar).toContain('enableMouseMovement: false')
     expect(terminal).toContain('attachCustomWheelEventHandler')
     expect(postprocessor).not.toMatch(/mousedown|mousemove|mouseup|contextmenu|auxclick/)
   })
 
-  test('keeps the GIF full-screen behind the interactive RGB edge-test screen', async () => {
+  test('keeps the GIF full-screen behind a concise interactive layout example', async () => {
     const app = await read('app/App.tsx')
     const home = await read('app/screens/HomeScreen.tsx')
     const controls = await read('app/components/ScreenControls.tsx')
@@ -189,10 +189,8 @@ describe('pinned stock xterm WebGL source contract', () => {
     expect(home).toContain("import campfireUri from '../assets/campfire.gif' with { type: 'file' }")
     expect(home).toContain('<PixelRenderer uri={campfireUri} width="100%" height="100%">')
     expect(home).toContain('</PixelRenderer>')
-    expect(home).toContain('WHITE PHOSPHOR / RGB EDGE TEST')
-    expect(home).toContain('CENTER REFERENCE')
-    expect(home.match(/borderStyle="heavy"/g)).toHaveLength(3)
-    expect(home).toContain('━━━━━━╋━━━━━━')
+    expect(home).toContain('A bundled GIF rendered behind ordinary OpenTUI layout.')
+    expect(home).not.toMatch(/RGB EDGE TEST|CENTER REFERENCE|━━━━━━╋━━━━━━/)
     expect(controls).toContain('SCREENS: app/screens.ts · KEYS: app/App.tsx')
     expect(controls).toContain('LEFT/RIGHT: COUNTER · TAB/TEXT: INPUT')
     expect(controls).toContain('content={`VALUE: ${count()}`}')

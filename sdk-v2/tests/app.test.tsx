@@ -7,7 +7,7 @@ import { App } from '../app/App'
 import { navigate } from '../app/app-store'
 import { ScreenControls, screenInputId } from '../app/components/ScreenControls'
 import { screens, type ScreenKey } from '../app/screens'
-import { PixelRenderer } from '../app/termweave/PixelRenderer'
+import { PixelRenderer } from '../termweave/components/PixelRenderer'
 
 const TEST_SIZE = { width: 320, height: 180 }
 const HOME_SCREEN: ScreenKey = '/'
@@ -297,7 +297,7 @@ describe('native Solid screens', () => {
       const input = await waitForFocusedInput(setup, HOME_SCREEN)
       await setup.mockInput.typeText('still-alive')
       const frame = await setup.waitForFrame(
-        (candidate) => candidate.includes('PixelRenderer:') && candidate.includes('still-alive'),
+        (candidate) => candidate.includes('local files only') && candidate.includes('still-alive'),
       )
       expect(frame).toContain('HOME SCREEN')
       expect(frame).toContain('local files only')

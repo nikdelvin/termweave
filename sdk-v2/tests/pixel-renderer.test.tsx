@@ -12,7 +12,7 @@ import {
   PixelRenderer,
   drawPixelFrame,
   pixelRendererErrorMessage,
-} from '../app/termweave/PixelRenderer'
+} from '../termweave/components/PixelRenderer'
 
 const TestImage = createJimp({ formats: [jpeg, png] })
 const twoFrameGif = Uint8Array.from(

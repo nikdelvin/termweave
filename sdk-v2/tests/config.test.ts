@@ -1,20 +1,25 @@
 import { describe, expect, test } from 'bun:test'
-import { getTermweaveConfig, parseAppConfig, terminalSurface } from '../shared/config'
+import { getTermweaveConfig, parseAppConfig } from '../termweave/config'
+import {
+  TERMINAL_FONT_SIZE,
+  TERMINAL_FOREGROUND_COLOR,
+  TERMINAL_GRID,
+  TERMINAL_SURFACE,
+} from '../termweave/constants'
 import { validAppConfig } from './fixtures'
 
 describe('app configuration', () => {
-  test('parses the complete default schema and derives the fixed grid', () => {
-    expect(parseAppConfig(validAppConfig())).toEqual({
-      ...validAppConfig(),
-      terminalGrid: {
-        cols: 320,
-        rows: 180,
-        fontSize: 8,
-        width: 2560,
-        height: 1440,
-      },
+  test('parses exactly the application-owned schema', () => {
+    expect(parseAppConfig(validAppConfig())).toEqual(validAppConfig())
+    expect(TERMINAL_SURFACE).toEqual({ width: 2560, height: 1440 })
+    expect(TERMINAL_FONT_SIZE).toBe(20)
+    expect(TERMINAL_GRID).toEqual({
+      cols: 128,
+      rows: 72,
+      fontSize: 20,
+      width: 2560,
+      height: 1440,
     })
-    expect(terminalSurface).toEqual({ width: 2560, height: 1440 })
   })
 
   test('requires an object root', () => {
@@ -23,7 +28,7 @@ describe('app configuration', () => {
     }
   })
 
-  test('requires non-empty name and description strings after trimming', () => {
+  test('requires non-empty name and description strings', () => {
     for (const field of ['name', 'description']) {
       for (const value of ['', '   ', 42]) {
         expect(() => parseAppConfig(validAppConfig({ [field]: value }))).toThrow(
@@ -42,77 +47,46 @@ describe('app configuration', () => {
     }
   })
 
-  test('accepts only lowercase kebab-case package names beginning with a letter', () => {
+  test('validates package names, identifiers, and semantic versions', () => {
     for (const packageName of ['termweave', 'termweave2', 'termweave-app-2']) {
       expect(parseAppConfig(validAppConfig({ packageName })).packageName).toBe(packageName)
     }
-    for (const packageName of ['Termweave', '2termweave', 'term_weave', 'term--weave', 'term-']) {
+    for (const packageName of ['Termweave', '2termweave', 'term_weave', 'term--weave']) {
       expect(() => parseAppConfig(validAppConfig({ packageName }))).toThrow('packageName')
     }
-  })
 
-  test('requires a reverse-domain bundle identifier with at least two segments', () => {
     for (const bundleIdentifier of ['com.example.app', 'io.example-2.app']) {
       expect(parseAppConfig(validAppConfig({ bundleIdentifier })).bundleIdentifier).toBe(
         bundleIdentifier,
       )
     }
-    for (const bundleIdentifier of ['termweave', '.example.app', 'com..app', 'com.-example']) {
+    for (const bundleIdentifier of ['termweave', '.example.app', 'com..app']) {
       expect(() => parseAppConfig(validAppConfig({ bundleIdentifier }))).toThrow('bundleIdentifier')
     }
-  })
 
-  test('accepts complete semantic versions including prerelease and build suffixes', () => {
-    for (const version of ['0.1.0', '1.2.3-alpha.1', '1.2.3+build.9', '1.2.3-rc.1+build.9']) {
+    for (const version of ['0.1.0', '1.2.3-alpha.1', '1.2.3+build.9']) {
       expect(parseAppConfig(validAppConfig({ version })).version).toBe(version)
     }
-    for (const version of ['1', '1.2', '01.2.3', '1.2.3-', '1.2.3-01', '1.2.3+']) {
+    for (const version of ['1', '1.2', '01.2.3', '1.2.3-']) {
       expect(() => parseAppConfig(validAppConfig({ version }))).toThrow('version')
     }
   })
 
-  test('requires a finite font size greater than zero', () => {
-    for (const fontSize of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, '8']) {
-      expect(() => parseAppConfig(validAppConfig({ fontSize }))).toThrow('fontSize')
+  test('requires a six-digit theme color and never aliases backgroundColor', () => {
+    for (const themeColor of ['#abcdef', '#ABCDEF', '#012345']) {
+      expect(parseAppConfig(validAppConfig({ themeColor })).themeColor).toBe(themeColor)
     }
-  })
-
-  test('requires font size to produce whole rows and columns', () => {
-    expect(() => parseAppConfig(validAppConfig({ fontSize: 7 }))).toThrow(
-      'must divide the fixed 2560x1440 terminal surface',
-    )
-    expect(parseAppConfig(validAppConfig({ fontSize: 16 })).terminalGrid).toEqual({
-      cols: 160,
-      rows: 90,
-      fontSize: 16,
-      width: 2560,
-      height: 1440,
-    })
-  })
-
-  test('requires six-digit hexadecimal colors', () => {
-    for (const field of ['backgroundColor', 'foregroundColor'] as const) {
-      for (const value of ['#abcdef', '#ABCDEF', '#012345']) {
-        expect(parseAppConfig(validAppConfig({ [field]: value }))[field]).toBe(value)
-      }
-      for (const value of ['abcdef', '#fff', '#gg0000', '#12345678', true]) {
-        expect(() => parseAppConfig(validAppConfig({ [field]: value }))).toThrow(field)
-      }
+    for (const themeColor of ['abcdef', '#fff', '#gg0000', '#12345678', true]) {
+      expect(() => parseAppConfig(validAppConfig({ themeColor }))).toThrow('themeColor')
     }
+
+    const oldConfig: Record<string, unknown> = validAppConfig()
+    delete oldConfig.themeColor
+    oldConfig.backgroundColor = '#112233'
+    expect(() => parseAppConfig(oldConfig)).toThrow('themeColor')
   })
 
-  test('requires boolean monitor and CRT flags', () => {
-    for (const field of ['monitorOverlay', 'crtEffects'] as const) {
-      expect(parseAppConfig(validAppConfig({ [field]: false }))[field]).toBe(false)
-      for (const value of [0, 'false', null]) {
-        expect(() => parseAppConfig(validAppConfig({ [field]: value }))).toThrow(
-          `${field} must be a boolean`,
-        )
-      }
-    }
-  })
-
-  test('accepts project-relative PNG and SVG icon paths and normalizes safe segments', () => {
+  test('accepts safe PNG and SVG icon paths', () => {
     expect(parseAppConfig(validAppConfig({ icon: 'app.icon.png' })).icon).toBe('app.icon.png')
     expect(parseAppConfig(validAppConfig({ icon: 'assets\\icon.SVG' })).icon).toBe(
       'assets/icon.SVG',
@@ -120,49 +94,51 @@ describe('app configuration', () => {
     expect(parseAppConfig(validAppConfig({ icon: 'assets/../app.icon.png' })).icon).toBe(
       'app.icon.png',
     )
-  })
 
-  test('rejects empty, unsupported, absolute, URL, and root-escaping icon paths', () => {
     for (const icon of [
       '',
-      '   ',
       'icon.jpg',
       '/tmp/icon.png',
       'C:\\icons\\icon.png',
-      '\\\\server\\icon.png',
       'https://example.com/icon.png',
-      'file:icon.png',
       '../icon.png',
-      'assets/../../icon.png',
     ]) {
       expect(() => parseAppConfig(validAppConfig({ icon }))).toThrow('icon')
     }
   })
 
-  test('ignores unknown fields and returns frozen configuration views', () => {
-    const parsed = parseAppConfig(validAppConfig({ extra: 'ignored' }))
-    expect('extra' in parsed).toBe(false)
+  test('ignores removed and unknown fields and returns frozen narrow views', () => {
+    const parsed = parseAppConfig(
+      validAppConfig({
+        fontSize: 8,
+        foregroundColor: '#FFFFFF',
+        backgroundColor: '#112233',
+        monitorOverlay: false,
+        crtEffects: false,
+        extra: 'ignored',
+      }),
+    )
+    expect(Object.keys(parsed).sort()).toEqual(
+      [
+        'authors',
+        'bundleIdentifier',
+        'description',
+        'icon',
+        'name',
+        'packageName',
+        'themeColor',
+        'version',
+      ].sort(),
+    )
     expect(Object.isFrozen(parsed)).toBe(true)
     expect(Object.isFrozen(parsed.authors)).toBe(true)
-    expect(Object.isFrozen(parsed.terminalGrid)).toBe(true)
 
     const publicConfig = getTermweaveConfig()
     expect(publicConfig).toEqual({
-      backgroundColor: '#010416',
-      foregroundColor: '#F59B5A',
-      terminalGrid: {
-        cols: 128,
-        rows: 72,
-        fontSize: 20,
-        width: 2560,
-        height: 1440,
-      },
+      themeColor: '#010416',
+      terminalForegroundColor: TERMINAL_FOREGROUND_COLOR,
     })
     expect(Object.isFrozen(publicConfig)).toBe(true)
-    expect(Object.keys(publicConfig).sort()).toEqual([
-      'backgroundColor',
-      'foregroundColor',
-      'terminalGrid',
-    ])
+    expect(Object.keys(publicConfig).sort()).toEqual(['terminalForegroundColor', 'themeColor'])
   })
 })

@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'bun:test'
-import { CrtPostprocessor, type RuntimePostprocessorFailure } from '../src/crt-postprocessor'
+import {
+  CrtPostprocessor,
+  type RuntimePostprocessorFailure,
+} from '../termweave/host/crt-postprocessor'
 
 type GlObject = { readonly kind: string; readonly id: number }
 
@@ -308,14 +311,14 @@ class FakeTerminal {
 }
 
 type HarnessConfig = Readonly<{
-  backgroundColor?: string
+  themeColor?: string
   configureGl?: (gl: FakeGl) => void
   observerFailure?: 'create' | 'observe'
   terminalSubscriptionFailure?: boolean
 }>
 
 function createFixture({
-  backgroundColor = '#010416',
+  themeColor = '#010416',
   configureGl,
   observerFailure,
   terminalSubscriptionFailure = false,
@@ -335,7 +338,7 @@ function createFixture({
       terminal: terminal as never,
       canvas: canvas as never,
       gl: gl as unknown as WebGL2RenderingContext,
-      backgroundColor,
+      themeColor,
       onRuntimeFailure: (failure) => failures.push(failure),
       createObserver: (callback) => {
         if (observerFailure === 'create') throw new Error('observer creation failed')
@@ -398,7 +401,7 @@ function expectStockStateRestored(gl: FakeGl) {
 
 describe('same-context CRT postprocessor lifecycle', () => {
   test('initializes the sampled target and display before the first render', () => {
-    const harness = createHarness({ backgroundColor: '#FF0000' })
+    const harness = createHarness({ themeColor: '#FF0000' })
     expect(harness.gl.created.get('texture')).toHaveLength(1)
     expect(harness.gl.created.get('framebuffer')).toHaveLength(1)
     expect(harness.gl.allocations).toEqual([

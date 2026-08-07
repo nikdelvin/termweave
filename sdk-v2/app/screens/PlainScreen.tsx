@@ -1,9 +1,8 @@
-import { getAppConfig } from '../../shared/config'
+import { getTermweaveConfig } from '#termweave'
 import { ScreenControls } from '../components/ScreenControls'
 
 export function PlainScreen() {
-  const config = getAppConfig()
-  const panelWidth = Math.min(72, config.terminalGrid.cols - 8)
+  const config = getTermweaveConfig()
 
   return (
     <box
@@ -12,19 +11,19 @@ export function PlainScreen() {
       flexDirection="column"
       justifyContent="center"
       alignItems="center"
-      backgroundColor={config.backgroundColor}
+      backgroundColor={config.themeColor}
     >
       <box
-        width={panelWidth}
+        width={72}
         height={14}
         flexDirection="column"
         border
         borderStyle="heavy"
-        borderColor={config.foregroundColor}
+        borderColor={config.terminalForegroundColor}
         padding={2}
       >
-        <text fg={config.foregroundColor}>PLAIN SCREEN · NO PIXELRENDERER</text>
-        <text fg={config.foregroundColor}>
+        <text fg={config.terminalForegroundColor}>PLAIN SCREEN · NO PIXELRENDERER</text>
+        <text fg={config.terminalForegroundColor}>
           Ordinary Solid/OpenTUI content with no native media drawing.
         </text>
       </box>

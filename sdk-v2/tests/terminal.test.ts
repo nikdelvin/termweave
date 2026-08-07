@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { Terminal } from '@xterm/xterm'
-import { parseAppConfig } from '../shared/config'
+import { parseAppConfig } from '../termweave/config'
 import {
   createTerminalSession,
   enableWebglRenderer,
@@ -12,7 +12,7 @@ import {
   type SidecarCommandLike,
   type TerminalLike,
   type WebglAddonLike,
-} from '../src/terminal'
+} from '../termweave/host/terminal'
 import { validAppConfig } from './fixtures'
 
 class Deferred<T> {
@@ -206,13 +206,13 @@ function createStartedSession(child: ChildLike = fakeChild()) {
 }
 
 describe('fixed xterm configuration', () => {
-  test('uses the configured grid, colors, and non-scrolling terminal options', () => {
+  test('uses the fixed grid, foreground, cursor, and non-scrolling terminal options', () => {
     const options = terminalOptions(parseAppConfig(validAppConfig()))
     expect(options).toMatchObject({
-      cols: 320,
-      rows: 180,
+      cols: 128,
+      rows: 72,
       fontFamily: '"Kreative Square", monospace',
-      fontSize: 8,
+      fontSize: 20,
       letterSpacing: 0,
       lineHeight: 1,
       scrollback: 0,
@@ -322,11 +322,55 @@ function fakeWebglCanvas(maximumTextureUnits = 16) {
   } as unknown as HTMLCanvasElement
 }
 
+type TestRendererTerminal = Pick<
+  Terminal,
+  'element' | 'loadAddon' | 'onRender' | 'refresh' | 'rows'
+>
+
+function enableTestRenderer(
+  terminal: Pick<Terminal, 'loadAddon'> & Partial<TestRendererTerminal>,
+  configOrCreateAddon: Readonly<{ themeColor: string }> | (() => WebglAddonLike),
+  suppliedCreateAddon?: () => WebglAddonLike,
+) {
+  const createAddon =
+    typeof configOrCreateAddon === 'function' ? configOrCreateAddon : suppliedCreateAddon!
+  const localCanvases: HTMLCanvasElement[] = []
+  const hasElement = Boolean(terminal.element)
+  let postprocessorCreateCount = 0
+  const rendererTerminal = {
+    element:
+      terminal.element ?? ({ querySelectorAll: () => localCanvases } as unknown as HTMLElement),
+    loadAddon(addon: WebglAddonLike) {
+      terminal.loadAddon(addon)
+      if (!hasElement) localCanvases.push(fakeWebglCanvas())
+    },
+    onRender:
+      terminal.onRender ??
+      (() => ({
+        dispose() {},
+      })),
+    refresh: terminal.refresh ?? (() => {}),
+    rows: terminal.rows ?? 90,
+  } as TestRendererTerminal
+  const controller = enableWebglRenderer(
+    rendererTerminal,
+    { themeColor: '#010416' },
+    createAddon,
+    () => {
+      postprocessorCreateCount += 1
+      return { dispose() {} }
+    },
+  )
+  return Object.defineProperty(controller, 'postprocessorCreateCount', {
+    get: () => postprocessorCreateCount,
+  }) as typeof controller & { readonly postprocessorCreateCount: number }
+}
+
 describe('xterm WebGL fallback', () => {
   test('loads the addon and disposes it idempotently', () => {
     const addon = new FakeWebglAddon()
     const loaded: WebglAddonLike[] = []
-    const renderer = enableWebglRenderer(
+    const renderer = enableTestRenderer(
       {
         loadAddon(candidate) {
           loaded.push(candidate as WebglAddonLike)
@@ -337,7 +381,8 @@ describe('xterm WebGL fallback', () => {
 
     expect(loaded).toEqual([addon])
     expect(addon.disposeCount).toBe(0)
-    expect(renderer.status).toEqual({ kind: 'active', postprocessorActive: false })
+    expect(renderer.status).toEqual({ kind: 'active' })
+    expect(renderer.postprocessorCreateCount).toBe(1)
     renderer.dispose()
     renderer.dispose()
     expect(addon.contextLossSubscriptionDisposeCount).toBe(1)
@@ -348,7 +393,7 @@ describe('xterm WebGL fallback', () => {
     const addon = new FakeWebglAddon()
     let loadCount = 0
     let terminalDisposeCount = 0
-    const renderer = enableWebglRenderer(
+    const renderer = enableTestRenderer(
       {
         loadAddon() {
           loadCount += 1
@@ -376,7 +421,7 @@ describe('xterm WebGL fallback', () => {
 
   test('continues without WebGL when construction fails', () => {
     let loadCount = 0
-    const renderer = enableWebglRenderer(
+    const renderer = enableTestRenderer(
       {
         loadAddon() {
           loadCount += 1
@@ -398,7 +443,7 @@ describe('xterm WebGL fallback', () => {
   test('disposes partial addon state when xterm activation fails', () => {
     const addon = new FakeWebglAddon()
     let terminalDisposeCount = 0
-    const renderer = enableWebglRenderer(
+    const renderer = enableTestRenderer(
       {
         loadAddon() {
           throw new Error('renderer activation failed')
@@ -416,7 +461,7 @@ describe('xterm WebGL fallback', () => {
     expect(() => renderer.dispose()).not.toThrow()
   })
 
-  test('discovers the WebGL limit without allocating CRT effects when they are disabled', () => {
+  test('discovers the WebGL limit and always initializes CRT postprocessing', () => {
     const addon = new FakeWebglAddon()
     let queryCount = 0
     const canvases: HTMLCanvasElement[] = []
@@ -436,18 +481,19 @@ describe('xterm WebGL fallback', () => {
       refresh() {},
       rows: 90,
     }
-    const renderer = enableWebglRenderer(
+    const renderer = enableTestRenderer(
       terminal as unknown as Pick<
         Terminal,
         'element' | 'loadAddon' | 'onRender' | 'refresh' | 'rows'
       >,
-      { backgroundColor: '#010416', crtEffects: false },
+      { themeColor: '#010416' },
       () => addon,
     )
 
     expect(queryCount).toBe(2)
     expect(addon.disposeCount).toBe(0)
-    expect(renderer.status).toEqual({ kind: 'active', postprocessorActive: false })
+    expect(renderer.status).toEqual({ kind: 'active' })
+    expect(renderer.postprocessorCreateCount).toBe(1)
     renderer.dispose()
     expect(addon.disposeCount).toBe(1)
   })
@@ -470,12 +516,12 @@ describe('xterm WebGL fallback', () => {
       },
       rows: 90,
     }
-    const renderer = enableWebglRenderer(
+    const renderer = enableTestRenderer(
       terminal as unknown as Pick<
         Terminal,
         'element' | 'loadAddon' | 'onRender' | 'refresh' | 'rows'
       >,
-      { backgroundColor: '#010416', crtEffects: false },
+      { themeColor: '#010416' },
       () => {
         const addon = new FakeAtlasWebglAddon()
         addons.push(addon)
@@ -491,7 +537,8 @@ describe('xterm WebGL fallback', () => {
     expect(addons[0]!.contextLossSubscriptionDisposeCount).toBe(1)
     expect(addons[1]!.disposeCount).toBe(0)
     expect(refreshes).toEqual([[0, 89]])
-    expect(renderer.status).toEqual({ kind: 'active', postprocessorActive: false })
+    expect(renderer.status).toEqual({ kind: 'active' })
+    expect(renderer.postprocessorCreateCount).toBe(2)
 
     renderer.dispose()
     expect(addons[1]!.disposeCount).toBe(1)
@@ -502,7 +549,7 @@ describe('xterm WebGL fallback', () => {
     const canvases: HTMLCanvasElement[] = []
     let creations = 0
     let refreshCount = 0
-    const renderer = enableWebglRenderer(
+    const renderer = enableTestRenderer(
       {
         element: { querySelectorAll: () => canvases },
         loadAddon() {
@@ -516,7 +563,7 @@ describe('xterm WebGL fallback', () => {
         },
         rows: 90,
       } as unknown as Pick<Terminal, 'element' | 'loadAddon' | 'onRender' | 'refresh' | 'rows'>,
-      { backgroundColor: '#010416', crtEffects: false },
+      { themeColor: '#010416' },
       () => {
         creations += 1
         if (creations > 1) throw new Error('replacement unavailable')
@@ -551,12 +598,12 @@ describe('xterm WebGL fallback', () => {
       },
       rows: 90,
     }
-    const renderer = enableWebglRenderer(
+    const renderer = enableTestRenderer(
       terminal as unknown as Pick<
         Terminal,
         'element' | 'loadAddon' | 'onRender' | 'refresh' | 'rows'
       >,
-      { backgroundColor: '#010416', crtEffects: true },
+      { themeColor: '#010416' },
       () => addon,
     )
 
@@ -576,7 +623,7 @@ describe('xterm WebGL fallback', () => {
 
   test('reports a runtime fallback once and allows lifecycle subscribers to detach', () => {
     const addon = new FakeWebglAddon()
-    const renderer = enableWebglRenderer(
+    const renderer = enableTestRenderer(
       {
         loadAddon() {},
       },
@@ -597,7 +644,7 @@ describe('xterm WebGL fallback', () => {
 
   test('keeps fallback and disposal intact when a status observer throws', () => {
     const addon = new FakeWebglAddon()
-    const renderer = enableWebglRenderer(
+    const renderer = enableTestRenderer(
       {
         loadAddon() {},
       },

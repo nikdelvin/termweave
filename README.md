@@ -1,147 +1,54 @@
 <div align="center">
-  <img
-    src="./sdk/termweave-sdk.png"
-    width="100%"
-    alt="Termweave — Build terminal apps. Ship them native."
-  />
+  <img src="./sdk/termweave-sdk.png" width="100%" alt="Termweave — Build terminal apps. Ship them native." />
 </div>
 
-<p align="center">
-  <img
-    src="./sdk/termweave-sdk.gif"
-    width="100%"
-    alt="Termweave project preview"
-  />
-</p>
+# Termweave
 
-📟 **Termweave** turns an [OpenTUI](https://github.com/anomalyco/opentui) interface into a native
-[Tauri](https://tauri.app/) desktop app.
+Termweave turns an [OpenTUI](https://github.com/anomalyco/opentui) and
+[Solid](https://www.solidjs.com/) interface into a native
+[Tauri](https://tauri.app/) desktop application. The v2 template lives in [`sdk-v2/`](./sdk-v2/)
+and supports macOS on Apple Silicon and Intel.
 
-You build the interface with
-[Solid](https://www.solidjs.com/) — Termweave handles everything else:<br>
-📦 The window, terminal renderer, app lifecycle,
-and native packaging.
+The terminal is presented on a fixed 2560×1440, 128×72 grid inside an always-on monitor and CRT
+effect. Application authors own `app/`, application metadata, the theme color, and the icon;
+Termweave owns the renderer, transport, presentation, and packaging implementation.
 
-## ✨ Why Termweave?
+## Quick start
 
-- Build with OpenTUI and Solid instead of recreating a terminal UI in the browser.
-- Run your app in a native, resizable Tauri window.
-- Present it inside an immersive CRT monitor with animated effects and native ambient audio.
-- Configure the name, colors, window size, and icon in ⚙️ **one config file**.
-- See source changes without restarting the native window.
-- Create a native bundle with ⚡️ **one command**.
-
-## 🚀 Quick start
-
-You need macOS, [Bun 1.3+](https://bun.sh/), a stable
-[Rust toolchain](https://www.rust-lang.org/tools/install), and the Xcode Command Line Tools.
-
-Create an empty project and run the installer:
+You need macOS, Bun 1.3+, a stable Rust toolchain, and the Xcode Command Line Tools.
 
 ```sh
-mkdir my-termweave-app
-cd my-termweave-app
-curl -fsSLo install.sh https://raw.githubusercontent.com/nikdelvin/termweave/main/sdk/install.sh
-sh install.sh
-```
-
-The installer asks for your app name and metadata, creates the starter project, and installs its
-dependencies.
-
-Start the app:
-
-```sh
+git clone https://github.com/nikdelvin/termweave.git
+cd termweave/sdk-v2
+bun install
 bun run dev
 ```
 
-## 🎨 Make it yours
+Start by editing:
 
-The main places to edit are:
+- `app.config.json` and `app.icon.png`
+- `app/screens.ts`
+- `app/screens/`, `app/components/`, and `app/assets/`
+- `app/App.tsx` when changing global keyboard navigation
 
-1. `src/routes/` — build the starter Home and Demo screens.
-2. `src/routes.ts` and `src/App.tsx` — configure routing and the application shell.
-3. `app.config.json` — set the app name, colors, CRT effects, and bundle metadata.
-4. `app.icon.png` — replace the default app icon.
+See the [v2 template guide](./sdk-v2/README.md) for the ownership map, configuration schema, public
+API, and command reference.
 
-Changes under `src/` reload while the app is running. Restart `bun run dev` after changing the
-configuration or icon.
+## Commands
 
-### Get the CRT glow
+Run these from `sdk-v2/`:
 
-Give your app the glow, grain, motion, and low ambient hum of a real CRT. Keep the monitor
-frame for the full retro look, or switch it off and let the terminal fill the window.
+| Command         | Purpose                                                        |
+| --------------- | -------------------------------------------------------------- |
+| `bun run dev`   | Prepare generated native inputs and start the development app. |
+| `bun run test`  | Run the behavior and boundary test suite.                      |
+| `bun run check` | Run tests, type checking, lint, formatting, and Rust checks.   |
+| `bun run build` | Validate and create a native macOS bundle.                     |
 
-```json
-"monitorOverlay": true,
-"crtEffects": true
-```
+## Repository generations
 
-| Option           | Values         | What it changes                                |
-| ---------------- | -------------- | ---------------------------------------------- |
-| `monitorOverlay` | `true`/`false` | Shows the monitor frame or goes edge-to-edge.  |
-| `crtEffects`     | `true`/`false` | Enables or disables all CRT sound and visuals. |
+`sdk-v2/` is the current implementation. `sdk/` is retained unchanged as the v1 reference and is
+not part of v2 development or synchronization.
 
-### Bring pixels to life
-
-A terminal can be more than text. Drop a GIF, PNG, or JPEG into `PixelRenderer`, turn it into a
-living backdrop, then layer your OpenTUI interface right on top.
-
-```tsx
-import { PixelRenderer } from "@termweave/sdk";
-import background from "./assets/background.jpg" with { type: "file" };
-
-export function App() {
-  return (
-    <PixelRenderer uri={background}>
-      <box position="absolute" bottom={0} width="100%" height={8}>
-        <text>Overlay content</text>
-      </box>
-    </PixelRenderer>
-  );
-}
-```
-
-That is all it takes to turn a terminal screen into your own little world.
-
-Your project stays small:
-
-```text
-my-termweave-app/
-├── src/
-│   ├── App.tsx
-│   ├── routes.ts
-│   ├── routes/
-│   │   ├── HomeRoute.tsx
-│   │   └── DemoRoute.tsx
-│   ├── components/
-│   └── assets/
-├── app.config.json
-├── app.icon.png
-├── package.json
-├── patches/        Router compatibility patch
-└── termweave/       Managed SDK checkout
-```
-
-## 🧰 Commands
-
-| Command             | What it does                                           |
-| ------------------- | ------------------------------------------------------ |
-| `bun run dev`       | Check and start the desktop app with source reloading. |
-| `bun run build`     | Check and build native bundles into `build/`.          |
-| `bun run check`     | Run linting, type checks, and formatting checks.       |
-| `bun run update`    | Update the managed SDK and reapply the project state.  |
-| `bun run terminate` | Terminate every active Bun process across all users.   |
-
-## 🍎 Current status
-
-Termweave currently supports macOS for installation and development. Native bundles are built for
-the current machine.
-
-## 🤝 Contributing
-
-Issues and pull requests are welcome. Read [CONTRIBUTING.md](./CONTRIBUTING.md) to get started.
-
+Issues and pull requests are welcome. Read [CONTRIBUTING.md](./CONTRIBUTING.md) before contributing.
 Termweave is available under the [MIT License](./LICENSE).
-
-⭐ If Termweave helps you build something,
-[star the repository](https://github.com/nikdelvin/termweave) and share what you made.

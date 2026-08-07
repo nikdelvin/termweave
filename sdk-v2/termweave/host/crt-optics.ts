@@ -82,7 +82,7 @@ export function mapCrtDestinationToSource(
 
 export function parseRgbHex(color: string): readonly [number, number, number] {
   const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(color)
-  if (!match) throw new Error('CRT background color must be a six-digit hexadecimal color')
+  if (!match) throw new Error('CRT theme color must be a six-digit hexadecimal color')
   return [
     Number.parseInt(match[1]!, 16) / 255,
     Number.parseInt(match[2]!, 16) / 255,

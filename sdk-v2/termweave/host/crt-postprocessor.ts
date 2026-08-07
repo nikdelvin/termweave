@@ -19,7 +19,7 @@ export type CrtPostprocessorOptions = Readonly<{
   terminal: CrtTerminal
   canvas: HTMLCanvasElement
   gl: WebGL2RenderingContext
-  backgroundColor: string
+  themeColor: string
   onRuntimeFailure(failure: RuntimePostprocessorFailure): void
   createObserver?: CreateObserver
 }>
@@ -333,10 +333,10 @@ export class CrtPostprocessor implements IDisposable {
   }
 
   constructor(private readonly options: CrtPostprocessorOptions) {
-    const { terminal, canvas, gl, backgroundColor, createObserver } = options
+    const { terminal, canvas, gl, themeColor, createObserver } = options
     this.canvas = canvas
     this.gl = gl
-    this.background = parseRgbHex(backgroundColor)
+    this.background = parseRgbHex(themeColor)
     this.brightPassThreshold = crtBrightPassThreshold(this.background)
     this.previousCanvasBackground = canvas.style.backgroundColor
 
@@ -344,7 +344,7 @@ export class CrtPostprocessor implements IDisposable {
     let observer: ObserverLike | undefined
     let renderSubscription: IDisposable | undefined
     try {
-      canvas.style.backgroundColor = backgroundColor
+      canvas.style.backgroundColor = themeColor
       resources = createResources(gl, canvas, this.generation)
       this.resources = resources
       this.width = canvas.width

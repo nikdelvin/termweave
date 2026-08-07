@@ -1,7 +1,11 @@
 import { type BoxRenderable, type OptimizedBuffer, type RenderableOptions } from '@opentui/core'
 import { ptr } from 'bun:ffi'
 import { createEffect, createSignal, onCleanup, onMount, Show, type ParentProps } from 'solid-js'
-import { getTermweaveConfig } from '../../shared/config'
+import { getTermweaveConfig } from '../config'
+import {
+  PIXEL_RENDERER_ERROR_BACKGROUND_COLOR,
+  PIXEL_RENDERER_ERROR_FOREGROUND_COLOR,
+} from '../constants'
 import {
   centeredViewport,
   createImageController,
@@ -59,7 +63,7 @@ export function PixelRenderer(props: ParentProps<PixelRendererProps>) {
   let currentFrame: AnimationFrame | undefined
   let disposed = false
   const config = getTermweaveConfig()
-  const background = parseHexColor(config.backgroundColor)
+  const background = parseHexColor(config.themeColor)
   const [container, setContainer] = createSignal<Dimensions>({ width: 0, height: 0 })
   const [error, setError] = createSignal('')
 
@@ -109,7 +113,7 @@ export function PixelRenderer(props: ParentProps<PixelRendererProps>) {
       width={width()}
       height={height()}
       flexGrow={width() === 'auto' && height() === 'auto' ? 1 : 0}
-      backgroundColor={config.backgroundColor}
+      backgroundColor={config.themeColor}
       overflow="hidden"
       onSizeChange={updateDimensions}
       renderAfter={(buffer) => {
@@ -133,10 +137,10 @@ export function PixelRenderer(props: ParentProps<PixelRendererProps>) {
           width="100%"
           minHeight={3}
           padding={1}
-          backgroundColor="#351B19"
+          backgroundColor={PIXEL_RENDERER_ERROR_BACKGROUND_COLOR}
           zIndex={2}
         >
-          <text fg="#E9E3D2">PixelRenderer: {error()}</text>
+          <text fg={PIXEL_RENDERER_ERROR_FOREGROUND_COLOR}>PixelRenderer: {error()}</text>
         </box>
       </Show>
 

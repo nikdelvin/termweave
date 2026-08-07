@@ -1,8 +1,8 @@
 import { mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { relative, resolve, sep } from 'node:path'
 import process from 'node:process'
-import { parseAppConfig, type AppConfig } from '../shared/config'
-import { opentuiAssetRootDirectory } from '../shared/opentui-assets'
+import { parseAppConfig, type AppConfig } from '../termweave/config'
+import { OPENTUI_ASSET_ROOT_DIRECTORY } from '../termweave/constants'
 
 const projectRoot = resolve(import.meta.dir, '..')
 
@@ -93,25 +93,17 @@ export function getOpenTuiNativeAsset(
   platform: NodeJS.Platform = process.platform,
   arch: NodeJS.Architecture = process.arch,
 ): OpenTuiNativeAsset {
-  const fileName =
-    platform === 'darwin'
-      ? 'libopentui.dylib'
-      : platform === 'linux'
-        ? 'libopentui.so'
-        : platform === 'win32'
-          ? 'opentui.dll'
-          : undefined
-
-  if (fileName === undefined || (arch !== 'arm64' && arch !== 'x64')) {
-    throw new Error(`OpenTUI does not provide a native runtime for ${platform}-${arch}`)
+  if (platform !== 'darwin' || (arch !== 'arm64' && arch !== 'x64')) {
+    throw new Error(`Termweave v2 supports only macOS arm64 and x64, not ${platform}-${arch}`)
   }
 
   const packageName = `@opentui/core-${platform}-${arch}`
+  const fileName = 'libopentui.dylib'
   return {
     packageName,
     fileName,
     sourcePath: resolve(root, 'node_modules', packageName, fileName),
-    resourcePath: `${opentuiAssetRootDirectory}/${packageName}/${fileName}`,
+    resourcePath: `${OPENTUI_ASSET_ROOT_DIRECTORY}/${packageName}/${fileName}`,
   }
 }
 
@@ -173,7 +165,7 @@ function createOverride(config: AppConfig, nativeAsset: OpenTuiNativeAsset) {
         {
           label: 'main',
           title: config.name,
-          backgroundColor: config.backgroundColor,
+          backgroundColor: config.themeColor,
         },
       ],
     },
