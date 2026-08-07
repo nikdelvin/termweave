@@ -1,19 +1,13 @@
 import { type InputRenderable, type KeyEvent } from '@opentui/core'
 import { createSignal, onMount } from 'solid-js'
 import { getTermweaveConfig } from '#termweave'
-import { GALLERY_SCREEN, HOME_SCREEN, PLAIN_SCREEN, type ScreenId } from '../screen-state'
+import { screen } from '../app-store'
+import type { ScreenKey } from '../screens'
 
-const screenInputIds: Record<ScreenId, string> = {
-  [HOME_SCREEN]: 'home-input',
-  [GALLERY_SCREEN]: 'gallery-input',
-  [PLAIN_SCREEN]: 'plain-input',
-}
-
-export const screenInputId = (screen: ScreenId) => screenInputIds[screen]
+export const screenInputId = (screenKey: ScreenKey) => `screen-input:${screenKey}`
 
 type ScreenControlsProps = {
   label: string
-  screen: ScreenId
 }
 
 type HorizontalKey = Pick<
@@ -30,6 +24,7 @@ function horizontalDelta(key: HorizontalKey) {
 
 export function ScreenControls(props: ScreenControlsProps) {
   let input: InputRenderable | undefined
+  const screenKey = screen()
   const config = getTermweaveConfig()
   const panelWidth = Math.min(72, config.terminalGrid.cols - 8)
   const panelLeft = Math.floor((config.terminalGrid.cols - panelWidth) / 2)
@@ -61,12 +56,12 @@ export function ScreenControls(props: ScreenControlsProps) {
       flexDirection="column"
       zIndex={3}
     >
-      <text height={1} fg="#FFFFFF" content={`${props.label} · SCREEN: ${props.screen}`} />
-      <text height={1} fg="#FFFFFF" content="UP: PREVIOUS · DOWN: NEXT · TAB: INPUT ONLY" />
-      <text height={1} fg="#FFFFFF" content="USE LEFT / RIGHT ARROWS TO CHANGE" />
+      <text height={1} fg="#FFFFFF" content={`${props.label} · SCREEN: ${screenKey}`} />
+      <text height={1} fg="#FFFFFF" content="SCREENS: app/screens.ts · KEYS: app/App.tsx" />
+      <text height={1} fg="#FFFFFF" content="LEFT/RIGHT: COUNTER · TAB/TEXT: INPUT" />
       <text height={1} fg="#FFFFFF" content={`VALUE: ${count()}`} />
       <input
-        id={screenInputId(props.screen)}
+        id={screenInputId(screenKey)}
         ref={input}
         width={panelWidth - 4}
         value={draft()}

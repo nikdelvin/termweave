@@ -228,6 +228,9 @@ Add comprehensive tests for decoding, signatures, sizing, centering, transparenc
 
 ### Phase 6
 
+This prompt records the Phase 6 baseline. Phase 6.5 below supersedes its App-local screen-state
+architecture while preserving its lifecycle and input requirements.
+
 Implement Phase 6 of the SDK v2 migration plan in `sdk-v2`.
 
 Read `sdk-v2/docs/migration-plan.md` completely and verify PixelRenderer and prior phases are stable.
@@ -261,3 +264,34 @@ no native draws on Plain, decode errors, and child overlay ordering. Exercise ra
 OpenTUI’s parser and a real child-process stdin pipe rather than constructing `KeyEvent` directly.
 Run the complete check suite and manually verify GIF → PNG → Plain plus both reverse/direct return
 paths repeatedly through the native Tauri/xterm application.
+
+### Phase 6.5
+
+Implement Phase 6.5 of the SDK v2 migration plan in `sdk-v2`.
+
+Keep screen navigation deliberately smaller than a router:
+
+- Add one `app/screens.ts` file that imports every screen component, exports the component map, and
+  derives `ScreenKey` from its keys. Template users must not maintain a second screen list.
+- Add a module-level Solid signal in `app-store.ts`. Export its `screen()` accessor and a typed
+  `navigate(destination: ScreenKey)` function while keeping the raw setter private.
+- Keep `navigate()` completely unaware of keyboards. Do not add a binding table, matcher,
+  transition graph, or validation framework.
+- Let the user-owned `useKeyboard` callback in `App.tsx` decide which keys navigate and call
+  `navigate()` directly from those branches.
+- Render `screens[screen()]` with OpenTUI Solid's `Dynamic`, disposing the previous component owner
+  and mounting a fresh destination owner.
+- Keep the existing Up/Down behavior as the template example. Consume only matched navigation
+  keys; leave Tab, printable input, and unconfigured keys to the focused input.
+- Allow any screen or nested component to import and call `navigate(screenKey)`.
+
+Preserve the dedicated `/dev/fd/0` stream, runtime DEBUG handling, packaged OpenTUI native asset,
+stable App keyboard listener, screen-local focus/state reset, GIF/PNG/Plain media cleanup, and
+decode-error isolation. Add no Solid Router dependency, provider, URL/history behavior, package
+patch, preload system, adapter, or compatibility layer. Keep `sdk/`, manifests, and lockfiles
+unchanged.
+
+Test the store, inferred screen keys, exact registry coverage, direct navigation, same-screen no-op,
+component disposal/focus, raw CSI/SS3 transitions, fifty repeated traversals, local-state reset,
+input ownership, media cleanup, the real sidecar/xterm path, and the compiled production sidecar.
+Run the complete validation and build suite, then inspect the packaged native assets.

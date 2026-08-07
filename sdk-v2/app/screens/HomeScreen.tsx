@@ -2,7 +2,6 @@ import { PixelRenderer } from '#termweave'
 import { getAppConfig } from '../../shared/config'
 import campfireUri from '../assets/campfire.gif' with { type: 'file' }
 import { ScreenControls } from '../components/ScreenControls'
-import { HOME_SCREEN } from '../screen-state'
 
 export function HomeScreen() {
   const config = getAppConfig()
@@ -83,7 +82,7 @@ export function HomeScreen() {
         BLUE
       </text>
 
-      <ScreenControls label="HOME SCREEN" screen={HOME_SCREEN} />
+      <ScreenControls label="HOME SCREEN" />
     </PixelRenderer>
   )
 }

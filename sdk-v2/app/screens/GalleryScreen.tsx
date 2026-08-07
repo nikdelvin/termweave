@@ -2,7 +2,6 @@ import { PixelRenderer } from '#termweave'
 import { getAppConfig } from '../../shared/config'
 import galleryUri from '../assets/gallery.png' with { type: 'file' }
 import { ScreenControls } from '../components/ScreenControls'
-import { GALLERY_SCREEN } from '../screen-state'
 
 export function GalleryScreen() {
   const config = getAppConfig()
@@ -22,7 +21,7 @@ export function GalleryScreen() {
       <text position="absolute" top={5} left={8} fg="#FFFFFF">
         GALLERY SCREEN · BUNDLED PNG
       </text>
-      <ScreenControls label="GALLERY SCREEN" screen={GALLERY_SCREEN} />
+      <ScreenControls label="GALLERY SCREEN" />
     </PixelRenderer>
   )
 }

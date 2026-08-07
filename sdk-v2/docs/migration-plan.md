@@ -164,12 +164,14 @@ sdk-v2/
 │   │   ├── index.ts
 │   │   └── PixelRenderer.tsx
 │   ├── App.tsx
+│   ├── app-store.ts
 │   ├── index.tsx
-│   └── screen-state.ts
+│   └── screens.ts
 ├── docs/
 │   ├── migration-plan.md
 │   ├── migration-prompts.md
-│   └── phase-4.5-webgl-postprocessing.md
+│   ├── phase-4.5-webgl-postprocessing.md
+│   └── phase-6.5.md
 ├── scripts/
 │   ├── build-sidecar.ts
 │   ├── dev-sidecar.ts
@@ -590,17 +592,23 @@ of Phase 4. See [Phase 4.5 — Same-Canvas WebGL CRT Optics](./phase-4.5-webgl-p
 
 ## 12. Native Solid screen template
 
-The template contains three screens identified by the closed `ScreenId` union
-`'/' | '/gallery' | '/plain'`:
+The template contains three screens registered in `app/screens.ts` under the keys `/`,
+`/gallery`, and `/plain`:
 
 - `/` displays the bundled animated campfire GIF.
 - `/gallery` displays a bundled PNG.
 - `/plain` displays ordinary Solid/OpenTUI content with no `PixelRenderer`.
 
-These values are opaque in-process identifiers, not browser URLs. `App` owns one Solid signal and
-one `useKeyboard` registration, maps unmodified Up/Down to the previous/next screen in a closed
-cycle, and renders exactly one component with `Switch`/`Match`. The cycle makes every pairwise
-GIF/PNG/plain transition directly reachable. Tab never changes screens.
+`screens.ts` is the only screen-registration file. It imports each screen component, exports the
+component map, and derives `ScreenKey` from the map's keys. These keys are opaque in-process
+identifiers, not browser URLs.
+
+The module-level Solid store in `app-store.ts` owns the active `screen()` accessor and exports the
+typed, key-agnostic `navigate(screenKey)` function. Its setter remains private. `App` renders the
+selected component with OpenTUI Solid's `Dynamic` and contains one ordinary, user-editable
+`useKeyboard` callback. That callback decides which keys to consume and calls `navigate()`
+directly; neither the store nor `navigate()` knows about keybindings. The default callback keeps
+the Phase 6 Up/Down transitions, while Tab and printable keys remain input-owned.
 
 Home and Gallery each own their `PixelRenderer`; Plain intentionally has none. Every screen owns a
 mounted `ScreenControls` instance. The controls own a local counter, typed value, and OpenTUI
@@ -609,8 +617,9 @@ typing to the input. Switching screens destroys the old Solid owner and renderab
 local state, and runs any `PixelRenderer` cleanup so decoding, GIF playback, and native drawing
 cannot remain active.
 
-There is no routing dependency, context, component registry, browser history, URL parsing, image
-preload, screen cache, connected graph, adapter, compatibility layer, or package patch.
+There is no routing dependency, router component, context provider, browser history, URL parsing,
+binding framework, image preload, screen cache, connected graph, adapter, compatibility layer, or
+package patch.
 
 ## 13. Build and command surface
 
@@ -749,10 +758,9 @@ up on screen changes.
 ### Phase 6 — Native Solid screen template
 
 - Split the importable Solid application from the sidecar bootstrap.
-- Add `/`, `/gallery`, and `/plain` as a closed TypeScript union; they are in-process identifiers
-  and have no browser URL or history semantics.
-- Keep the active screen in one App-owned Solid signal and render exactly one screen with
-  `Switch`/`Match`.
+- Add `/`, `/gallery`, and `/plain` as in-process identifiers with no browser URL or history
+  semantics.
+- Establish the initial App-local signal and `Switch`/`Match` screen lifecycle baseline.
 - Keep one stable App-level `useKeyboard` registration. Map unmodified Up/Down to the
   previous/next screen in a wraparound cycle, consume only those navigation keys, and do not use
   Tab for screen changes.
@@ -775,6 +783,24 @@ up on screen changes.
 feature; GIF → PNG → Plain and both reverse/direct return paths remain responsive through the
 native application, disposed media cannot draw on Plain, and the package and lockfile contain no
 routing dependency or patch.
+
+### Phase 6.5 — Global screen store and simple navigation
+
+- Put every screen component import and key in `app/screens.ts`, deriving `ScreenKey` directly from
+  that one registry.
+- Move the active screen into a module-level Solid signal and expose only `screen()` and the typed
+  `navigate(screenKey)` mutation function.
+- Render the selected registry component with OpenTUI Solid's `Dynamic`; replacing the component
+  must dispose the previous owner, while navigating to the active key remains a signal no-op.
+- Keep keyboard decisions in the user-owned App `useKeyboard` callback. Call `navigate()` directly
+  from matching branches and consume only keys that actually navigate.
+- Add no keybinding table, navigation matcher, transition validator, router, history, provider, or
+  state-management dependency.
+- Preserve the dedicated fd 0 stream, focus/reset behavior, stable App listener, and GIF/PNG/Plain
+  cleanup guarantees established in Phase 6.
+
+**Exit:** A template user registers screens in one file and can navigate to any registered screen
+from any component or keyboard callback with `navigate(screenKey)`, without router infrastructure.
 
 ### Phase 7 — Packaging and audit
 
@@ -845,6 +871,9 @@ routing dependency or patch.
 
 ### Screen and component tests
 
+- The global store starts on `/`, updates synchronously, and treats the active key as a no-op.
+- The one registry contains each screen exactly once, and its keys define the `ScreenKey` type.
+- Direct `navigate()` calls from mounted or nested component code replace the rendered screen.
 - All three supported initial screens render with exactly one focused input.
 - Repeated Home/Gallery/Plain cycling destroys the old input, focuses the new input, and does not
   replace the App-level keyboard listener.
@@ -913,7 +942,8 @@ SDK v2.0 is ready when:
 - Development source changes restart the sidecar without restarting Tauri.
 - The flat config drives metadata, colors, grid, icon, monitor, and CRT options.
 - PNG, JPEG, and GIF PixelRenderer behavior matches this document.
-- The native Solid screen template switches reliably with one stable global keyboard listener.
+- The native Solid screen template switches through the typed global store with one stable App
+  keyboard listener.
 - The production `.app` requires no separately installed Bun.
 - No v1 files under `sdk/` were modified.
 - No v2 implementation contains WebSocket transport, port/token allocation, FFmpeg, MP4, audio,
@@ -931,7 +961,8 @@ V2 is not an in-place upgrade. A v1 project migrates manually:
 4. Move OpenTUI screen/component source into `app/`.
 5. Replace `@termweave/sdk` imports with `#termweave`.
 6. Keep only PNG, JPEG, and GIF PixelRenderer usage.
-7. Replace custom route history/preloading with the v2 App-local screen-signal pattern.
+7. Register screen components in `app/screens.ts` and replace route history/preloading with direct
+   typed `navigate(screenKey)` calls.
 8. Rebuild and verify the visual matrix.
 
 Video, remote-image, audio, updater, and managed-checkout behaviors have no v2 compatibility

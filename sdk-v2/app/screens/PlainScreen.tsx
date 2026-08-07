@@ -1,6 +1,5 @@
 import { getAppConfig } from '../../shared/config'
 import { ScreenControls } from '../components/ScreenControls'
-import { PLAIN_SCREEN } from '../screen-state'
 
 export function PlainScreen() {
   const config = getAppConfig()
@@ -29,7 +28,7 @@ export function PlainScreen() {
           Ordinary Solid/OpenTUI content with no native media drawing.
         </text>
       </box>
-      <ScreenControls label="PLAIN SCREEN" screen={PLAIN_SCREEN} />
+      <ScreenControls label="PLAIN SCREEN" />
     </box>
   )
 }

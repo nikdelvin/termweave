@@ -1,23 +1,31 @@
-import { describe, expect, spyOn, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test'
 import { InputRenderable, OptimizedBuffer } from '@opentui/core'
 import type { TestRendererSetup } from '@opentui/core/testing'
 import { testRender } from '@opentui/solid'
+import { onMount } from 'solid-js'
 import { App } from '../app/App'
+import { navigate } from '../app/app-store'
 import { ScreenControls, screenInputId } from '../app/components/ScreenControls'
-import { GALLERY_SCREEN, HOME_SCREEN, PLAIN_SCREEN, type ScreenId } from '../app/screen-state'
+import { screens, type ScreenKey } from '../app/screens'
 import { PixelRenderer } from '../app/termweave/PixelRenderer'
 
 const TEST_SIZE = { width: 320, height: 180 }
+const HOME_SCREEN: ScreenKey = '/'
+const GALLERY_SCREEN: ScreenKey = '/gallery'
+const PLAIN_SCREEN: ScreenKey = '/plain'
 
-function findInput(setup: TestRendererSetup, screen: ScreenId) {
+function findInput(setup: TestRendererSetup, screen: ScreenKey) {
   return setup.renderer.root.findDescendantById(screenInputId(screen)) as
     InputRenderable | undefined
 }
 
-async function waitForFocusedInput(setup: TestRendererSetup, screen: ScreenId) {
+async function waitForFocusedInput(setup: TestRendererSetup, screen: ScreenKey) {
   await setup.waitFor(() => findInput(setup, screen)?.focused === true)
   return findInput(setup, screen)!
 }
+
+beforeEach(() => navigate(HOME_SCREEN))
+afterEach(() => navigate(HOME_SCREEN))
 
 describe('native Solid screens', () => {
   test('renders and focuses all supported initial screens', async () => {
@@ -26,7 +34,8 @@ describe('native Solid screens', () => {
       [GALLERY_SCREEN, 'GALLERY SCREEN', ['HOME SCREEN', 'PLAIN SCREEN']],
       [PLAIN_SCREEN, 'PLAIN SCREEN', ['HOME SCREEN', 'GALLERY SCREEN']],
     ] as const) {
-      const setup = await testRender(() => <App initialScreen={screen} />, TEST_SIZE)
+      navigate(screen)
+      const setup = await testRender(() => <App />, TEST_SIZE)
       try {
         const frame = await setup.waitForFrame((candidate) => candidate.includes(present))
         for (const marker of absent) expect(frame).not.toContain(marker)
@@ -34,6 +43,51 @@ describe('native Solid screens', () => {
       } finally {
         setup.renderer.destroy()
       }
+    }
+  })
+
+  test('registers every screen once and follows direct navigate calls while mounted', async () => {
+    expect(Object.keys(screens).sort()).toEqual([HOME_SCREEN, GALLERY_SCREEN, PLAIN_SCREEN].sort())
+
+    const setup = await testRender(() => <App />, TEST_SIZE)
+    try {
+      const homeInput = await waitForFocusedInput(setup, HOME_SCREEN)
+      navigate(GALLERY_SCREEN)
+      const galleryInput = await waitForFocusedInput(setup, GALLERY_SCREEN)
+      expect(homeInput.isDestroyed).toBe(true)
+
+      navigate(GALLERY_SCREEN)
+      await setup.flush()
+      expect(findInput(setup, GALLERY_SCREEN)).toBe(galleryInput)
+
+      navigate(PLAIN_SCREEN)
+      const plainInput = await waitForFocusedInput(setup, PLAIN_SCREEN)
+      expect(galleryInput.isDestroyed).toBe(true)
+      expect(plainInput.focused).toBe(true)
+    } finally {
+      setup.renderer.destroy()
+    }
+  })
+
+  test('allows nested component code to call navigate directly', async () => {
+    function NestedNavigation() {
+      onMount(() => navigate(GALLERY_SCREEN))
+      return null
+    }
+
+    const setup = await testRender(
+      () => (
+        <box width="100%" height="100%">
+          <App />
+          <NestedNavigation />
+        </box>
+      ),
+      TEST_SIZE,
+    )
+    try {
+      expect((await waitForFocusedInput(setup, GALLERY_SCREEN)).focused).toBe(true)
+    } finally {
+      setup.renderer.destroy()
     }
   })
 
@@ -54,6 +108,10 @@ describe('native Solid screens', () => {
       expect(firstHomeInput.focused).toBe(true)
       expect(firstHomeInput.value).toBe('homex')
 
+      setup.mockInput.pressArrow('down', { shift: true })
+      await setup.flush()
+      expect(findInput(setup, HOME_SCREEN)).toBe(firstHomeInput)
+
       setup.renderer.stdin.emit('data', Buffer.from('\u001bOB'))
       const galleryInput = await waitForFocusedInput(setup, GALLERY_SCREEN)
       expect(firstHomeInput.isDestroyed).toBe(true)
@@ -68,6 +126,32 @@ describe('native Solid screens', () => {
       const secondHomeInput = await waitForFocusedInput(setup, HOME_SCREEN)
       expect(plainInput.isDestroyed).toBe(true)
       expect(secondHomeInput.focused).toBe(true)
+    } finally {
+      setup.renderer.destroy()
+    }
+  })
+
+  test('runs every default keyboard transition through raw CSI and SS3 input', async () => {
+    const transitions: readonly [ScreenKey, ScreenKey, string][] = [
+      [HOME_SCREEN, GALLERY_SCREEN, '\u001b[B'],
+      [HOME_SCREEN, PLAIN_SCREEN, '\u001bOA'],
+      [GALLERY_SCREEN, HOME_SCREEN, '\u001b[A'],
+      [GALLERY_SCREEN, PLAIN_SCREEN, '\u001bOB'],
+      [PLAIN_SCREEN, GALLERY_SCREEN, '\u001b[A'],
+      [PLAIN_SCREEN, HOME_SCREEN, '\u001bOB'],
+    ]
+    const setup = await testRender(() => <App />, TEST_SIZE)
+
+    try {
+      for (const [from, to, bytes] of transitions) {
+        navigate(from)
+        const sourceInput = await waitForFocusedInput(setup, from)
+        setup.renderer.stdin.emit('data', Buffer.from(bytes))
+        const destinationInput = await waitForFocusedInput(setup, to)
+        expect(sourceInput.isDestroyed).toBe(true)
+        expect(destinationInput.focused).toBe(true)
+        expect(setup.captureCharFrame()).toContain('VALUE: 0')
+      }
     } finally {
       setup.renderer.destroy()
     }
@@ -204,7 +288,7 @@ describe('native Solid screens', () => {
     const setup = await testRender(
       () => (
         <PixelRenderer uri="https://example.test/not-local.png" width="100%" height="100%">
-          <ScreenControls label="HOME SCREEN" screen={HOME_SCREEN} />
+          <ScreenControls label="HOME SCREEN" />
         </PixelRenderer>
       ),
       TEST_SIZE,

@@ -1,46 +1,40 @@
-import { useKeyboard } from '@opentui/solid'
-import { createSignal, Match, Switch } from 'solid-js'
+import { Dynamic, useKeyboard } from '@opentui/solid'
 import { getAppConfig } from '../shared/config'
-import { GalleryScreen } from './screens/GalleryScreen'
-import { HomeScreen } from './screens/HomeScreen'
-import { PlainScreen } from './screens/PlainScreen'
-import {
-  GALLERY_SCREEN,
-  HOME_SCREEN,
-  PLAIN_SCREEN,
-  screenForVerticalKey,
-  type ScreenId,
-} from './screen-state'
+import { navigate, screen } from './app-store'
+import { screens } from './screens'
 
-export interface AppProps {
-  initialScreen?: ScreenId
-}
-
-export function App(props: AppProps) {
+export function App() {
   const config = getAppConfig()
-  const [screen, setScreen] = createSignal<ScreenId>(props.initialScreen ?? HOME_SCREEN)
-  const navigate = (next: ScreenId) => setScreen(next)
 
+  // This callback is the template user's keyboard configuration. navigate() itself is key-agnostic.
   useKeyboard((key) => {
-    const destination = screenForVerticalKey(screen(), key)
-    if (destination === undefined) return
-    key.preventDefault()
-    navigate(destination)
+    if (key.ctrl || key.hyper || key.meta || key.option || key.shift || key.super) return
+
+    const current = screen()
+    if (current === '/' && key.name === 'down') {
+      key.preventDefault()
+      navigate('/gallery')
+    } else if (current === '/' && key.name === 'up') {
+      key.preventDefault()
+      navigate('/plain')
+    } else if (current === '/gallery' && key.name === 'up') {
+      key.preventDefault()
+      navigate('/')
+    } else if (current === '/gallery' && key.name === 'down') {
+      key.preventDefault()
+      navigate('/plain')
+    } else if (current === '/plain' && key.name === 'up') {
+      key.preventDefault()
+      navigate('/gallery')
+    } else if (current === '/plain' && key.name === 'down') {
+      key.preventDefault()
+      navigate('/')
+    }
   })
 
   return (
     <box width="100%" height="100%" backgroundColor={config.backgroundColor}>
-      <Switch>
-        <Match when={screen() === HOME_SCREEN}>
-          <HomeScreen />
-        </Match>
-        <Match when={screen() === GALLERY_SCREEN}>
-          <GalleryScreen />
-        </Match>
-        <Match when={screen() === PLAIN_SCREEN}>
-          <PlainScreen />
-        </Match>
-      </Switch>
+      <Dynamic component={screens[screen()]} />
     </box>
   )
 }
