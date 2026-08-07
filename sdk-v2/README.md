@@ -20,28 +20,31 @@ The supported release targets are macOS arm64 and x64.
 Application authors normally edit:
 
 - `app.config.json` and `app.icon.png`
+- `app/store.ts` for durable application data and actions
 - `app/screens.ts`
 - files under `app/screens/`, `app/components/`, and `app/assets/`
 - `app/App.tsx` when changing global keyboard navigation
 
-They normally do not edit `app/index.tsx`, `app/app-store.ts`, `termweave/`, `scripts/`,
+They normally do not edit `app/index.tsx`, `termweave/`, `scripts/`,
 `src-tauri/`, build configuration, manifests, lockfiles, or generated output.
 
-`app.icon.png` intentionally has two roles in the starter: it is the packaged application icon and
-the Gallery screen's bundled PNG example. The Home screen demonstrates a bundled GIF; Plain shows
-ordinary OpenTUI content without native media drawing.
+`app.icon.png` is only the packaged application icon. Animation demonstrates
+`app/assets/campfire.gif`, Picture renders the committed first-frame `campfire.png`, and Plain shows
+ordinary OpenTUI content without native media drawing. The starter counter and input are global
+application state, so their values persist while navigating among all three screens.
 
 ## Ownership map
 
-| Path                     | Responsibility                                                                 |
-| ------------------------ | ------------------------------------------------------------------------------ |
-| `app/`                   | User-owned application composition, screens, controls, assets, and navigation. |
-| `termweave/components/`  | SDK Solid components and image decoding/rendering.                             |
-| `termweave/host/`        | WebView terminal, CRT postprocessor, monitor presentation, and SDK assets.     |
-| `termweave/config.ts`    | Internal application-config parsing and the narrow public resolved view.       |
-| `termweave/constants.ts` | Fixed terminal, color, error, and native-asset policy.                         |
-| `termweave/sidecar.tsx`  | fd 0, OpenTUI renderer, raw stdout, and shutdown lifecycle.                    |
-| `scripts/`, `src-tauri/` | Build preparation and native packaging.                                        |
+| Path                            | Responsibility                                                                   |
+| ------------------------------- | -------------------------------------------------------------------------------- |
+| `app/`                          | User-owned state, composition, screens, controls, assets, and navigation policy. |
+| `termweave/components/`         | SDK Solid components and the source/frame/decoder/playback image pipeline.       |
+| `termweave/host/`               | WebView host, xterm/session ownership, monitor presentation, and CRT effects.    |
+| `termweave/config.ts`           | Internal application-config parsing and the narrow public resolved view.         |
+| `termweave/constants.ts`        | Fixed terminal, color, error, and native-asset policy.                           |
+| `termweave/navigation-store.ts` | Reusable generic screen-selection mechanics.                                     |
+| `termweave/sidecar-runtime.tsx` | fd 0, OpenTUI renderer, raw stdout, and shutdown lifecycle.                      |
+| `scripts/`, `src-tauri/`        | Build preparation and native packaging.                                          |
 
 Ordinary `app/` files import SDK features only from `#termweave`. `app/index.tsx` is the sole
 composition root and passes `App` to the runtime bootstrap. `termweave/` never imports application
@@ -72,13 +75,15 @@ missing `themeColor`.
 Terminal geometry, 20px font size, foreground/cursor color, monitor geometry, CSS noise, and CRT
 optical calibration are SDK-owned and fixed.
 
-## Public component API
+## Public SDK API
 
 ```ts
-import { PixelRenderer, getTermweaveConfig } from '#termweave'
+import { PixelRenderer, createScreenNavigation, getTermweaveConfig } from '#termweave'
 ```
 
-The runtime exports exactly `PixelRenderer` and `getTermweaveConfig`. The latter returns only:
+The runtime exports exactly `PixelRenderer`, `getTermweaveConfig`, and `createScreenNavigation`.
+The public types are `PixelRendererProps`, `TermweaveConfig`, and `ScreenNavigation`. Configuration
+still returns only:
 
 ```ts
 interface TermweaveConfig {
@@ -87,8 +92,14 @@ interface TermweaveConfig {
 }
 ```
 
-Navigation remains application-owned: `app/screens.ts` is the sole registry, `ScreenKey` is inferred
-from it, and `navigate(destination)` is callable directly from screens or nested components.
+`createScreenNavigation<Screen>(initialScreen)` is a generic signal-backed selector with a readonly
+`screen` accessor and typed `navigate(destination)` action. `app/store.ts` creates the starter's
+`ScreenKey`-typed instance, while `app/screens.ts` remains the sole registry and `App.tsx` owns all
+keyboard transition choices. This is screen selection, not URL routing, history, or a provider.
+
+Application state also lives in `app/store.ts`. Keep focus handles, timers, renderer objects, and
+other mount-bound resources inside components; use the store only for data that should survive
+screen remounts.
 
 ## Commands
 

@@ -11,6 +11,10 @@ This is primarily a structural refactor, with one intentional starter behavior c
 counter and input become global application state and therefore persist across screen navigation.
 Transport, rendering, fallback, packaging, and lifecycle guarantees remain unchanged.
 
+> Implementation status (2026-08-08): the structural migration, automated acceptance matrix,
+> sanitized native launch, bundle inspection, and clean-copy install/dev/build validation are
+> complete. Physical 1×/2× visual verification remains the release gate.
+
 ## Final decisions
 
 - Rename `app/app-store.ts` to `app/store.ts` and reserve it for user-owned global application data.
@@ -486,67 +490,67 @@ Retain narrow source checks only where pinned upstream behavior is the contract:
 
 ### 1. Baseline and safety snapshot
 
-- [ ] Record the current working-tree diff and test count.
-- [ ] Hash `sdk/`, `sdk-v2/bun.lock`, `sdk-v2/src-tauri/Cargo.toml`, and
+- [x] Record the current working-tree diff and test count.
+- [x] Hash `sdk/`, `sdk-v2/bun.lock`, `sdk-v2/src-tauri/Cargo.toml`, and
   `sdk-v2/src-tauri/Cargo.lock`.
-- [ ] Run the current test, typecheck, lint, format, check, and build commands.
-- [ ] Record the public exports and current runtime import graph.
+- [x] Run the current test, typecheck, lint, format, check, and build commands.
+- [x] Record the public exports and current runtime import graph.
 
 ### 2. Application state and navigation ownership
 
-- [ ] Add `termweave/navigation-store.ts` with generic `createScreenNavigation()`.
-- [ ] Export the navigation factory and type from `#termweave`.
-- [ ] Rename `app/app-store.ts` to `app/store.ts`, instantiate typed SDK navigation there, and move
+- [x] Add `termweave/navigation-store.ts` with generic `createScreenNavigation()`.
+- [x] Export the navigation factory and type from `#termweave`.
+- [x] Rename `app/app-store.ts` to `app/store.ts`, instantiate typed SDK navigation there, and move
   counter/input state into the same application-state module.
-- [ ] Replace navigation and state imports in `App.tsx`, components, screens, and tests.
-- [ ] Rename `ScreenControls` to `AppStatePanel` and bind it to the global app store.
-- [ ] Rename Home/Gallery to Animation/Picture and align registry keys, labels, transitions, and
+- [x] Replace navigation and state imports in `App.tsx`, components, screens, and tests.
+- [x] Rename `ScreenControls` to `AppStatePanel` and bind it to the global app store.
+- [x] Rename Home/Gallery to Animation/Picture and align registry keys, labels, transitions, and
   tests.
-- [ ] Generate and commit `app/assets/campfire.png` from the GIF's first composited frame and stop
+- [x] Generate and commit `app/assets/campfire.png` from the GIF's first composited frame and stop
   using `app.icon.png` as example media.
-- [ ] Update lifecycle tests from local reset to intentional global persistence.
+- [x] Update lifecycle tests from local reset to intentional global persistence.
 
 ### 3. Entrypoint and presentation naming
 
-- [ ] Rename the sidecar runtime and its bootstrap function.
-- [ ] Extract `startWebviewHost()` and leave a thin WebView entrypoint.
-- [ ] Rename monitor presentation files, symbols, CSS, DOM-facing test descriptions, and paths.
-- [ ] Update `index.html`, Vite watcher ignores, docs, and contract tests.
+- [x] Rename the sidecar runtime and its bootstrap function.
+- [x] Extract `startWebviewHost()` and leave a thin WebView entrypoint.
+- [x] Rename monitor presentation files, symbols, CSS, DOM-facing test descriptions, and paths.
+- [x] Update `index.html`, Vite watcher ignores, docs, and contract tests.
 
 ### 4. Terminal responsibility split
 
-- [ ] Extract xterm construction into `xterm-terminal.ts`.
-- [ ] Create `host/crt-effects/` and move CRT optics, postprocessing, palette, atlas support, CSS,
+- [x] Extract xterm construction into `xterm-terminal.ts`.
+- [x] Create `host/crt-effects/` and move CRT optics, postprocessing, palette, atlas support, CSS,
   and noise into it.
-- [ ] Extract CRT activation/fallback into `crt-effects/crt-renderer.ts`.
-- [ ] Extract sidecar transport/window lifecycle into `sidecar-session.ts`.
-- [ ] Rename controller, status, factory, process, and capability types.
-- [ ] Preserve startup order, fallback latching, atlas recycling, redraw, diagnostics, and disposal.
+- [x] Extract CRT activation/fallback into `crt-effects/crt-renderer.ts`.
+- [x] Extract sidecar transport/window lifecycle into `sidecar-session.ts`.
+- [x] Rename controller, status, factory, process, and capability types.
+- [x] Preserve startup order, fallback latching, atlas recycling, redraw, diagnostics, and disposal.
 
 ### 5. Pixel image responsibility split
 
-- [ ] Move palette-owned RGB typing into `crt-palette.ts` and keep the other short color conversions
+- [x] Move palette-owned RGB typing into `crt-palette.ts` and keep the other short color conversions
   local.
-- [ ] Extract image source, frame operations, decoding, playback, and controller modules.
-- [ ] Rename internal functions and update PixelRenderer imports.
-- [ ] Split tests by domain while retaining decode, GIF disposal, drift, cancellation, stale-result,
+- [x] Extract image source, frame operations, decoding, playback, and controller modules.
+- [x] Rename internal functions and update PixelRenderer imports.
+- [x] Split tests by domain while retaining decode, GIF disposal, drift, cancellation, stale-result,
   error, resize, and draw coverage.
 
 ### 6. Tooling and test modernization
 
-- [ ] Rename the development launcher and build/preparation symbols.
-- [ ] Replace authored-source assertions with behavior, dependency injection, import-graph, and
+- [x] Rename the development launcher and build/preparation symbols.
+- [x] Replace authored-source assertions with behavior, dependency injection, import-graph, and
   bundle assertions.
-- [ ] Retain only the justified upstream/shader source contracts.
-- [ ] Confirm no newly exported internal helper leaks through `#termweave`.
+- [x] Retain only the justified upstream/shader source contracts.
+- [x] Confirm no newly exported internal helper leaks through `#termweave`.
 
 ### 7. Documentation and release validation
 
-- [ ] Update all active docs and first-day guidance.
-- [ ] Run the full automated acceptance matrix.
-- [ ] Inspect the native application bundle and run sanitized-environment launch smoke.
-- [ ] Repeat clean-copy install/dev/build verification.
-- [ ] Recheck protected hashes and confirm no changes under `sdk/` or lock/Cargo files.
+- [x] Update all active docs and first-day guidance.
+- [x] Run the full automated acceptance matrix.
+- [x] Inspect the native application bundle and run sanitized-environment launch smoke.
+- [x] Repeat clean-copy install/dev/build verification.
+- [x] Recheck protected hashes and confirm no changes under `sdk/` or lock/Cargo files.
 
 ## Automated acceptance
 

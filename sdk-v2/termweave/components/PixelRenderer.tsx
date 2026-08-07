@@ -6,13 +6,13 @@ import {
   PIXEL_RENDERER_ERROR_BACKGROUND_COLOR,
   PIXEL_RENDERER_ERROR_FOREGROUND_COLOR,
 } from '../constants'
+import { createImagePlaybackController } from './image-controller'
 import {
-  centeredViewport,
-  createImageController,
+  calculateCenteredViewport,
   parseHexColor,
   type AnimationFrame,
   type Dimensions,
-} from './image'
+} from './pixel-frame'
 
 const ERROR_LENGTH = 220
 
@@ -24,7 +24,7 @@ export interface PixelRendererProps {
   height?: PixelRendererDimension
 }
 
-export function pixelRendererErrorMessage(error: unknown) {
+export function formatPixelRendererError(error: unknown) {
   const normalized = (error instanceof Error ? error.message : String(error))
     .trim()
     .replaceAll(/\s+/g, ' ')
@@ -32,13 +32,13 @@ export function pixelRendererErrorMessage(error: unknown) {
   return message.length <= ERROR_LENGTH ? message : `${message.slice(0, ERROR_LENGTH - 1)}…`
 }
 
-export function drawPixelFrame(
+export function drawPixelFrameToBuffer(
   buffer: Pick<OptimizedBuffer, 'drawSuperSampleBuffer' | 'popScissorRect' | 'pushScissorRect'>,
   surface: Pick<BoxRenderable, 'screenX' | 'screenY'>,
   container: Dimensions,
   frame: AnimationFrame,
 ) {
-  const viewport = centeredViewport(container, frame)
+  const viewport = calculateCenteredViewport(container, frame)
   const x = surface.screenX + viewport.x
   const y = surface.screenY + viewport.y
   if (x < 0 || y < 0) throw new Error('The fitted image is outside the active terminal buffer.')
@@ -75,10 +75,10 @@ export function PixelRenderer(props: ParentProps<PixelRendererProps>) {
     requestRender()
   }
   const showError = (nextError: unknown | undefined) => {
-    setError(nextError === undefined ? '' : pixelRendererErrorMessage(nextError))
+    setError(nextError === undefined ? '' : formatPixelRendererError(nextError))
     requestRender()
   }
-  const controller = createImageController({ onError: showError, onFrame: showFrame })
+  const controller = createImagePlaybackController({ onError: showError, onFrame: showFrame })
   const updateDimensions = () => {
     if (!surface) return
     const next = {
@@ -120,7 +120,7 @@ export function PixelRenderer(props: ParentProps<PixelRendererProps>) {
         if (!surface || !currentFrame) return
         const frame = currentFrame
         try {
-          drawPixelFrame(buffer, surface, container(), frame)
+          drawPixelFrameToBuffer(buffer, surface, container(), frame)
         } catch (drawError) {
           currentFrame = undefined
           queueMicrotask(() => {

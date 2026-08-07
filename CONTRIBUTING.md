@@ -16,17 +16,19 @@ bun run dev
 
 ## Ownership and import direction
 
-| Path              | Owner and purpose                                                                       |
-| ----------------- | --------------------------------------------------------------------------------------- |
-| `app/`            | Application screens, components, assets, navigation, and the composition root.          |
-| `termweave/`      | SDK components, sidecar bootstrap, configuration parsing, host runtime, and SDK assets. |
-| `scripts/`        | Preparation, native-sidecar build, and development tooling.                             |
-| `src-tauri/`      | Conventional native host and generated native output.                                   |
-| `tests/`, `docs/` | Verification and architecture documentation.                                            |
+| Path              | Owner and purpose                                                                           |
+| ----------------- | ------------------------------------------------------------------------------------------- |
+| `app/`            | Application screens, durable state, components, assets, navigation policy, and composition. |
+| `termweave/`      | SDK components, sidecar bootstrap, configuration parsing, host runtime, and SDK assets.     |
+| `scripts/`        | Preparation, native-sidecar build, and development tooling.                                 |
+| `src-tauri/`      | Conventional native host and generated native output.                                       |
+| `tests/`, `docs/` | Verification and architecture documentation.                                                |
 
 Ordinary application files consume SDK features through `#termweave`. `app/index.tsx` is the sole
 composition-root exception: it supplies `App` to the SDK sidecar bootstrap. SDK runtime modules
-must never import application components.
+must never import application components. `app/store.ts` owns the application navigation instance
+and durable user data; `termweave/navigation-store.ts` owns only reusable screen-selection
+mechanics.
 
 ## Validate changes
 

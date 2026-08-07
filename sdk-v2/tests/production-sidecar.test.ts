@@ -48,13 +48,13 @@ describe('compiled production sidecar', () => {
 
     try {
       const deadline = performance.now() + 10_000
-      while (!stdout.includes('HOME SCREEN') && performance.now() < deadline) {
+      while (!stdout.includes('ANIMATION SCREEN') && performance.now() < deadline) {
         if (exitCode !== undefined) {
           throw new Error(`Production sidecar exited with ${String(exitCode)}: ${stderr}`)
         }
         await Bun.sleep(20)
       }
-      expect(stdout).toContain('HOME SCREEN')
+      expect(stdout).toContain('ANIMATION SCREEN')
       expect(stderr).toBe('')
     } finally {
       child.kill('SIGTERM')

@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import {
   buildProductionSidecar,
-  buildSidecar,
-  getSidecarOutputPath,
+  buildSidecarBinary,
+  getSidecarBinaryPath,
 } from '../scripts/build-sidecar'
 
 let root = ''
@@ -20,10 +20,10 @@ afterEach(async () => {
 
 describe('production sidecar build', () => {
   test('uses Tauri external-binary names for both macOS architectures', () => {
-    expect(getSidecarOutputPath('/sdk', 'aarch64-apple-darwin')).toBe(
+    expect(getSidecarBinaryPath('/sdk', 'aarch64-apple-darwin')).toBe(
       '/sdk/src-tauri/binaries/opentui-sidecar-aarch64-apple-darwin',
     )
-    expect(getSidecarOutputPath('/sdk', 'x86_64-apple-darwin')).toBe(
+    expect(getSidecarBinaryPath('/sdk', 'x86_64-apple-darwin')).toBe(
       '/sdk/src-tauri/binaries/opentui-sidecar-x86_64-apple-darwin',
     )
   })
@@ -73,7 +73,7 @@ describe('production sidecar build', () => {
 
   test('compiles the development launcher with the project and Bun paths', async () => {
     let buildOptions: Parameters<typeof Bun.build>[0] | undefined
-    const outputPath = await buildSidecar({
+    const outputPath = await buildSidecarBinary({
       mode: 'development',
       root,
       triple: 'aarch64-apple-darwin',
@@ -85,7 +85,7 @@ describe('production sidecar build', () => {
       },
     })
 
-    expect(buildOptions?.entrypoints).toEqual([resolve(root, 'scripts/dev-sidecar.ts')])
+    expect(buildOptions?.entrypoints).toEqual([resolve(root, 'scripts/development-launcher.ts')])
     expect(buildOptions?.compile).toEqual({ outfile: outputPath })
     expect(buildOptions?.define).toEqual({
       __TERMWEAVE_BUN_EXECUTABLE__: '"/opt/bun/bin/bun"',
@@ -111,7 +111,7 @@ describe('production sidecar build', () => {
 
   test('labels development launcher build failures', async () => {
     await expect(
-      buildSidecar({
+      buildSidecarBinary({
         mode: 'development',
         root,
         triple: 'aarch64-apple-darwin',

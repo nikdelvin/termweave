@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { readFile } from 'node:fs/promises'
 import packageManifest from '../package.json'
+import { getOpenTuiNativeAsset } from '../scripts/prepare'
 import capabilities from '../src-tauri/capabilities/default.json'
 import tauriConfig from '../src-tauri/tauri.conf.json'
+import { OPENTUI_ASSET_ROOT_DIRECTORY } from '../termweave/constants'
 
 describe('Tauri runtime configuration', () => {
   test('keeps tracked metadata SDK-owned until the generated application override is applied', () => {
@@ -11,7 +12,7 @@ describe('Tauri runtime configuration', () => {
     expect(tauriConfig.identifier).toBe('dev.termweave.sdk')
     expect(tauriConfig.app.windows[0]?.title).toBe('Termweave SDK Runtime')
     expect(tauriConfig.app.windows[0]).not.toHaveProperty('backgroundColor')
-    expect(tauriConfig.bundle.icon).toEqual(['../termweave/host/assets/crt-noise.png'])
+    expect(tauriConfig.bundle.icon).toEqual(['../termweave/host/crt-effects/assets/crt-noise.png'])
   })
 
   test('bundles exactly the OpenTUI sidecar and permits only scoped process operations', () => {
@@ -39,15 +40,11 @@ describe('Tauri runtime configuration', () => {
     expect(csp).not.toMatch(/wss?:|127\.0\.0\.1|localhost:\d/)
   })
 
-  test('passes the packaged OpenTUI native-asset root to the sidecar', async () => {
-    const [main, prepare] = await Promise.all([
-      readFile(new URL('../termweave/host/main.ts', import.meta.url), 'utf8'),
-      readFile(new URL('../scripts/prepare.ts', import.meta.url), 'utf8'),
-    ])
-
-    expect(prepare).toContain('[nativeAsset.sourcePath]: nativeAsset.resourcePath')
-    expect(main).toContain('await join(await resourceDir(), OPENTUI_ASSET_ROOT_DIRECTORY)')
-    expect(main).toContain("env: { DEBUG: '', OTUI_ASSET_ROOT: opentuiAssetRoot }")
+  test('uses one packaged root for the prepared OpenTUI native library', () => {
+    const nativeLibrary = getOpenTuiNativeAsset('/sdk', 'darwin', 'arm64')
+    expect(nativeLibrary.resourcePath).toBe(
+      `${OPENTUI_ASSET_ROOT_DIRECTORY}/@opentui/core-darwin-arm64/libopentui.dylib`,
+    )
   })
 })
 

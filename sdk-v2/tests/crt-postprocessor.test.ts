@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   CrtPostprocessor,
   type RuntimePostprocessorFailure,
-} from '../termweave/host/crt-postprocessor'
+} from '../termweave/host/crt-effects/crt-postprocessor'
 
 type GlObject = { readonly kind: string; readonly id: number }
 

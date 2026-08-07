@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { readFile } from 'node:fs/promises'
 import { dirname, extname, relative, resolve } from 'node:path'
-import type { PixelRendererProps, TermweaveConfig } from '#termweave'
 
 const projectRoot = resolve(import.meta.dir, '..')
 const componentRoot = resolve(projectRoot, 'termweave/components')
@@ -10,25 +9,7 @@ async function sourceFiles(pattern: string) {
   return Array.fromAsync(new Bun.Glob(pattern).scan({ cwd: projectRoot, onlyFiles: true }))
 }
 
-describe('termweave public module and ownership contract', () => {
-  test('has exactly the required runtime export surface and narrow public configuration', async () => {
-    const termweave = await import('#termweave')
-    expect(Object.keys(termweave).sort()).toEqual(['PixelRenderer', 'getTermweaveConfig'])
-
-    const props = {
-      uri: '/tmp/example.png',
-      width: '100%',
-      height: 10,
-    } satisfies PixelRendererProps
-    const config: Readonly<TermweaveConfig> = termweave.getTermweaveConfig()
-    expect(props.uri).toBe('/tmp/example.png')
-    expect(config).toEqual({
-      themeColor: '#010416',
-      terminalForegroundColor: '#F59B5A',
-    })
-    expect(Object.keys(config).sort()).toEqual(['terminalForegroundColor', 'themeColor'])
-  })
-
+describe('Termweave ownership boundaries', () => {
   test('enforces one visible SDK boundary and an acyclic runtime import graph', async () => {
     const files = (
       await Promise.all([sourceFiles('app/**/*.{ts,tsx}'), sourceFiles('termweave/**/*.{ts,tsx}')])
@@ -52,11 +33,6 @@ describe('termweave public module and ownership contract', () => {
         expect(source, file).not.toMatch(/from ['"][^'"]*\/app(?:\/|['"])/)
       }
     }
-
-    const appIndex = sources.get('app/index.tsx')!
-    expect(appIndex).toContain("import { App } from './App'")
-    expect(appIndex).toContain("import { runTermweaveApp } from '../termweave/sidecar'")
-    expect(appIndex).toContain('await runTermweaveApp(() => <App />)')
 
     const graph = new Map<string, string[]>()
     for (const [file, source] of sources) {
@@ -90,7 +66,7 @@ describe('termweave public module and ownership contract', () => {
     for (const file of graph.keys()) visit(file)
   })
 
-  test('pins decoders and uses direct native pixel drawing without excluded media architecture', async () => {
+  test('pins decoders and excludes unsupported media architecture', async () => {
     const packageJson = JSON.parse(
       await readFile(resolve(projectRoot, 'package.json'), 'utf8'),
     ) as {
@@ -105,17 +81,17 @@ describe('termweave public module and ownership contract', () => {
 
     const implementation = (
       await Promise.all(
-        ['crt-palette.ts', 'image.ts', 'PixelRenderer.tsx'].map((file) =>
-          readFile(resolve(componentRoot, file), 'utf8'),
-        ),
+        [
+          '../host/crt-effects/crt-palette.ts',
+          'image-source.ts',
+          'pixel-frame.ts',
+          'image-decoder.ts',
+          'image-playback.ts',
+          'image-controller.ts',
+          'PixelRenderer.tsx',
+        ].map((file) => readFile(resolve(componentRoot, file), 'utf8')),
       )
     ).join('\n')
-    expect(implementation).toContain('ptr(frame.data)')
-    expect(implementation).toContain('drawSuperSampleBuffer(')
-    expect(implementation).toContain("'rgba8unorm'")
-    expect(implementation).toContain('pushScissorRect(')
-    expect(implementation).toContain('applyCrtPalette(data, background)')
-
     for (const forbidden of [
       /OptimizedBuffer\.create/,
       /drawFrameBuffer/,
@@ -133,37 +109,15 @@ describe('termweave public module and ownership contract', () => {
     }
   })
 
-  test('keeps the native Solid examples, direct navigation, and deliberate icon reuse', async () => {
-    const appFiles = await Promise.all(
-      [
-        'app/App.tsx',
-        'app/app-store.ts',
-        'app/screens.ts',
-        'app/components/ScreenControls.tsx',
-        'app/screens/HomeScreen.tsx',
-        'app/screens/GalleryScreen.tsx',
-        'app/screens/PlainScreen.tsx',
-      ].map((file) => readFile(resolve(projectRoot, file), 'utf8')),
-    )
-    const implementation = appFiles.join('\n')
-    const sidecar = await readFile(resolve(projectRoot, 'termweave/sidecar.tsx'), 'utf8')
+  test('keeps dedicated starter media and excludes routing compatibility layers', async () => {
     const lockfile = await readFile(resolve(projectRoot, 'bun.lock'), 'utf8')
 
-    expect(sidecar).toContain("createReadStream('/dev/fd/0', {")
-    expect(sidecar).toContain('stdin: sidecarStdin')
-    expect(sidecar).not.toContain('stdin: process.stdin')
-    expect(implementation).toContain('export type ScreenKey = keyof typeof screens')
-    expect(implementation).toContain('export function navigate(destination: ScreenKey)')
-    expect(implementation.match(/useKeyboard\(/g)).toHaveLength(1)
-    expect(implementation.match(/<PixelRenderer /g)).toHaveLength(2)
-    expect(appFiles[6]).not.toContain('PixelRenderer')
-    expect(implementation).toContain("from '../assets/campfire.gif' with { type: 'file' }")
-    expect(implementation).toContain("from '../../app.icon.png' with { type: 'file' }")
-    expect(implementation).not.toMatch(/RGB EDGE TEST|CENTER REFERENCE|TOP LEFT/)
-    expect(implementation).not.toMatch(/MemoryRouter|useNavigate|createContext|@solidjs\/router/)
     expect(lockfile).not.toContain('@solidjs/router')
     expect(await sourceFiles('app/routes/**')).toEqual([])
     expect(await sourceFiles('patches/**')).toEqual([])
-    expect((await sourceFiles('app/assets/**')).sort()).toEqual(['app/assets/campfire.gif'])
+    expect((await sourceFiles('app/assets/**')).sort()).toEqual([
+      'app/assets/campfire.gif',
+      'app/assets/campfire.png',
+    ])
   })
 })

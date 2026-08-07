@@ -10,7 +10,7 @@ function writeDiagnostic(error: unknown) {
   process.stderr.write(`${message}\n`)
 }
 
-export async function runTermweaveApp(root: () => JSX.Element) {
+export async function startTermweaveSidecar(root: () => JSX.Element) {
   const rendererState: { current?: CliRenderer } = {}
   // The macOS sidecar owns a duplicate of fd 0. Bun's process.stdin wrapper can reach EOF when
   // OpenTUI becomes quiescent after a static native-media frame, even while Tauri's pipe remains

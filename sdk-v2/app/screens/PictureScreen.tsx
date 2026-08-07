@@ -1,8 +1,8 @@
 import { PixelRenderer } from '#termweave'
-import campfireUri from '../assets/campfire.gif' with { type: 'file' }
-import { ScreenControls } from '../components/ScreenControls'
+import campfireUri from '../assets/campfire.png' with { type: 'file' }
+import { AppStatePanel } from '../components/AppStatePanel'
 
-export function HomeScreen() {
+export function PictureScreen() {
   return (
     <PixelRenderer uri={campfireUri} width="100%" height="100%">
       <box
@@ -17,18 +17,17 @@ export function HomeScreen() {
       >
         <box
           width={72}
-          height={8}
+          height={7}
           padding={2}
           border
           borderStyle="heavy"
           borderColor="#FFFFFF"
           flexDirection="column"
         >
-          <text fg="#FFFFFF">TERMWEAVE APP</text>
-          <text fg="#FFFFFF">A bundled GIF rendered behind ordinary OpenTUI layout.</text>
-          <text fg="#FFFFFF">UP/DOWN: CHANGE SCREEN</text>
+          <text fg="#FFFFFF">PICTURE SCREEN · BUNDLED PNG</text>
+          <text fg="#FFFFFF">The PNG is the animation's committed first frame.</text>
         </box>
-        <ScreenControls label="HOME SCREEN" />
+        <AppStatePanel label="PICTURE SCREEN" />
       </box>
     </PixelRenderer>
   )

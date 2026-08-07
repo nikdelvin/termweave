@@ -1,4 +1,4 @@
-import type { Rgb } from './image'
+export type Rgb = readonly [red: number, green: number, blue: number]
 
 const RED_WEIGHT = 54
 const GREEN_WEIGHT = 183

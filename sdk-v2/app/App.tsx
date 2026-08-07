@@ -1,6 +1,6 @@
 import { Dynamic, useKeyboard } from '@opentui/solid'
 import { getTermweaveConfig } from '#termweave'
-import { navigate, screen } from './app-store'
+import { navigate, screen } from './store'
 import { screens } from './screens'
 
 export function App() {
@@ -11,24 +11,24 @@ export function App() {
     if (key.ctrl || key.hyper || key.meta || key.option || key.shift || key.super) return
 
     const current = screen()
-    if (current === '/' && key.name === 'down') {
+    if (current === 'animation' && key.name === 'down') {
       key.preventDefault()
-      navigate('/gallery')
-    } else if (current === '/' && key.name === 'up') {
+      navigate('picture')
+    } else if (current === 'animation' && key.name === 'up') {
       key.preventDefault()
-      navigate('/plain')
-    } else if (current === '/gallery' && key.name === 'up') {
+      navigate('plain')
+    } else if (current === 'picture' && key.name === 'up') {
       key.preventDefault()
-      navigate('/')
-    } else if (current === '/gallery' && key.name === 'down') {
+      navigate('animation')
+    } else if (current === 'picture' && key.name === 'down') {
       key.preventDefault()
-      navigate('/plain')
-    } else if (current === '/plain' && key.name === 'up') {
+      navigate('plain')
+    } else if (current === 'plain' && key.name === 'up') {
       key.preventDefault()
-      navigate('/gallery')
-    } else if (current === '/plain' && key.name === 'down') {
+      navigate('picture')
+    } else if (current === 'plain' && key.name === 'down') {
       key.preventDefault()
-      navigate('/')
+      navigate('animation')
     }
   })
 

@@ -14,7 +14,7 @@ export const desktopIconFiles = [
   'icon.ico',
 ] as const
 
-export type GenerateIcons = (options: {
+export type IconGenerator = (options: {
   root: string
   iconPath: string
   outputDirectory: string
@@ -22,12 +22,12 @@ export type GenerateIcons = (options: {
 
 type PrepareOptions = {
   root?: string
-  generateIcons?: GenerateIcons
+  generateIcons?: IconGenerator
   platform?: NodeJS.Platform
   arch?: NodeJS.Architecture
 }
 
-export type OpenTuiNativeAsset = Readonly<{
+export type OpenTuiNativeLibrary = Readonly<{
   packageName: string
   fileName: string
   sourcePath: string
@@ -92,7 +92,7 @@ export function getOpenTuiNativeAsset(
   root: string,
   platform: NodeJS.Platform = process.platform,
   arch: NodeJS.Architecture = process.arch,
-): OpenTuiNativeAsset {
+): OpenTuiNativeLibrary {
   if (platform !== 'darwin' || (arch !== 'arm64' && arch !== 'x64')) {
     throw new Error(`Termweave v2 supports only macOS arm64 and x64, not ${platform}-${arch}`)
   }
@@ -127,7 +127,7 @@ async function generateTauriIcons({
   root,
   iconPath,
   outputDirectory,
-}: Parameters<GenerateIcons>[0]): Promise<void> {
+}: Parameters<IconGenerator>[0]): Promise<void> {
   const tauriCliPath = resolve(root, 'node_modules/@tauri-apps/cli/tauri.js')
   try {
     const cliStats = await stat(tauriCliPath)
@@ -155,7 +155,7 @@ async function generateTauriIcons({
   }
 }
 
-function createOverride(config: AppConfig, nativeAsset: OpenTuiNativeAsset) {
+function createOverride(config: AppConfig, nativeAsset: OpenTuiNativeLibrary) {
   return {
     productName: config.name,
     version: config.version,

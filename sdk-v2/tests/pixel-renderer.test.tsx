@@ -10,8 +10,8 @@ import { join } from 'node:path'
 import { createSignal } from 'solid-js'
 import {
   PixelRenderer,
-  drawPixelFrame,
-  pixelRendererErrorMessage,
+  drawPixelFrameToBuffer,
+  formatPixelRendererError,
 } from '../termweave/components/PixelRenderer'
 
 const TestImage = createJimp({ formats: [jpeg, png] })
@@ -90,7 +90,7 @@ describe('PixelRenderer native drawing', () => {
       popScissorRect: () => events.push('pop'),
     }
     expect(() =>
-      drawPixelFrame(
+      drawPixelFrameToBuffer(
         buffer,
         { screenX: 3, screenY: 4 },
         { width: 6, height: 6 },
@@ -228,8 +228,8 @@ describe('PixelRenderer errors and cleanup', () => {
   })
 
   test('normalizes and caps error banners', () => {
-    expect(pixelRendererErrorMessage(new Error('  first\n\tsecond  '))).toBe('first second')
-    const message = pixelRendererErrorMessage('x'.repeat(500))
+    expect(formatPixelRendererError(new Error('  first\n\tsecond  '))).toBe('first second')
+    const message = formatPixelRendererError('x'.repeat(500))
     expect(message).toHaveLength(220)
     expect(message.endsWith('…')).toBe(true)
   })

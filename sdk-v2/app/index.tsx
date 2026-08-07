@@ -1,4 +1,4 @@
 import { App } from './App'
-import { runTermweaveApp } from '../termweave/sidecar'
+import { startTermweaveSidecar } from '../termweave/sidecar-runtime'
 
-await runTermweaveApp(() => <App />)
+await startTermweaveSidecar(() => <App />)

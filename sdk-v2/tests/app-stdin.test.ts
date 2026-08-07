@@ -96,63 +96,64 @@ describe('real sidecar stdin parsing', () => {
     }
 
     try {
-      await waitForScreen('HOME SCREEN')
-      await typeText('home-start')
-      await waitForScreen('home-start')
+      await waitForScreen('ANIMATION SCREEN')
+      await typeText('a')
+      await waitForScreen('TYPED: a')
 
       await write('\u001b[C')
       await waitForScreen('VALUE: 1')
 
       await write('\u001bOB')
-      await waitForScreen('GALLERY SCREEN')
-      expect(screenText()).not.toContain('HOME SCREEN')
+      await waitForScreen('PICTURE SCREEN')
+      expect(screenText()).not.toContain('ANIMATION SCREEN')
 
-      await typeText('native')
+      await typeText('b', 'a')
       await write('\u001bOC')
-      await waitForScreen('VALUE: 1')
-      await typeText('-pipe', 'native')
-      await waitForScreen('native-pipe')
+      await waitForScreen('VALUE: 2')
+      await typeText('c', 'ab')
+      await waitForScreen('TYPED: abc')
 
       // PNG -> plain through CSI Down.
       await write('\u001b[B')
       await waitForScreen('PLAIN SCREEN')
-      expect(screenText()).not.toContain('GALLERY SCREEN')
-      expect(screenText()).not.toContain('HOME SCREEN')
+      expect(screenText()).not.toContain('PICTURE SCREEN')
+      expect(screenText()).not.toContain('ANIMATION SCREEN')
 
-      await typeText('plain-down')
+      await typeText('d', 'abc')
       await write('\u001b[D')
-      await waitForScreen('VALUE: -1')
+      await waitForScreen('VALUE: 1')
 
       // Plain -> PNG through SS3 Up.
       await write('\u001bOA')
-      await waitForScreen('GALLERY SCREEN')
+      await waitForScreen('PICTURE SCREEN')
       expect(screenText()).not.toContain('PLAIN SCREEN')
-      await typeText('gallery-again')
+      await typeText('e', 'abcd')
       await write('\u001b[C')
-      await waitForScreen('VALUE: 1')
+      await waitForScreen('VALUE: 2')
 
       // PNG -> GIF through CSI Up.
       await write('\u001b[A')
-      await waitForScreen('HOME SCREEN')
-      expect(screenText()).not.toContain('GALLERY SCREEN')
+      await waitForScreen('ANIMATION SCREEN')
+      expect(screenText()).not.toContain('PICTURE SCREEN')
 
       await write('\u001b[C')
-      await waitForScreen('VALUE: 1')
-      await typeText('home-again')
-      await waitForScreen('home-again')
+      await waitForScreen('VALUE: 3')
+      await typeText('f', 'abcde')
+      await waitForScreen('TYPED: abcdef')
 
       // GIF -> plain through SS3 Up, then plain -> GIF through SS3 Down.
       await write('\u001bOA')
       await waitForScreen('PLAIN SCREEN')
-      expect(screenText()).not.toContain('HOME SCREEN')
-      await typeText('plain-up')
+      expect(screenText()).not.toContain('ANIMATION SCREEN')
+      await typeText('g', 'abcdef')
       await write('\u001bOC')
-      await waitForScreen('VALUE: 1')
+      await waitForScreen('VALUE: 4')
 
       await write('\u001bOB')
-      await waitForScreen('HOME SCREEN')
+      await waitForScreen('ANIMATION SCREEN')
       expect(screenText()).not.toContain('PLAIN SCREEN')
-      await typeText('home-final')
+      await typeText('h', 'abcdefg')
+      await waitForScreen('TYPED: abcdefgh')
 
       expect(stderr).toBe('')
     } finally {

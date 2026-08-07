@@ -8,7 +8,7 @@ import {
   type DevelopmentWatcher,
   type SpawnDevelopmentChild,
   type WatchDevelopmentSource,
-} from '../scripts/dev-sidecar'
+} from '../scripts/development-launcher'
 
 class Deferred<T> {
   readonly promise: Promise<T>

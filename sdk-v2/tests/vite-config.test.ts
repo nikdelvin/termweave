@@ -12,7 +12,8 @@ describe('Vite production configuration', () => {
       '**/app/**',
       '**/termweave/components/**',
       '**/termweave/index.ts',
-      '**/termweave/sidecar.tsx',
+      '**/termweave/navigation-store.ts',
+      '**/termweave/sidecar-runtime.tsx',
     ])
   })
 })

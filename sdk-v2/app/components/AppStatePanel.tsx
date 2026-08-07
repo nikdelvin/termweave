@@ -1,12 +1,12 @@
 import { type InputRenderable, type KeyEvent } from '@opentui/core'
-import { createSignal, onMount } from 'solid-js'
+import { onMount } from 'solid-js'
 import { getTermweaveConfig } from '#termweave'
-import { screen } from '../app-store'
+import { adjustCounter, appState, screen, setInputText } from '../store'
 import type { ScreenKey } from '../screens'
 
-export const screenInputId = (screenKey: ScreenKey) => `screen-input:${screenKey}`
+export const appStateInputId = (screenKey: ScreenKey) => `app-state-input:${screenKey}`
 
-type ScreenControlsProps = {
+type AppStatePanelProps = {
   label: string
 }
 
@@ -22,13 +22,10 @@ function horizontalDelta(key: HorizontalKey) {
   return 0
 }
 
-export function ScreenControls(props: ScreenControlsProps) {
+export function AppStatePanel(props: AppStatePanelProps) {
   let input: InputRenderable | undefined
-  const screenKey = screen()
   const config = getTermweaveConfig()
   const panelWidth = 72
-  const [count, setCount] = createSignal(0)
-  const [draft, setDraft] = createSignal('')
 
   onMount(() => input?.focus())
 
@@ -36,7 +33,7 @@ export function ScreenControls(props: ScreenControlsProps) {
     const delta = horizontalDelta(key)
     if (delta === 0) return
     key.preventDefault()
-    setCount((value) => value + delta)
+    adjustCounter(delta)
   }
 
   return (
@@ -51,20 +48,20 @@ export function ScreenControls(props: ScreenControlsProps) {
       flexDirection="column"
       zIndex={3}
     >
-      <text height={1} fg="#FFFFFF" content={`${props.label} · SCREEN: ${screenKey}`} />
+      <text height={1} fg="#FFFFFF" content={`${props.label} · SCREEN: ${screen()}`} />
       <text height={1} fg="#FFFFFF" content="SCREENS: app/screens.ts · KEYS: app/App.tsx" />
       <text height={1} fg="#FFFFFF" content="LEFT/RIGHT: COUNTER · TAB/TEXT: INPUT" />
-      <text height={1} fg="#FFFFFF" content={`VALUE: ${count()}`} />
+      <text height={1} fg="#FFFFFF" content={`VALUE: ${appState.counter}`} />
       <input
-        id={screenInputId(screenKey)}
+        id={appStateInputId(screen())}
         ref={input}
         width={panelWidth - 4}
-        value={draft()}
+        value={appState.inputText}
         placeholder="TYPE HERE"
-        onInput={setDraft}
+        onInput={setInputText}
         onKeyDown={onKeyDown}
       />
-      <text height={1} fg="#FFFFFF" content={`TYPED: ${draft()}`} />
+      <text height={1} fg="#FFFFFF" content={`TYPED: ${appState.inputText}`} />
     </box>
   )
 }

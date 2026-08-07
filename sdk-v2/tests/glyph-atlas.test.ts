@@ -3,7 +3,7 @@ import {
   createGlyphAtlasMonitor,
   glyphAtlasRecyclePageThreshold,
   type AnimationFrameScheduler,
-} from '../termweave/host/glyph-atlas'
+} from '../termweave/host/crt-effects/glyph-atlas'
 
 class FakeFrameScheduler implements AnimationFrameScheduler<number> {
   private nextHandle = 1

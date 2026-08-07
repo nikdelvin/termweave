@@ -1,5 +1,5 @@
 import { getTermweaveConfig } from '#termweave'
-import { ScreenControls } from '../components/ScreenControls'
+import { AppStatePanel } from '../components/AppStatePanel'
 
 export function PlainScreen() {
   const config = getTermweaveConfig()
@@ -27,7 +27,7 @@ export function PlainScreen() {
           Ordinary Solid/OpenTUI content with no native media drawing.
         </text>
       </box>
-      <ScreenControls label="PLAIN SCREEN" />
+      <AppStatePanel label="PLAIN SCREEN" />
     </box>
   )
 }

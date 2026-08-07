@@ -1,7 +1,7 @@
 import type { AppConfig } from '../config'
 import { TERMINAL_FONT_FAMILY, TERMINAL_FOREGROUND_COLOR, TERMINAL_SURFACE } from '../constants'
 
-const monitorArtwork = {
+const MONITOR_ARTWORK_GEOMETRY = {
   width: 3_000,
   height: 1_740,
   aperturePadding: {
@@ -16,7 +16,7 @@ const monitorArtwork = {
   },
 } as const
 
-export type PresentationLayout = Readonly<{
+export type MonitorLayout = Readonly<{
   terminalLeft: number
   terminalTop: number
   terminalWidth: typeof TERMINAL_SURFACE.width
@@ -59,15 +59,17 @@ export function monitorBezelFilter(color: string) {
   }
 }
 
-export function presentationLayout(): PresentationLayout {
-  const { aperturePadding, terminalFrame } = monitorArtwork
+export function calculateMonitorLayout(): MonitorLayout {
+  const { aperturePadding, terminalFrame } = MONITOR_ARTWORK_GEOMETRY
   const apertureCenterX =
-    aperturePadding.left + (monitorArtwork.width - aperturePadding.left - aperturePadding.right) / 2
+    aperturePadding.left +
+    (MONITOR_ARTWORK_GEOMETRY.width - aperturePadding.left - aperturePadding.right) / 2
   const apertureCenterY =
-    aperturePadding.top + (monitorArtwork.height - aperturePadding.top - aperturePadding.bottom) / 2
+    aperturePadding.top +
+    (MONITOR_ARTWORK_GEOMETRY.height - aperturePadding.top - aperturePadding.bottom) / 2
   const artworkScale = TERMINAL_SURFACE.width / terminalFrame.width
-  const monitorWidth = monitorArtwork.width * artworkScale
-  const monitorHeight = monitorArtwork.height * artworkScale
+  const monitorWidth = MONITOR_ARTWORK_GEOMETRY.width * artworkScale
+  const monitorHeight = MONITOR_ARTWORK_GEOMETRY.height * artworkScale
   const screenCenterX = apertureCenterX * artworkScale
   const screenCenterY = apertureCenterY * artworkScale
 
@@ -84,10 +86,10 @@ export function presentationLayout(): PresentationLayout {
   }
 }
 
-export function scaleStageToFit(
+export function calculateStageScale(
   containerWidth: number,
   containerHeight: number,
-  layout: PresentationLayout,
+  layout: MonitorLayout,
 ) {
   const availableWidth = Math.max(0, containerWidth - layout.windowInset * 2)
   const availableHeight = Math.max(0, containerHeight - layout.windowInset * 2)
@@ -100,14 +102,14 @@ function requiredElement<T extends Element>(root: ParentNode, selector: string) 
   return element
 }
 
-export function createPresentation(root: HTMLElement, config: AppConfig) {
+export function createMonitorPresentation(root: HTMLElement, config: AppConfig) {
   const stage = requiredElement<HTMLElement>(root, '#display-stage')
   const terminalHost = requiredElement<HTMLElement>(root, '#terminal')
   const effectsHost = requiredElement<HTMLElement>(root, '#crt-effects')
   const monitorHost = requiredElement<HTMLElement>(root, '#monitor-overlay')
   const rendererStatusHost = requiredElement<HTMLElement>(root, '#renderer-status')
   const rendererStatusMessage = requiredElement<HTMLElement>(root, '#renderer-status-message')
-  const layout = presentationLayout()
+  const layout = calculateMonitorLayout()
 
   const styleRoots = new Set([root, root.ownerDocument?.documentElement].filter(Boolean))
   for (const styleRoot of styleRoots) {
@@ -143,7 +145,7 @@ export function createPresentation(root: HTMLElement, config: AppConfig) {
   const fit = () => {
     stage.style.setProperty(
       '--termweave-stage-scale',
-      String(scaleStageToFit(root.clientWidth, root.clientHeight, layout)),
+      String(calculateStageScale(root.clientWidth, root.clientHeight, layout)),
     )
   }
 

@@ -31,7 +31,7 @@ import {
   crtFragmentShaderSource,
   mapCrtDestinationToSource,
   parseRgbHex,
-} from '../termweave/host/crt-optics'
+} from '../termweave/host/crt-effects/crt-optics'
 
 describe('physically calibrated CRT optics', () => {
   test('keeps the reference display and measured optics constants internally consistent', () => {

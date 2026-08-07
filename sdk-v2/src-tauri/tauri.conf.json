@@ -33,7 +33,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": ["../termweave/host/assets/crt-noise.png"],
+    "icon": ["../termweave/host/crt-effects/assets/crt-noise.png"],
     "externalBin": ["binaries/opentui-sidecar"]
   }
 }

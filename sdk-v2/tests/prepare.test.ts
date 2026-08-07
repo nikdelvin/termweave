@@ -6,7 +6,7 @@ import {
   desktopIconFiles,
   getOpenTuiNativeAsset,
   prepareProject,
-  type GenerateIcons,
+  type IconGenerator,
 } from '../scripts/prepare'
 import { validAppConfig } from './fixtures'
 
@@ -85,8 +85,8 @@ describe('preparation', () => {
         ),
       ),
     )
-    const calls: Parameters<GenerateIcons>[0][] = []
-    const generateIcons: GenerateIcons = async (options) => {
+    const calls: Parameters<IconGenerator>[0][] = []
+    const generateIcons: IconGenerator = async (options) => {
       calls.push(options)
       await createIcons(options.outputDirectory)
     }

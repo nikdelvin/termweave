@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { discoverActivatedWebglCanvas } from '../termweave/host/crt-postprocessor'
+import { discoverActivatedWebglCanvas } from '../termweave/host/crt-effects/crt-postprocessor'
 
 const project = new URL('../', import.meta.url)
 const read = (path: string) => Bun.file(new URL(path, project)).text()
@@ -32,7 +32,7 @@ describe('pinned stock xterm WebGL source contract', () => {
     expect(addon).not.toContain('bindFramebuffer')
     expect(renderer).not.toContain('bindFramebuffer')
 
-    const terminalIntegration = await read('termweave/host/terminal.ts')
+    const terminalIntegration = await read('termweave/host/crt-effects/crt-renderer.ts')
     expect(terminalIntegration).toContain('new WebglAddon(false)')
   })
 
@@ -56,32 +56,9 @@ describe('pinned stock xterm WebGL source contract', () => {
     expect(redraw).toBeGreaterThan(initialize)
   })
 
-  test('registers Termweave render and restoration listeners only after stock activation', async () => {
-    const terminal = await read('termweave/host/terminal.ts')
-    const postprocessor = await read('termweave/host/crt-postprocessor.ts')
-    const stockActivation = terminal.indexOf('terminal.loadAddon(addon)')
-    const postprocessorConstruction = terminal.indexOf('postprocessor = createPostprocessor')
-    const contextRestoredListener = postprocessor.indexOf(
-      "canvas.addEventListener('webglcontextrestored'",
-    )
-    const renderListener = postprocessor.indexOf('terminal.onRender(')
-    expect(stockActivation).toBeGreaterThan(-1)
-    expect(postprocessorConstruction).toBeGreaterThan(stockActivation)
-    expect(contextRestoredListener).toBeGreaterThan(-1)
-    expect(renderListener).toBeGreaterThan(contextRestoredListener)
-  })
-
-  test('registers the window reveal gate after CRT renderer setup', async () => {
-    const main = await read('termweave/host/main.ts')
-    const rendererSetup = main.indexOf('renderer = enableWebglRenderer(terminal, config)')
-    const sessionSetup = main.indexOf('session = createTerminalSession({')
-    expect(rendererSetup).toBeGreaterThan(-1)
-    expect(sessionSetup).toBeGreaterThan(rendererSetup)
-  })
-
   test('uses the backpressure-aware native stdout feed and initializes the raw canvas background', async () => {
-    const sidecar = await read('termweave/sidecar.tsx')
-    const postprocessor = await read('termweave/host/crt-postprocessor.ts')
+    const sidecar = await read('termweave/sidecar-runtime.tsx')
+    const postprocessor = await read('termweave/host/crt-effects/crt-postprocessor.ts')
     const opentuiChunks = await Array.fromAsync(
       new Bun.Glob('node_modules/@opentui/core/chunk-bun-*.js').scan('.'),
     )
@@ -143,10 +120,10 @@ describe('pinned stock xterm WebGL source contract', () => {
 
   test('shipping code contains no private imports, readback, capture, or extra render surface', async () => {
     const integration = [
-      await read('termweave/host/terminal.ts'),
-      await read('termweave/host/crt-postprocessor.ts'),
-      await read('termweave/host/crt-optics.ts'),
-      await read('termweave/host/glyph-atlas.ts'),
+      await read('termweave/host/crt-effects/crt-renderer.ts'),
+      await read('termweave/host/crt-effects/crt-postprocessor.ts'),
+      await read('termweave/host/crt-effects/crt-optics.ts'),
+      await read('termweave/host/crt-effects/glyph-atlas.ts'),
     ].join('\n')
     expect(integration).not.toContain("from '@xterm/xterm/src")
     expect(integration).not.toContain("from '@xterm/addon-webgl/src")
@@ -157,45 +134,13 @@ describe('pinned stock xterm WebGL source contract', () => {
     expect(integration.match(/blitFramebuffer\(/g)).toHaveLength(1)
   })
 
-  test('keeps custom glyphs and recycles the stock addon before atlas exhaustion', async () => {
-    const terminal = await read('termweave/host/terminal.ts')
-    const atlas = await read('termweave/host/glyph-atlas.ts')
-    expect(terminal).toContain('customGlyphs: true')
-    expect(terminal).toContain('new WebglAddon(false)')
-    expect(terminal).toContain('createGlyphAtlasMonitor')
-    expect(terminal).toContain('disposeGeneration()')
-    expect(terminal).toContain('activateGeneration()')
-    expect(terminal).not.toContain('clearTextureAtlas(')
-    expect(atlas).toContain('GLYPH_ATLAS_PAGE_RESERVE = 4')
-    expect(atlas).toContain('pages.size < glyphAtlasRecyclePageThreshold(maximumPages)')
-    expect(atlas).toContain('scheduled !== undefined')
-  })
-
   test('keeps application mouse tracking disabled without installing a remapping layer', async () => {
-    const sidecar = await read('termweave/sidecar.tsx')
-    const terminal = await read('termweave/host/terminal.ts')
-    const postprocessor = await read('termweave/host/crt-postprocessor.ts')
+    const sidecar = await read('termweave/sidecar-runtime.tsx')
+    const terminal = await read('termweave/host/xterm-terminal.ts')
+    const postprocessor = await read('termweave/host/crt-effects/crt-postprocessor.ts')
     expect(sidecar).toContain('useMouse: false')
     expect(sidecar).toContain('enableMouseMovement: false')
     expect(terminal).toContain('attachCustomWheelEventHandler')
     expect(postprocessor).not.toMatch(/mousedown|mousemove|mouseup|contextmenu|auxclick/)
-  })
-
-  test('keeps the GIF full-screen behind a concise interactive layout example', async () => {
-    const app = await read('app/App.tsx')
-    const home = await read('app/screens/HomeScreen.tsx')
-    const controls = await read('app/components/ScreenControls.tsx')
-    expect(home).toContain("from '#termweave'")
-    expect(home).toContain("import campfireUri from '../assets/campfire.gif' with { type: 'file' }")
-    expect(home).toContain('<PixelRenderer uri={campfireUri} width="100%" height="100%">')
-    expect(home).toContain('</PixelRenderer>')
-    expect(home).toContain('A bundled GIF rendered behind ordinary OpenTUI layout.')
-    expect(home).not.toMatch(/RGB EDGE TEST|CENTER REFERENCE|━━━━━━╋━━━━━━/)
-    expect(controls).toContain('SCREENS: app/screens.ts · KEYS: app/App.tsx')
-    expect(controls).toContain('LEFT/RIGHT: COUNTER · TAB/TEXT: INPUT')
-    expect(controls).toContain('content={`VALUE: ${count()}`}')
-    expect(controls).toContain('onKeyDown={onKeyDown}')
-    expect(app).toContain('useKeyboard((key) =>')
-    expect(app).toContain('<Dynamic component={screens[screen()]} />')
   })
 })

@@ -27,6 +27,7 @@ bun run dev
 Start by editing:
 
 - `app.config.json` and `app.icon.png`
+- `app/store.ts` for durable application state and actions
 - `app/screens.ts`
 - `app/screens/`, `app/components/`, and `app/assets/`
 - `app/App.tsx` when changing global keyboard navigation

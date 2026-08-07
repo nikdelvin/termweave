@@ -24,11 +24,11 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error)
 }
 
-export function getSidecarOutputPath(root: string, triple: string) {
+export function getSidecarBinaryPath(root: string, triple: string) {
   return resolve(root, `src-tauri/binaries/opentui-sidecar-${triple}`)
 }
 
-export async function getHostTuple() {
+export async function getRustHostTuple() {
   const child = Bun.spawn(['rustc', '--print', 'host-tuple'], {
     stdout: 'pipe',
     stderr: 'pipe',
@@ -48,7 +48,7 @@ export async function getHostTuple() {
   return triple
 }
 
-export async function buildSidecar({
+export async function buildSidecarBinary({
   mode = 'production',
   root = projectRoot,
   triple,
@@ -59,16 +59,16 @@ export async function buildSidecar({
   if (platform !== 'darwin') {
     throw new Error(`Termweave v2 sidecars support only macOS, not ${platform}`)
   }
-  const hostTuple = triple ?? (await getHostTuple())
+  const hostTuple = triple ?? (await getRustHostTuple())
   if (!hostTuple.includes('apple-darwin')) {
     throw new Error(`Termweave v2 requires an Apple Darwin host tuple, not ${hostTuple}`)
   }
-  const outputPath = getSidecarOutputPath(root, hostTuple)
+  const outputPath = getSidecarBinaryPath(root, hostTuple)
   await mkdir(resolve(root, 'src-tauri/binaries'), { recursive: true })
 
   const buildOptions: Parameters<typeof Bun.build>[0] = {
     entrypoints: [
-      resolve(root, mode === 'production' ? 'app/index.tsx' : 'scripts/dev-sidecar.ts'),
+      resolve(root, mode === 'production' ? 'app/index.tsx' : 'scripts/development-launcher.ts'),
     ],
     compile: { outfile: outputPath },
   }
@@ -97,7 +97,7 @@ export async function buildSidecar({
 }
 
 export function buildProductionSidecar(options: Omit<BuildSidecarOptions, 'mode'> = {}) {
-  return buildSidecar({ ...options, mode: 'production' })
+  return buildSidecarBinary({ ...options, mode: 'production' })
 }
 
 if (import.meta.main) {
@@ -107,7 +107,7 @@ if (import.meta.main) {
       throw new Error('Usage: bun scripts/build-sidecar.ts [development|production]')
     }
 
-    const outputPath = await buildSidecar({ mode: requestedMode })
+    const outputPath = await buildSidecarBinary({ mode: requestedMode })
     const subject =
       requestedMode === 'production' ? 'production sidecar' : 'development sidecar launcher'
     process.stdout.write(`Built ${subject} ${outputPath}\n`)

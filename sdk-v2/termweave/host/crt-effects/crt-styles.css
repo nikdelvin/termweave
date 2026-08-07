@@ -1,0 +1,87 @@
+#crt-effects,
+#renderer-status {
+  position: absolute;
+}
+
+#crt-effects {
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+#crt-noise {
+  position: absolute;
+  z-index: 2;
+  inset: -96px;
+  pointer-events: none;
+  background: url('./assets/crt-noise.png') repeat;
+  background-size: 128px 128px;
+  mix-blend-mode: soft-light;
+  opacity: 0.025;
+  animation: crt-noise-shift 133.467ms steps(1, end) infinite;
+  will-change: transform;
+}
+
+#renderer-status {
+  z-index: 4;
+  display: flex;
+  align-items: flex-end;
+  pointer-events: none;
+}
+
+#renderer-status-message {
+  width: 100%;
+  padding: 20px 32px;
+  border-top: 4px solid #ff6b73;
+  color: #fff;
+  background: rgb(104 8 24 / 94%);
+  font:
+    400 32px/1.25 'Kreative Square',
+    monospace;
+  text-align: center;
+  text-shadow: 0 2px 0 #000;
+}
+
+@keyframes crt-noise-shift {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+
+  12.5% {
+    transform: translate3d(-47px, 23px, 0);
+  }
+
+  25% {
+    transform: translate3d(31px, -59px, 0);
+  }
+
+  37.5% {
+    transform: translate3d(-73px, -17px, 0);
+  }
+
+  50% {
+    transform: translate3d(61px, 41px, 0);
+  }
+
+  62.5% {
+    transform: translate3d(-19px, 67px, 0);
+  }
+
+  75% {
+    transform: translate3d(83px, -37px, 0);
+  }
+
+  87.5% {
+    transform: translate3d(-53px, -79px, 0);
+  }
+
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #crt-noise {
+    animation: none;
+  }
+}

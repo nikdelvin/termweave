@@ -3,11 +3,11 @@ import { readFile, readdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { parseAppConfig } from '../termweave/config'
 import {
-  createPresentation,
+  calculateMonitorLayout,
+  calculateStageScale,
+  createMonitorPresentation,
   monitorBezelFilter,
-  presentationLayout,
-  scaleStageToFit,
-} from '../termweave/host/presentation'
+} from '../termweave/host/monitor-presentation'
 import { validAppConfig } from './fixtures'
 
 function fakeStyle() {
@@ -67,7 +67,7 @@ describe('always-on presentation', () => {
         },
       }
       const config = parseAppConfig(validAppConfig({ themeColor: '#112233' }))
-      const presentation = createPresentation(root as unknown as HTMLElement, config)
+      const presentation = createMonitorPresentation(root as unknown as HTMLElement, config)
 
       expect(root.style.getPropertyValue('--termweave-theme-color')).toBe('#112233')
       expect(root.style.getPropertyValue('--termweave-terminal-foreground')).toBe('#F59B5A')
@@ -91,7 +91,7 @@ describe('always-on presentation', () => {
 })
 
 describe('fixed logical stage', () => {
-  const layout = presentationLayout()
+  const layout = calculateMonitorLayout()
 
   test('positions the monitor around an exactly centered 2560x1440 terminal aperture', () => {
     const apertureWidth = 3000 - 268 - 278
@@ -125,7 +125,7 @@ describe('fixed logical stage', () => {
       [900, 1200],
       [2560, 1440],
     ]) {
-      const scale = scaleStageToFit(width, height, layout)
+      const scale = calculateStageScale(width, height, layout)
       const left = width / 2 + layout.terminalLeft * scale
       const top = height / 2 + layout.terminalTop * scale
       const right = width - left - layout.terminalWidth * scale
@@ -135,9 +135,9 @@ describe('fixed logical stage', () => {
   })
 
   test('collapses safely when either host dimension is unavailable', () => {
-    expect(scaleStageToFit(0, 1440, layout)).toBe(0)
-    expect(scaleStageToFit(2560, 0, layout)).toBe(0)
-    expect(scaleStageToFit(-1, 1440, layout)).toBe(0)
+    expect(calculateStageScale(0, 1440, layout)).toBe(0)
+    expect(calculateStageScale(2560, 0, layout)).toBe(0)
+    expect(calculateStageScale(-1, 1440, layout)).toBe(0)
   })
 })
 
@@ -154,18 +154,24 @@ describe('visual styling and assets', () => {
 
   test('retains one monitor, one noise texture, and the licensed local font', async () => {
     const assets = (await readdir(resolve(import.meta.dir, '../termweave/host/assets'))).sort()
-    expect(assets).toEqual(['crt-noise.png', 'font-OFL.txt', 'font.ttf', 'monitor-overlay.webp'])
+    const crtAssets = (
+      await readdir(resolve(import.meta.dir, '../termweave/host/crt-effects/assets'))
+    ).sort()
+    expect(assets).toEqual(['font-OFL.txt', 'font.ttf', 'monitor-overlay.webp'])
+    expect(crtAssets).toEqual(['crt-noise.png'])
   })
 
   test('keeps monitor and noise always visible while reduced motion freezes only animation', async () => {
-    const [html, css] = await Promise.all([
+    const [html, webviewCss, crtCss] = await Promise.all([
       readFile(resolve(import.meta.dir, '../index.html'), 'utf8'),
-      readFile(resolve(import.meta.dir, '../termweave/host/styles.css'), 'utf8'),
+      readFile(resolve(import.meta.dir, '../termweave/host/webview-styles.css'), 'utf8'),
+      readFile(resolve(import.meta.dir, '../termweave/host/crt-effects/crt-styles.css'), 'utf8'),
     ])
+    const css = `${webviewCss}\n${crtCss}`
 
     expect(html).toContain('<div id="crt-effects" aria-hidden="true">')
     expect(html).toContain('<div id="monitor-overlay" aria-hidden="true"></div>')
-    expect(html).toContain('src="/termweave/host/main.ts"')
+    expect(html).toContain('src="/termweave/host/webview-entry.ts"')
     expect(html).not.toMatch(/id="(?:crt-effects|monitor-overlay)"[^>]*\shidden(?:\s|>)/)
     expect(css).toContain('opacity: 0.025')
     expect(css.match(/0\.025/g)).toHaveLength(1)
