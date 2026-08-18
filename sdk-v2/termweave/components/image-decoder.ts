@@ -2,8 +2,15 @@ import { createJimp } from '@jimp/core'
 import jpeg from '@jimp/js-jpeg'
 import png from '@jimp/js-png'
 import { decompressFrames, parseGIF, type ParsedFrame } from 'gifuct-js'
+import { statSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { normalizeGifDelay } from './image-playback'
-import { detectImageFormat, readLocalImageBytes, throwIfImageAborted } from './image-source'
+import {
+  detectImageFormat,
+  readLocalImageBytes,
+  resolveLocalImagePath,
+  throwIfImageAborted,
+} from './image-source'
 import {
   compositeFrameOverBackground,
   fitImageDimensions,
@@ -17,7 +24,63 @@ import {
 } from './pixel-frame'
 
 const BYTES_PER_PIXEL = 4
+const MAX_FRAME_CACHE_BYTES = 64 * 1024 * 1024
 const StillImage = createJimp({ formats: [jpeg, png] })
+
+interface FrameCacheEntry {
+  byteLength: number
+  frames: readonly AnimationFrame[]
+}
+
+const frameCache = new Map<string, FrameCacheEntry>()
+let frameCacheByteLength = 0
+
+function frameCacheKey(uri: string, maximum: Dimensions, background: Rgb) {
+  const path = resolve(resolveLocalImagePath(uri))
+  const stats = statSync(path, { bigint: true })
+  if (!stats.isFile()) throw new Error('The image source is not a file.')
+  const version = [stats.dev, stats.ino, stats.size, stats.mtimeNs, stats.ctimeNs].join(':')
+  return `${path}\0${version}\0${maximum.width}x${maximum.height}\0${background.join(',')}`
+}
+
+function cachedFrames(key: string) {
+  const entry = frameCache.get(key)
+  if (!entry) return undefined
+  frameCache.delete(key)
+  frameCache.set(key, entry)
+  return entry.frames
+}
+
+function rememberFrames(key: string, frames: readonly AnimationFrame[]) {
+  let byteLength = 0
+  for (const frame of frames) {
+    byteLength += frame.data.byteLength
+    if (!Number.isSafeInteger(byteLength) || byteLength > MAX_FRAME_CACHE_BYTES) return
+  }
+
+  const existing = frameCache.get(key)
+  if (existing) {
+    frameCacheByteLength -= existing.byteLength
+    frameCache.delete(key)
+  }
+  while (frameCacheByteLength + byteLength > MAX_FRAME_CACHE_BYTES) {
+    const oldestKey = frameCache.keys().next().value
+    if (oldestKey === undefined) break
+    const oldest = frameCache.get(oldestKey)!
+    frameCache.delete(oldestKey)
+    frameCacheByteLength -= oldest.byteLength
+  }
+  frameCache.set(key, { byteLength, frames })
+  frameCacheByteLength += byteLength
+}
+
+export function getCachedLocalImageFrames(uri: string, maximum: Dimensions, background: Rgb) {
+  try {
+    return cachedFrames(frameCacheKey(uri, maximum, background))
+  } catch {
+    return undefined
+  }
+}
 
 export interface GifPatchFrame {
   dims: {
@@ -180,9 +243,33 @@ export async function loadLocalImageFrames(
   background: Rgb,
   signal?: AbortSignal,
 ) {
+  throwIfImageAborted(signal)
+  let key: string | undefined
+  try {
+    key = frameCacheKey(uri, maximum, background)
+  } catch {
+    // Preserve the existing async read/decode error path for invalid or missing sources.
+  }
+  if (key) {
+    const frames = cachedFrames(key)
+    if (frames) return frames
+  }
+
   const bytes = await readLocalImageBytes(uri, signal)
   const format = detectImageFormat(bytes)
   throwIfImageAborted(signal)
-  if (format === 'gif') return decodeGifImage(bytes, maximum, background, signal)
-  return decodeStillImage(bytes, maximum, background, signal)
+  const frames =
+    format === 'gif'
+      ? decodeGifImage(bytes, maximum, background, signal)
+      : await decodeStillImage(bytes, maximum, background, signal)
+  throwIfImageAborted(signal)
+
+  if (key) {
+    try {
+      if (frameCacheKey(uri, maximum, background) === key) rememberFrames(key, frames)
+    } catch {
+      // A changed or removed source remains renderable for this request but is not cached.
+    }
+  }
+  return frames
 }

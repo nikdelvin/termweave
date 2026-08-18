@@ -8,6 +8,7 @@ import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
   compositeGifFrames,
+  getCachedLocalImageFrames,
   loadLocalImageFrames,
   type GifPatchFrame,
 } from '../termweave/components/image-decoder'
@@ -91,6 +92,32 @@ describe('still-image decoding and sizing', () => {
     expect(frames).toHaveLength(2)
     expect(frames.map((frame) => frame.delayMs)).toEqual([10, 10])
     expect(frames.every((frame) => frame.width === 4 && frame.height === 4)).toBe(true)
+  })
+
+  test('reuses exact decoded frames synchronously and invalidates changed files', async () => {
+    const cachePath = join(temporaryDirectory, 'cache-source.data')
+    const maximum = { width: 8, height: 8 }
+    const background = [1, 2, 3] as const
+    await Bun.write(
+      cachePath,
+      await new TestImage({ width: 4, height: 2, color: 0x112233ff }).getBuffer('image/png'),
+    )
+
+    const first = await loadLocalImageFrames(cachePath, maximum, background)
+    expect(getCachedLocalImageFrames(pathToFileURL(cachePath).href, maximum, background)).toBe(
+      first,
+    )
+    expect(await loadLocalImageFrames(pathToFileURL(cachePath).href, maximum, background)).toBe(
+      first,
+    )
+    expect(await loadLocalImageFrames(cachePath, maximum, [3, 2, 1])).not.toBe(first)
+
+    await Bun.write(
+      cachePath,
+      await new TestImage({ width: 3, height: 3, color: 0x445566ff }).getBuffer('image/png'),
+    )
+    expect(getCachedLocalImageFrames(cachePath, maximum, background)).toBeUndefined()
+    expect(await loadLocalImageFrames(cachePath, maximum, background)).not.toBe(first)
   })
 
   test('reports corrupt, unsupported, empty, and missing sources without extension fallback', async () => {

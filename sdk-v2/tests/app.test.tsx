@@ -60,9 +60,15 @@ describe('native Solid screens', () => {
     const setup = await testRender(() => <App />, TEST_SIZE)
     try {
       const animationInput = await waitForFocusedInput(setup, ANIMATION_SCREEN)
+      const appRoot = setup.renderer.root.getChildrenSortedByPrimaryAxis()[0]!
+      const mediaRenderer = appRoot.getChildrenSortedByPrimaryAxis()[0]!
+      expect(mediaRenderer.renderAfter).toBeDefined()
+
       navigate(PICTURE_SCREEN)
       const pictureInput = await waitForFocusedInput(setup, PICTURE_SCREEN)
       expect(animationInput.isDestroyed).toBe(true)
+      expect(mediaRenderer.isDestroyed).toBe(false)
+      expect(appRoot.getChildrenSortedByPrimaryAxis()[0]).toBe(mediaRenderer)
 
       navigate(PICTURE_SCREEN)
       await setup.flush()
@@ -71,6 +77,7 @@ describe('native Solid screens', () => {
       navigate(PLAIN_SCREEN)
       const plainInput = await waitForFocusedInput(setup, PLAIN_SCREEN)
       expect(pictureInput.isDestroyed).toBe(true)
+      expect(mediaRenderer.isDestroyed).toBe(true)
       expect(plainInput.focused).toBe(true)
     } finally {
       setup.renderer.destroy()

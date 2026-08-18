@@ -11,7 +11,7 @@ function last<T>(values: readonly T[]) {
 }
 
 describe('image lifecycle controller', () => {
-  test('aborts replaced URI and dimension loads and suppresses stale completions', async () => {
+  test('keeps the current frame while replacing loads and suppresses stale completions', async () => {
     const pending: Array<{
       resolve: (frames: AnimationFrame[]) => void
       signal: AbortSignal | undefined
@@ -65,7 +65,7 @@ describe('image lifecycle controller', () => {
     expect(stopped).toBe(1)
     expect(pending[2]).toMatchObject({ uri: 'second.png', width: 4 })
     playbackCallbacks[0]!(animationFrame(9, 10))
-    expect(last(shown)).toBeUndefined()
+    expect(last(shown)?.data[0]).toBe(2)
     expect(errors).toEqual([])
 
     pending[2]!.resolve([animationFrame(3, 10)])
@@ -110,6 +110,12 @@ describe('image lifecycle controller', () => {
       await Promise.resolve()
     }
     expect(last(shown)?.data[0]).toBe(7)
+
+    controller.replace({ uri: 'bad.png', maximum: { width: 4, height: 4 }, background: [0, 0, 0] })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(last(shown)).toBeUndefined()
+
     controller.dispose()
     expect(last(signals)?.aborted).toBe(false)
     expect(stopCount).toBeGreaterThan(0)
@@ -122,5 +128,34 @@ describe('image lifecycle controller', () => {
       background: [0, 0, 0],
     })
     expect(signals).toHaveLength(count)
+  })
+
+  test('starts cached frames synchronously without loading the source again', () => {
+    const shown: Array<AnimationFrame | undefined> = []
+    const cached = [animationFrame(42, 20)]
+    let loadCount = 0
+    const controller = createImagePlaybackController({
+      onError: () => {},
+      onFrame: (frame) => shown.push(frame),
+      getCached: (uri) => (uri === 'cached.png' ? cached : undefined),
+      load: async () => {
+        loadCount += 1
+        return [animationFrame(1, 20)]
+      },
+      play: (frames, onFrame) => {
+        onFrame(frames[0]!)
+        return () => {}
+      },
+    })
+
+    controller.replace({
+      uri: 'cached.png',
+      maximum: { width: 4, height: 4 },
+      background: [0, 0, 0],
+    })
+
+    expect(last(shown)).toBe(cached[0])
+    expect(loadCount).toBe(0)
+    controller.dispose()
   })
 })

@@ -32,6 +32,11 @@ export const screens = {
 }
 
 export type ScreenKey = keyof typeof screens
+
+export const screenMedia: Partial<Record<ScreenKey, string>> = {
+  animation: animationScreenMediaUri,
+  picture: pictureScreenMediaUri,
+}
 ```
 
 `app/store.ts` imports `ScreenKey` as a type, creates
@@ -53,8 +58,11 @@ integration, context provider, route loading, preload system, or compatibility l
 ## State and lifecycle
 
 `App` renders `screens[screen()]` with OpenTUI Solid's `Dynamic`. A changed key disposes the prior
-screen owner and mounts a fresh destination owner. Input focus therefore re-establishes on each
-screen, and GIF/PNG renderer resources continue to dispose with their components.
+screen owner and mounts a fresh destination owner, so input focus re-establishes on each screen.
+Consecutive Animation/Picture transitions keep one `PixelRenderer` owner alive and replace its URI;
+the previous decoded frame remains visible until the destination frame is ready. Entering Plain
+disposes that renderer and stops its playback. Decoded frames are retained in a size-bounded cache,
+so returning to the same media at the same terminal geometry can start playback synchronously.
 
 The starter counter and input text live in `app/store.ts`, so their values persist across every
 screen transition and repeated traversal. Truly local state, focus handles, timers,

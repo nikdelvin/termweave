@@ -21,9 +21,11 @@ export interface WebglAddonPort extends ITerminalAddon {
 }
 
 export type WebglAddonFactory = () => WebglAddonPort
-export type CrtPostprocessorFactory = (
-  options: CrtPostprocessorOptions,
-) => Pick<CrtPostprocessor, 'dispose'>
+type CrtPostprocessorPort = Pick<CrtPostprocessor, 'dispose' | 'presentForHandoff'>
+export type CrtPostprocessorFactory = (options: CrtPostprocessorOptions) => CrtPostprocessorPort
+interface RendererCanvasHandoff extends IDisposable {
+  attachAbove(replacement: HTMLCanvasElement): void
+}
 
 type RendererConfig = Pick<AppConfig, 'themeColor'>
 
@@ -37,6 +39,26 @@ export interface CrtRendererController extends IDisposable {
 
 type RendererTerminal = Pick<Terminal, 'element' | 'loadAddon' | 'onRender' | 'refresh' | 'rows'>
 
+/** Detaches xterm's outgoing canvas so its last frame can cover the replacement's first draw. */
+function detachRendererCanvas(source: HTMLCanvasElement): RendererCanvasHandoff | undefined {
+  try {
+    if (!source.parentElement) return
+    source.remove()
+
+    return {
+      attachAbove(replacement) {
+        replacement.parentElement?.appendChild(source)
+      },
+      dispose() {
+        source.remove()
+      },
+    }
+  } catch {
+    // A failed visual handoff must not prevent the required addon recreation.
+    return
+  }
+}
+
 export function activateCrtRenderer(
   terminal: RendererTerminal,
   config: RendererConfig,
@@ -47,7 +69,9 @@ export function activateCrtRenderer(
   const createWebglAddon = createAddon ?? (() => new WebglAddon(false))
   type RendererGeneration = {
     addon: WebglAddonPort
-    postprocessor?: Pick<CrtPostprocessor, 'dispose'>
+    canvas?: HTMLCanvasElement
+    postprocessor?: CrtPostprocessorPort
+    canvasHandoff?: RendererCanvasHandoff
     subscriptions: IDisposable[]
   }
 
@@ -81,6 +105,12 @@ export function activateCrtRenderer(
     generation = undefined
     atlasMonitor.resetGeneration()
     if (!current) return
+    try {
+      current.canvasHandoff?.dispose()
+    } catch {
+      // Visual handoff cleanup must not interrupt renderer disposal.
+    }
+    current.canvasHandoff = undefined
     for (const subscription of current.subscriptions.splice(0)) {
       try {
         subscription.dispose()
@@ -125,9 +155,9 @@ export function activateCrtRenderer(
     requestDefaultRendererRedraw()
   }
 
-  const activateGeneration = () => {
+  const activateGeneration = (canvasHandoff?: RendererCanvasHandoff) => {
     const addon = createWebglAddon()
-    const current: RendererGeneration = { addon, subscriptions: [] }
+    const current: RendererGeneration = { addon, canvasHandoff, subscriptions: [] }
     generation = current
     const terminalElement = terminal.element
     if (!terminalElement) throw new Error('CRT effects require an open public xterm element')
@@ -166,6 +196,7 @@ export function activateCrtRenderer(
       terminal.loadAddon(addon)
 
       const activated = discoverActivatedWebglCanvas(terminalElement, canvasesBeforeActivation)
+      current.canvas = activated.canvas
       const textureUnits = activated.gl.getParameter(activated.gl.MAX_TEXTURE_IMAGE_UNITS)
       if (typeof textureUnits !== 'number' || !Number.isFinite(textureUnits) || textureUnits < 1) {
         throw new Error('The WebGL glyph-atlas page limit is unavailable')
@@ -187,6 +218,26 @@ export function activateCrtRenderer(
           }
         },
       })
+      if (current.canvasHandoff) {
+        try {
+          current.canvasHandoff.attachAbove(activated.canvas)
+        } catch {
+          current.canvasHandoff.dispose()
+          current.canvasHandoff = undefined
+        }
+      }
+      if (current.canvasHandoff) {
+        const firstRenderSubscription = terminal.onRender(() => {
+          if (generation !== current) return
+          try {
+            current.canvasHandoff?.dispose()
+          } finally {
+            current.canvasHandoff = undefined
+            firstRenderSubscription.dispose()
+          }
+        })
+        current.subscriptions.push(firstRenderSubscription)
+      }
       setStatus({ kind: 'active' })
     } catch (error) {
       if (generation === current) disposeGeneration()
@@ -196,11 +247,26 @@ export function activateCrtRenderer(
 
   recycleWebglAddon = () => {
     if (disposed || fallbackLatched || !generation) return
+    const outgoing = generation
+    outgoing.postprocessor?.presentForHandoff()
+    if (disposed || fallbackLatched || generation !== outgoing) return
+
+    let canvasHandoff: RendererCanvasHandoff | undefined
+    try {
+      if (outgoing.canvas) canvasHandoff = detachRendererCanvas(outgoing.canvas)
+    } catch {
+      // The renderer still has to recycle if a custom visual handoff fails.
+    }
     disposeGeneration()
     try {
-      activateGeneration()
+      activateGeneration(canvasHandoff)
       requestDefaultRendererRedraw()
     } catch (error) {
+      try {
+        canvasHandoff?.dispose()
+      } catch {
+        // Renderer fallback remains authoritative if handoff cleanup also fails.
+      }
       fallback(`Renderer reactivation failed: ${errorMessage(error)}`)
     }
   }

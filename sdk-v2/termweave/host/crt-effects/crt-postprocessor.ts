@@ -431,6 +431,11 @@ export class CrtPostprocessor implements IDisposable {
     }
   }
 
+  /** Leaves the current composed CRT frame on its canvas before renderer replacement. */
+  presentForHandoff() {
+    this.present()
+  }
+
   private presentValidated() {
     const resources = this.resources
     const gl = this.gl

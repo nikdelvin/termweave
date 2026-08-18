@@ -33,6 +33,10 @@ They normally do not edit `app/index.tsx`, `termweave/`, `scripts/`,
 ordinary OpenTUI content without native media drawing. The starter counter and input are global
 application state, so their values persist while navigating among all three screens.
 
+Animation and Picture share one application-level `PixelRenderer`, allowing their overlays to
+remount while the prior media frame remains visible during a source change. Successful decodes are
+also retained in a bounded frame cache so later visits at the same terminal size start immediately.
+
 ## Ownership map
 
 | Path                            | Responsibility                                                                   |

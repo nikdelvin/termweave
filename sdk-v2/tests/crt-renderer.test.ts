@@ -125,6 +125,7 @@ function enableTestRenderer(
   const localCanvases: HTMLCanvasElement[] = []
   const hasElement = Boolean(terminal.element)
   let postprocessorCreateCount = 0
+  let postprocessorHandoffPresentCount = 0
   const animationFrameScheduler = new ManualAnimationFrameScheduler()
   const rendererTerminal = {
     element:
@@ -147,16 +148,23 @@ function enableTestRenderer(
     createAddon,
     () => {
       postprocessorCreateCount += 1
-      return { dispose() {} }
+      return {
+        dispose() {},
+        presentForHandoff() {
+          postprocessorHandoffPresentCount += 1
+        },
+      }
     },
     animationFrameScheduler,
   )
   return Object.defineProperties(controller, {
     flushScheduledFrames: { value: () => animationFrameScheduler.flush() },
     postprocessorCreateCount: { get: () => postprocessorCreateCount },
+    postprocessorHandoffPresentCount: { get: () => postprocessorHandoffPresentCount },
   }) as typeof controller & {
     flushScheduledFrames(): void
     readonly postprocessorCreateCount: number
+    readonly postprocessorHandoffPresentCount: number
   }
 }
 
@@ -336,6 +344,74 @@ describe('xterm WebGL fallback', () => {
 
     renderer.dispose()
     expect(addons[1]!.disposeCount).toBe(1)
+  })
+
+  test('retains the outgoing canvas until the replacement renderer presents', () => {
+    const addons: FakeAtlasWebglAddon[] = []
+    const canvases: HTMLCanvasElement[] = []
+    const parentByCanvas = new WeakMap<HTMLCanvasElement, HTMLElement>()
+    const canvasHost = {
+      appendChild(canvas: HTMLCanvasElement) {
+        const index = canvases.indexOf(canvas)
+        if (index !== -1) canvases.splice(index, 1)
+        canvases.push(canvas)
+        parentByCanvas.set(canvas, canvasHost as unknown as HTMLElement)
+        return canvas
+      },
+    } as unknown as HTMLElement
+    const createAttachedCanvas = () => {
+      const canvas = fakeWebglCanvas(16)
+      Object.defineProperties(canvas, {
+        parentElement: { get: () => parentByCanvas.get(canvas) ?? null },
+        remove: {
+          value: () => {
+            const index = canvases.indexOf(canvas)
+            if (index !== -1) canvases.splice(index, 1)
+            parentByCanvas.delete(canvas)
+          },
+        },
+      })
+      canvasHost.appendChild(canvas)
+      return canvas
+    }
+    const renderHandlers = new Set<() => void>()
+    const renderer = enableTestRenderer(
+      {
+        element: { querySelectorAll: () => canvases },
+        loadAddon() {
+          createAttachedCanvas()
+        },
+        onRender(handler: Parameters<TestRendererTerminal['onRender']>[0]) {
+          const callback = handler as () => void
+          renderHandlers.add(callback)
+          return { dispose: () => renderHandlers.delete(callback) }
+        },
+        refresh() {},
+        rows: 90,
+      } as unknown as Pick<Terminal, 'element' | 'loadAddon' | 'onRender' | 'refresh' | 'rows'>,
+      { themeColor: '#010416' },
+      () => {
+        const addon = new FakeAtlasWebglAddon()
+        addons.push(addon)
+        return addon
+      },
+    )
+    const outgoingCanvas = canvases[0]!
+
+    for (let page = 0; page < 12; page += 1) addons[0]!.addAtlasPage()
+    renderer.flushScheduledFrames()
+
+    expect(renderer.postprocessorHandoffPresentCount).toBe(1)
+    expect(canvases).toHaveLength(2)
+    expect(canvases[1]).toBe(outgoingCanvas)
+    expect(renderHandlers.size).toBe(1)
+
+    for (const render of [...renderHandlers]) render()
+
+    expect(canvases).toHaveLength(1)
+    expect(canvases[0]).not.toBe(outgoingCanvas)
+    expect(renderHandlers.size).toBe(0)
+    renderer.dispose()
   })
 
   test('falls back safely when atlas-driven addon recreation fails', () => {
