@@ -111,10 +111,8 @@ describe('native Solid screens', () => {
     try {
       const firstAnimationInput = await waitForFocusedInput(setup, ANIMATION_SCREEN)
       await setup.mockInput.typeText('animation')
-      setup.mockInput.pressArrow('right')
       await setup.flush()
       expect(firstAnimationInput.value).toBe('animation')
-      expect(setup.captureCharFrame()).toContain('VALUE: 1')
 
       setup.mockInput.pressTab()
       await setup.mockInput.typeText('x')
@@ -123,21 +121,21 @@ describe('native Solid screens', () => {
       expect(firstAnimationInput.focused).toBe(true)
       expect(firstAnimationInput.value).toBe('animationx')
 
-      setup.mockInput.pressArrow('down', { shift: true })
+      setup.mockInput.pressArrow('right', { shift: true })
       await setup.flush()
       expect(findInput(setup, ANIMATION_SCREEN)).toBe(firstAnimationInput)
 
-      setup.renderer.stdin.emit('data', Buffer.from('\u001bOB'))
+      setup.renderer.stdin.emit('data', Buffer.from('\u001bOC'))
       const pictureInput = await waitForFocusedInput(setup, PICTURE_SCREEN)
       expect(firstAnimationInput.isDestroyed).toBe(true)
       expect(pictureInput.focused).toBe(true)
 
-      setup.renderer.stdin.emit('data', Buffer.from('\u001b[B'))
+      setup.renderer.stdin.emit('data', Buffer.from('\u001b[C'))
       const plainInput = await waitForFocusedInput(setup, PLAIN_SCREEN)
       expect(pictureInput.isDestroyed).toBe(true)
       expect(plainInput.focused).toBe(true)
 
-      setup.renderer.stdin.emit('data', Buffer.from('\u001bOB'))
+      setup.renderer.stdin.emit('data', Buffer.from('\u001bOC'))
       const secondAnimationInput = await waitForFocusedInput(setup, ANIMATION_SCREEN)
       expect(plainInput.isDestroyed).toBe(true)
       expect(secondAnimationInput.focused).toBe(true)
@@ -148,12 +146,12 @@ describe('native Solid screens', () => {
 
   test('runs every default keyboard transition through raw CSI and SS3 input', async () => {
     const transitions: readonly [ScreenKey, ScreenKey, string][] = [
-      [ANIMATION_SCREEN, PICTURE_SCREEN, '\u001b[B'],
-      [ANIMATION_SCREEN, PLAIN_SCREEN, '\u001bOA'],
-      [PICTURE_SCREEN, ANIMATION_SCREEN, '\u001b[A'],
-      [PICTURE_SCREEN, PLAIN_SCREEN, '\u001bOB'],
-      [PLAIN_SCREEN, PICTURE_SCREEN, '\u001b[A'],
-      [PLAIN_SCREEN, ANIMATION_SCREEN, '\u001bOB'],
+      [ANIMATION_SCREEN, PICTURE_SCREEN, '\u001b[C'],
+      [ANIMATION_SCREEN, PLAIN_SCREEN, '\u001bOD'],
+      [PICTURE_SCREEN, ANIMATION_SCREEN, '\u001b[D'],
+      [PICTURE_SCREEN, PLAIN_SCREEN, '\u001bOC'],
+      [PLAIN_SCREEN, PICTURE_SCREEN, '\u001b[D'],
+      [PLAIN_SCREEN, ANIMATION_SCREEN, '\u001bOC'],
     ]
     const setup = await testRender(() => <App />, TEST_SIZE)
 
@@ -165,7 +163,6 @@ describe('native Solid screens', () => {
         const destinationInput = await waitForFocusedInput(setup, to)
         expect(sourceInput.isDestroyed).toBe(true)
         expect(destinationInput.focused).toBe(true)
-        expect(setup.captureCharFrame()).toContain('VALUE: 0')
       }
     } finally {
       setup.renderer.destroy()
@@ -179,19 +176,19 @@ describe('native Solid screens', () => {
       const listenerCount = setup.renderer.keyInput.listenerCount('keypress')
 
       for (let cycle = 0; cycle < 50; cycle += 1) {
-        setup.mockInput.pressArrow('down')
+        setup.mockInput.pressArrow('right')
         const picture = await waitForFocusedInput(setup, PICTURE_SCREEN)
         expect(current.isDestroyed).toBe(true)
         expect(picture.focused).toBe(true)
         expect(setup.renderer.keyInput.listenerCount('keypress')).toBe(listenerCount)
 
-        setup.mockInput.pressArrow('down')
+        setup.mockInput.pressArrow('right')
         const plain = await waitForFocusedInput(setup, PLAIN_SCREEN)
         expect(picture.isDestroyed).toBe(true)
         expect(plain.focused).toBe(true)
         expect(setup.renderer.keyInput.listenerCount('keypress')).toBe(listenerCount)
 
-        setup.mockInput.pressArrow('down')
+        setup.mockInput.pressArrow('right')
         const animation = await waitForFocusedInput(setup, ANIMATION_SCREEN)
         expect(plain.isDestroyed).toBe(true)
         expect(animation.focused).toBe(true)
@@ -203,56 +200,45 @@ describe('native Solid screens', () => {
     }
   })
 
-  test('persists global counter and input while focus re-establishes after disposal', async () => {
+  test('persists global input while focus re-establishes after disposal', async () => {
     const setup = await testRender(() => <App />, TEST_SIZE)
     try {
       const firstAnimation = await waitForFocusedInput(setup, ANIMATION_SCREEN)
       await setup.mockInput.typeText('animation-state')
-      setup.mockInput.pressArrow('left')
       await setup.flush()
       expect(firstAnimation.value).toBe('animation-state')
-      expect(setup.captureCharFrame()).toContain('VALUE: -1')
 
-      setup.mockInput.pressArrow('down')
+      setup.mockInput.pressArrow('right')
       const firstPicture = await waitForFocusedInput(setup, PICTURE_SCREEN)
       expect(firstPicture.value).toBe('animation-state')
       await setup.mockInput.typeText('picture-state')
-      setup.mockInput.pressArrow('right')
-      setup.mockInput.pressArrow('right')
       await setup.flush()
       expect(firstPicture.value).toBe('animation-statepicture-state')
-      expect(setup.captureCharFrame()).toContain('VALUE: 1')
 
-      setup.mockInput.pressArrow('down')
+      setup.mockInput.pressArrow('right')
       const firstPlain = await waitForFocusedInput(setup, PLAIN_SCREEN)
       expect(firstPlain.value).toBe('animation-statepicture-state')
       await setup.mockInput.typeText('plain-state')
-      setup.mockInput.pressArrow('left')
-      setup.mockInput.pressArrow('left')
       await setup.flush()
       expect(firstPlain.value).toBe('animation-statepicture-stateplain-state')
-      expect(setup.captureCharFrame()).toContain('VALUE: -1')
 
-      setup.mockInput.pressArrow('down')
+      setup.mockInput.pressArrow('right')
       const secondAnimation = await waitForFocusedInput(setup, ANIMATION_SCREEN)
       await setup.flush()
       expect(secondAnimation).not.toBe(firstAnimation)
       expect(secondAnimation.value).toBe('animation-statepicture-stateplain-state')
-      expect(setup.captureCharFrame()).toContain('VALUE: -1')
 
-      setup.mockInput.pressArrow('down')
+      setup.mockInput.pressArrow('right')
       const secondPicture = await waitForFocusedInput(setup, PICTURE_SCREEN)
       await setup.flush()
       expect(secondPicture).not.toBe(firstPicture)
       expect(secondPicture.value).toBe('animation-statepicture-stateplain-state')
-      expect(setup.captureCharFrame()).toContain('VALUE: -1')
 
-      setup.mockInput.pressArrow('down')
+      setup.mockInput.pressArrow('right')
       const secondPlain = await waitForFocusedInput(setup, PLAIN_SCREEN)
       await setup.flush()
       expect(secondPlain).not.toBe(firstPlain)
       expect(secondPlain.value).toBe('animation-statepicture-stateplain-state')
-      expect(setup.captureCharFrame()).toContain('VALUE: -1')
     } finally {
       setup.renderer.destroy()
     }
@@ -272,12 +258,12 @@ describe('native Solid screens', () => {
 
     try {
       await waitForDrawCount(2)
-      setup.mockInput.pressArrow('down')
+      setup.mockInput.pressArrow('right')
       await waitForFocusedInput(setup, PICTURE_SCREEN)
       const animationDraws = draw.mock.calls.length
       await waitForDrawCount(animationDraws + 1)
 
-      setup.mockInput.pressArrow('down')
+      setup.mockInput.pressArrow('right')
       await waitForFocusedInput(setup, PLAIN_SCREEN)
       await setup.waitForVisualIdle()
 
@@ -285,11 +271,11 @@ describe('native Solid screens', () => {
       await Bun.sleep(250)
       expect(draw.mock.calls).toHaveLength(stoppedDraws)
 
-      setup.mockInput.pressArrow('up')
+      setup.mockInput.pressArrow('left')
       await waitForFocusedInput(setup, PICTURE_SCREEN)
       await waitForDrawCount(stoppedDraws + 1)
 
-      setup.mockInput.pressArrow('up')
+      setup.mockInput.pressArrow('left')
       await waitForFocusedInput(setup, ANIMATION_SCREEN)
       await waitForDrawCount(stoppedDraws + 2)
     } finally {
@@ -302,7 +288,7 @@ describe('native Solid screens', () => {
     const setup = await testRender(
       () => (
         <PixelRenderer uri="https://example.test/not-local.png" width="100%" height="100%">
-          <AppStatePanel label="ANIMATION SCREEN" />
+          <AppStatePanel />
         </PixelRenderer>
       ),
       TEST_SIZE,
@@ -313,7 +299,7 @@ describe('native Solid screens', () => {
       const frame = await setup.waitForFrame(
         (candidate) => candidate.includes('local files only') && candidate.includes('still-alive'),
       )
-      expect(frame).toContain('ANIMATION SCREEN')
+      expect(frame).toContain('SCREEN ID: animation')
       expect(frame).toContain('local files only')
       expect(input.focused).toBe(true)
     } finally {

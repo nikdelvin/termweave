@@ -1,12 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import {
-  adjustCounter,
-  appState,
-  navigate,
-  resetAppState,
-  screen,
-  setInputText,
-} from '../app/store'
+import { appState, navigate, resetAppState, screen, setInputText } from '../app/store'
 import type { ScreenKey } from '../app/screens'
 
 beforeEach(() => {
@@ -21,18 +14,17 @@ afterEach(() => {
 
 describe('global application store', () => {
   test('starts with deterministic application and navigation state', () => {
-    expect(appState).toEqual({ counter: 0, inputText: '' })
+    expect(appState).toEqual({ inputText: '' })
     expect(screen()).toBe('animation')
   })
 
   test('updates and resets application data independently of navigation', () => {
-    adjustCounter(2)
     setInputText('persistent')
     navigate('picture')
-    expect(appState).toEqual({ counter: 2, inputText: 'persistent' })
+    expect(appState).toEqual({ inputText: 'persistent' })
 
     resetAppState()
-    expect(appState).toEqual({ counter: 0, inputText: '' })
+    expect(appState).toEqual({ inputText: '' })
     expect(screen()).toBe('picture')
   })
 

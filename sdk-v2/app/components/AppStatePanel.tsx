@@ -1,57 +1,32 @@
-import { type InputRenderable, type KeyEvent } from '@opentui/core'
+import { type InputRenderable } from '@opentui/core'
 import { onMount } from 'solid-js'
 import { getTermweaveConfig } from '#termweave'
-import { adjustCounter, appState, screen, setInputText } from '../store'
+import { appState, screen, setInputText } from '../store'
 import type { ScreenKey } from '../screens'
 
 export const appStateInputId = (screenKey: ScreenKey) => `app-state-input:${screenKey}`
 
-type AppStatePanelProps = {
-  label: string
-}
-
-type HorizontalKey = Pick<
-  KeyEvent,
-  'ctrl' | 'hyper' | 'meta' | 'name' | 'option' | 'sequence' | 'shift' | 'super'
->
-
-function horizontalDelta(key: HorizontalKey) {
-  if (key.ctrl || key.hyper || key.meta || key.option || key.shift || key.super) return 0
-  if (key.name === 'left' && ['\u001b[D', '\u001bOD'].includes(key.sequence)) return -1
-  if (key.name === 'right' && ['\u001b[C', '\u001bOC'].includes(key.sequence)) return 1
-  return 0
-}
-
-export function AppStatePanel(props: AppStatePanelProps) {
+export function AppStatePanel() {
   let input: InputRenderable | undefined
   const config = getTermweaveConfig()
   const panelWidth = 72
 
   onMount(() => input?.focus())
 
-  const onKeyDown = (key: KeyEvent) => {
-    const delta = horizontalDelta(key)
-    if (delta === 0) return
-    key.preventDefault()
-    adjustCounter(delta)
-  }
-
   return (
     <box
       width={panelWidth}
-      height={9}
+      height={7}
       padding={1}
+      gap={1}
       border
-      borderStyle="rounded"
+      borderStyle="heavy"
       borderColor="#FFFFFF"
       backgroundColor={config.themeColor}
       flexDirection="column"
       zIndex={3}
     >
-      <text height={1} fg="#FFFFFF" content={`${props.label} · SCREEN: ${screen()}`} />
-      <text height={1} fg="#FFFFFF" content="SCREENS: app/screens.ts · KEYS: app/App.tsx" />
-      <text height={1} fg="#FFFFFF" content="LEFT/RIGHT: COUNTER · TAB/TEXT: INPUT" />
-      <text height={1} fg="#FFFFFF" content={`VALUE: ${appState.counter}`} />
+      <text height={1} fg="#FFFFFF" content={`SCREEN ID: ${screen()}`} />
       <input
         id={appStateInputId(screen())}
         ref={input}
@@ -59,9 +34,7 @@ export function AppStatePanel(props: AppStatePanelProps) {
         value={appState.inputText}
         placeholder="TYPE HERE"
         onInput={setInputText}
-        onKeyDown={onKeyDown}
       />
-      <text height={1} fg="#FFFFFF" content={`TYPED: ${appState.inputText}`} />
     </box>
   )
 }

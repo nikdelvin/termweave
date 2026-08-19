@@ -3,7 +3,6 @@ import { createScreenNavigation } from '#termweave'
 import type { ScreenKey } from './screens'
 
 export interface AppState {
-  readonly counter: number
   readonly inputText: string
 }
 
@@ -12,7 +11,6 @@ type MutableAppState = {
 }
 
 const INITIAL_APP_STATE: MutableAppState = Object.freeze({
-  counter: 0,
   inputText: '',
 })
 
@@ -24,10 +22,6 @@ export const screen = navigation.screen
 
 export function navigate(destination: ScreenKey) {
   navigation.navigate(destination)
-}
-
-export function adjustCounter(delta: number) {
-  setAppState('counter', (value) => value + delta)
 }
 
 export function setInputText(value: string) {

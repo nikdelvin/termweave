@@ -30,8 +30,8 @@ They normally do not edit `app/index.tsx`, `termweave/`, `scripts/`,
 
 `app.icon.png` is only the packaged application icon. Animation demonstrates
 `app/assets/campfire.gif`, Picture renders the committed first-frame `campfire.png`, and Plain shows
-ordinary OpenTUI content without native media drawing. The starter counter and input are global
-application state, so their values persist while navigating among all three screens.
+ordinary OpenTUI content without native media drawing. The starter input is global application
+state, so its value persists while navigating among all three screens.
 
 Animation and Picture share one application-level `PixelRenderer`, allowing their overlays to
 remount while the prior media frame remains visible during a source change. Successful decodes are

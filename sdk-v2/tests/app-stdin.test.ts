@@ -2,12 +2,13 @@ import { describe, expect, test } from 'bun:test'
 import { Terminal } from '@xterm/xterm'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import type { ScreenKey } from '../app/screens'
 import { TERMINAL_GRID } from '../termweave/constants'
 
 const projectRoot = fileURLToPath(new URL('../', import.meta.url))
 
 describe('real sidecar stdin parsing', () => {
-  test('keeps counters and typing responsive across every media and plain-screen transition', async () => {
+  test('keeps typing responsive across every media and plain-screen transition', async () => {
     const child = spawn(
       process.execPath,
       ['--preload', '@opentui/solid/preload', 'app/index.tsx'],
@@ -91,69 +92,53 @@ describe('real sidecar stdin parsing', () => {
       for (const character of value) {
         typed += character
         await write(character)
-        await waitForScreen(`TYPED: ${typed}`)
+        await waitForScreen(`┃ ${typed}`)
       }
     }
+    const screenMarker = (screen: ScreenKey) => `SCREEN ID: ${screen}`
 
     try {
-      await waitForScreen('ANIMATION SCREEN')
+      await waitForScreen(screenMarker('animation'))
       await typeText('a')
-      await waitForScreen('TYPED: a')
 
-      await write('\u001b[C')
-      await waitForScreen('VALUE: 1')
-
-      await write('\u001bOB')
-      await waitForScreen('PICTURE SCREEN')
-      expect(screenText()).not.toContain('ANIMATION SCREEN')
+      await write('\u001bOC')
+      await waitForScreen(screenMarker('picture'))
+      expect(screenText()).not.toContain(screenMarker('animation'))
 
       await typeText('b', 'a')
-      await write('\u001bOC')
-      await waitForScreen('VALUE: 2')
       await typeText('c', 'ab')
-      await waitForScreen('TYPED: abc')
 
-      // PNG -> plain through CSI Down.
-      await write('\u001b[B')
-      await waitForScreen('PLAIN SCREEN')
-      expect(screenText()).not.toContain('PICTURE SCREEN')
-      expect(screenText()).not.toContain('ANIMATION SCREEN')
+      // PNG -> plain through CSI Right.
+      await write('\u001b[C')
+      await waitForScreen(screenMarker('plain'))
+      expect(screenText()).not.toContain(screenMarker('picture'))
+      expect(screenText()).not.toContain(screenMarker('animation'))
 
       await typeText('d', 'abc')
-      await write('\u001b[D')
-      await waitForScreen('VALUE: 1')
 
-      // Plain -> PNG through SS3 Up.
-      await write('\u001bOA')
-      await waitForScreen('PICTURE SCREEN')
-      expect(screenText()).not.toContain('PLAIN SCREEN')
+      // Plain -> PNG through SS3 Left.
+      await write('\u001bOD')
+      await waitForScreen(screenMarker('picture'))
+      expect(screenText()).not.toContain(screenMarker('plain'))
       await typeText('e', 'abcd')
-      await write('\u001b[C')
-      await waitForScreen('VALUE: 2')
 
-      // PNG -> GIF through CSI Up.
-      await write('\u001b[A')
-      await waitForScreen('ANIMATION SCREEN')
-      expect(screenText()).not.toContain('PICTURE SCREEN')
+      // PNG -> GIF through CSI Left.
+      await write('\u001b[D')
+      await waitForScreen(screenMarker('animation'))
+      expect(screenText()).not.toContain(screenMarker('picture'))
 
-      await write('\u001b[C')
-      await waitForScreen('VALUE: 3')
       await typeText('f', 'abcde')
-      await waitForScreen('TYPED: abcdef')
 
-      // GIF -> plain through SS3 Up, then plain -> GIF through SS3 Down.
-      await write('\u001bOA')
-      await waitForScreen('PLAIN SCREEN')
-      expect(screenText()).not.toContain('ANIMATION SCREEN')
+      // GIF -> plain through SS3 Left, then plain -> GIF through SS3 Right.
+      await write('\u001bOD')
+      await waitForScreen(screenMarker('plain'))
+      expect(screenText()).not.toContain(screenMarker('animation'))
       await typeText('g', 'abcdef')
-      await write('\u001bOC')
-      await waitForScreen('VALUE: 4')
 
-      await write('\u001bOB')
-      await waitForScreen('ANIMATION SCREEN')
-      expect(screenText()).not.toContain('PLAIN SCREEN')
+      await write('\u001bOC')
+      await waitForScreen(screenMarker('animation'))
+      expect(screenText()).not.toContain(screenMarker('plain'))
       await typeText('h', 'abcdefg')
-      await waitForScreen('TYPED: abcdefgh')
 
       expect(stderr).toBe('')
     } finally {

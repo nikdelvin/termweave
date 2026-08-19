@@ -9,25 +9,25 @@ export function PlainScreen() {
       width="100%"
       height="100%"
       flexDirection="column"
-      justifyContent="center"
+      justifyContent="space-between"
       alignItems="center"
       backgroundColor={config.themeColor}
     >
       <box
         width={72}
-        height={14}
-        flexDirection="column"
+        height={9}
+        padding={1}
+        gap={1}
         border
         borderStyle="heavy"
-        borderColor={config.terminalForegroundColor}
-        padding={2}
+        borderColor="#FFFFFF"
+        flexDirection="column"
       >
-        <text fg={config.terminalForegroundColor}>PLAIN SCREEN · NO PIXELRENDERER</text>
-        <text fg={config.terminalForegroundColor}>
-          Ordinary Solid/OpenTUI content with no native media drawing.
-        </text>
+        <text fg="#FFFFFF">PLAIN SCREEN · NO PIXEL RENDERER</text>
+        <text fg="#FFFFFF">Ordinary Solid/OpenTUI content with no native media drawing.</text>
+        <text fg="#FFFFFF">LEFT/RIGHT: CHANGE SCREEN</text>
       </box>
-      <AppStatePanel label="PLAIN SCREEN" />
+      <AppStatePanel />
     </box>
   )
 }

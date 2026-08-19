@@ -4,6 +4,8 @@ import { Show } from 'solid-js'
 import { navigate, screen } from './store'
 import { screenMedia, screens } from './screens'
 
+const screenOrder = Object.keys(screens) as (keyof typeof screens)[]
+
 export function App() {
   const config = getTermweaveConfig()
   const mediaUri = () => screenMedia[screen()]
@@ -13,26 +15,13 @@ export function App() {
   useKeyboard((key) => {
     if (key.ctrl || key.hyper || key.meta || key.option || key.shift || key.super) return
 
-    const current = screen()
-    if (current === 'animation' && key.name === 'down') {
-      key.preventDefault()
-      navigate('picture')
-    } else if (current === 'animation' && key.name === 'up') {
-      key.preventDefault()
-      navigate('plain')
-    } else if (current === 'picture' && key.name === 'up') {
-      key.preventDefault()
-      navigate('animation')
-    } else if (current === 'picture' && key.name === 'down') {
-      key.preventDefault()
-      navigate('plain')
-    } else if (current === 'plain' && key.name === 'up') {
-      key.preventDefault()
-      navigate('picture')
-    } else if (current === 'plain' && key.name === 'down') {
-      key.preventDefault()
-      navigate('animation')
-    }
+    const delta = key.name === 'left' ? -1 : key.name === 'right' ? 1 : 0
+    if (delta === 0) return
+
+    key.preventDefault()
+    const currentIndex = screenOrder.indexOf(screen())
+    const nextIndex = (currentIndex + delta + screenOrder.length) % screenOrder.length
+    navigate(screenOrder[nextIndex]!)
   })
 
   return (

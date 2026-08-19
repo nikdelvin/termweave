@@ -12,13 +12,14 @@ export function AnimationScreen() {
       width="100%"
       height="100%"
       flexDirection="column"
-      justifyContent="center"
+      justifyContent="space-between"
       alignItems="center"
     >
       <box
         width={72}
-        height={8}
-        padding={2}
+        height={9}
+        padding={1}
+        gap={1}
         border
         borderStyle="heavy"
         borderColor="#FFFFFF"
@@ -26,9 +27,9 @@ export function AnimationScreen() {
       >
         <text fg="#FFFFFF">ANIMATION SCREEN · BUNDLED GIF</text>
         <text fg="#FFFFFF">A bundled GIF rendered behind ordinary OpenTUI layout.</text>
-        <text fg="#FFFFFF">UP/DOWN: CHANGE SCREEN</text>
+        <text fg="#FFFFFF">LEFT/RIGHT: CHANGE SCREEN</text>
       </box>
-      <AppStatePanel label="ANIMATION SCREEN" />
+      <AppStatePanel />
     </box>
   )
 }
