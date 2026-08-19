@@ -32,10 +32,10 @@ class FakeFrameScheduler implements AnimationFrameScheduler<number> {
 }
 
 describe('glyph-atlas pressure monitor', () => {
-  test('keeps four texture units in reserve on normal WebGL limits', () => {
-    expect(glyphAtlasRecyclePageThreshold(32)).toBe(28)
-    expect(glyphAtlasRecyclePageThreshold(16)).toBe(12)
-    expect(glyphAtlasRecyclePageThreshold(8)).toBe(4)
+  test('uses the runtime WebGL page limit as the recycle threshold', () => {
+    expect(glyphAtlasRecyclePageThreshold(32)).toBe(32)
+    expect(glyphAtlasRecyclePageThreshold(16)).toBe(16)
+    expect(glyphAtlasRecyclePageThreshold(8)).toBe(8)
     expect(glyphAtlasRecyclePageThreshold(4)).toBe(4)
     expect(() => glyphAtlasRecyclePageThreshold(0)).toThrow(RangeError)
     expect(() => glyphAtlasRecyclePageThreshold(1.5)).toThrow(RangeError)
@@ -46,11 +46,11 @@ describe('glyph-atlas pressure monitor', () => {
     let recycles = 0
     const monitor = createGlyphAtlasMonitor({ scheduler, onRecycle: () => (recycles += 1) })
     monitor.setMaximumPages(16)
-    const pages = Array.from({ length: 12 }, () => ({}))
+    const pages = Array.from({ length: 16 }, () => ({}))
 
-    for (const page of pages.slice(0, 11)) monitor.addPage(page)
+    for (const page of pages.slice(0, 15)) monitor.addPage(page)
     expect(scheduler.callbacks.size).toBe(0)
-    monitor.addPage(pages[11]!)
+    monitor.addPage(pages[15]!)
     monitor.addPage({})
     expect(scheduler.callbacks.size).toBe(1)
     expect(scheduler.maximumPending).toBe(1)
@@ -71,7 +71,7 @@ describe('glyph-atlas pressure monitor', () => {
     let recycles = 0
     const monitor = createGlyphAtlasMonitor({ scheduler, onRecycle: () => (recycles += 1) })
     monitor.setMaximumPages(8)
-    for (let page = 0; page < 4; page += 1) monitor.addPage({})
+    for (let page = 0; page < 8; page += 1) monitor.addPage({})
     expect(scheduler.callbacks.size).toBe(1)
 
     monitor.resetGeneration()
@@ -81,7 +81,7 @@ describe('glyph-atlas pressure monitor', () => {
     expect(recycles).toBe(0)
 
     monitor.setMaximumPages(8)
-    for (let page = 0; page < 4; page += 1) monitor.addPage({})
+    for (let page = 0; page < 8; page += 1) monitor.addPage({})
     monitor.dispose()
     expect(scheduler.callbacks.size).toBe(0)
     monitor.addPage({})

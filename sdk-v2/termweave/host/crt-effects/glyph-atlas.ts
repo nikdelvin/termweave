@@ -1,13 +1,9 @@
-export const GLYPH_ATLAS_PAGE_RESERVE = 4
-
 export function glyphAtlasRecyclePageThreshold(maximumPages: number) {
   if (!Number.isInteger(maximumPages) || maximumPages < 1) {
     throw new RangeError('Glyph atlas maximum page count must be a positive integer.')
   }
 
-  return maximumPages > GLYPH_ATLAS_PAGE_RESERVE
-    ? maximumPages - GLYPH_ATLAS_PAGE_RESERVE
-    : maximumPages
+  return maximumPages
 }
 
 export interface AnimationFrameScheduler<Handle = unknown> {

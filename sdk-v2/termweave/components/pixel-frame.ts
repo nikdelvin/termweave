@@ -170,7 +170,7 @@ export function compositeFrameOverBackground(frame: RgbaFrame, background: Rgb):
     data[offset + 2] = Math.round(data[offset + 2]! * alpha + background[2] * (1 - alpha))
     data[offset + 3] = 255
   }
-  applyCrtPalette(data, background)
+  applyCrtPalette(data)
   return { ...frame, data }
 }
 

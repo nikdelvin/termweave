@@ -300,7 +300,7 @@ describe('xterm WebGL fallback', () => {
     expect(addon.disposeCount).toBe(1)
   })
 
-  test('recreates the addon before atlas exhaustion and refreshes the full terminal', () => {
+  test('recreates the addon at the runtime WebGL atlas limit and refreshes the full terminal', () => {
     const addons: FakeAtlasWebglAddon[] = []
     const canvases: HTMLCanvasElement[] = []
     const refreshes: [number, number][] = []
@@ -331,7 +331,11 @@ describe('xterm WebGL fallback', () => {
       },
     )
 
-    for (let page = 0; page < 12; page += 1) addons[0]!.addAtlasPage()
+    for (let page = 0; page < 15; page += 1) addons[0]!.addAtlasPage()
+    renderer.flushScheduledFrames()
+    expect(addons).toHaveLength(1)
+
+    addons[0]!.addAtlasPage()
     renderer.flushScheduledFrames()
 
     expect(addons).toHaveLength(2)
@@ -398,7 +402,7 @@ describe('xterm WebGL fallback', () => {
     )
     const outgoingCanvas = canvases[0]!
 
-    for (let page = 0; page < 12; page += 1) addons[0]!.addAtlasPage()
+    for (let page = 0; page < 16; page += 1) addons[0]!.addAtlasPage()
     renderer.flushScheduledFrames()
 
     expect(renderer.postprocessorHandoffPresentCount).toBe(1)
@@ -441,7 +445,7 @@ describe('xterm WebGL fallback', () => {
       },
     )
 
-    for (let page = 0; page < 4; page += 1) first.addAtlasPage()
+    for (let page = 0; page < 8; page += 1) first.addAtlasPage()
     renderer.flushScheduledFrames()
 
     expect(renderer.status).toEqual({

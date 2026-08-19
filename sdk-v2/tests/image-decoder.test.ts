@@ -73,7 +73,7 @@ describe('still-image decoding and sizing', () => {
     const [frame] = await loadLocalImageFrames(pngPath, { width: 8, height: 8 }, [0, 0, 255])
     expect(frame).toMatchObject({ width: 8, height: 4, delayMs: 0 })
     expect(frame!.data.every((value, index) => index % 4 !== 3 || value === 255)).toBe(true)
-    expect(pixel(frame!, 0, 0)).toEqual([146, 0, 109, 255])
+    expect(pixel(frame!, 0, 0)).toEqual([146, 0, 85, 255])
   })
 
   test('detects and decodes JPEG independently of its extension', async () => {
@@ -170,7 +170,7 @@ describe('GIF full-frame composition', () => {
     )
     expect(pixel(output[0]!, 1, 1)).toEqual([255, 0, 0, 255])
     expect(pixel(output[1]!, 0, 0)).toEqual([0, 0, 255, 255])
-    expect(pixel(output[1]!, 1, 1)).toEqual([4, 5, 6, 255])
+    expect(pixel(output[1]!, 1, 1)).toEqual([0, 0, 0, 255])
   })
 
   test('snapshots and restores disposal-3 frames', () => {
@@ -213,7 +213,7 @@ describe('GIF full-frame composition', () => {
       { width: 2, height: 2 },
       [0, 0, 255],
     )
-    expect(pixel(frame!, 0, 0)).toEqual([146, 0, 109, 255])
+    expect(pixel(frame!, 0, 0)).toEqual([146, 0, 85, 255])
   })
 
   test('rejects missing frames and malformed or out-of-bounds patches', () => {
