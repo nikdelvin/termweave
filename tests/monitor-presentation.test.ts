@@ -8,7 +8,7 @@ import {
   createMonitorPresentation,
   monitorBezelFilter,
 } from '../termweave/host/monitor-presentation'
-import { validAppConfig } from './fixtures'
+import { validAppConfig } from './support/app-config'
 
 function fakeStyle() {
   const properties = new Map<string, string>()

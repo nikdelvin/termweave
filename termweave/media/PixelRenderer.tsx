@@ -8,7 +8,7 @@ import {
   PIXEL_RENDERER_ERROR_FOREGROUND_COLOR,
 } from '../constants'
 import { errorMessage } from '../error-message'
-import { createImagePlaybackController } from './controller'
+import { createMediaPlaybackController } from './controller'
 import { calculateCenteredViewport, type AnimationFrame, type Dimensions } from './frame'
 
 const ERROR_LENGTH = 220
@@ -23,7 +23,7 @@ export interface PixelRendererProps {
 
 export function formatPixelRendererError(error: unknown) {
   const normalized = errorMessage(error).trim().replaceAll(/\s+/g, ' ')
-  const message = normalized || 'Unknown image error.'
+  const message = normalized || 'Unknown media error.'
   return message.length <= ERROR_LENGTH ? message : `${message.slice(0, ERROR_LENGTH - 1)}…`
 }
 
@@ -79,7 +79,7 @@ export function PixelRenderer(props: ParentProps<PixelRendererProps>) {
     setError(nextError === undefined ? '' : formatPixelRendererError(nextError))
     requestRender()
   }
-  const controller = createImagePlaybackController({ onError: showError, onFrame: showFrame })
+  const controller = createMediaPlaybackController({ onError: showError, onFrame: showFrame })
   const updateDimensions = () => {
     if (!surface) return
     const next = {

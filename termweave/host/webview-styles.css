@@ -46,9 +46,6 @@ body,
 
 #terminal {
   position: absolute;
-}
-
-#terminal {
   z-index: 1;
   overflow: hidden;
   background: var(--termweave-theme-color);

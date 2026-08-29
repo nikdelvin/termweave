@@ -23,7 +23,7 @@ type SidecarSession = ReturnType<typeof createSidecarSession>
 
 export interface WebviewHostDependencies {
   readonly document: Document
-  readonly browserWindow: Pick<Window, 'addEventListener'>
+  readonly browserWindow: Pick<Window, 'addEventListener' | 'removeEventListener'>
   readonly getConfig: () => AppConfig
   readonly createMonitorPresentation: (root: HTMLElement, config: AppConfig) => MonitorPresentation
   readonly createXtermTerminal: (config: AppConfig) => XtermTerminal
@@ -92,10 +92,12 @@ export async function startWebviewHost(
   let rendererStatusSubscription: { dispose(): void } | undefined
   let session: SidecarSession | undefined
   let cleanupPromise: Promise<void> | undefined
+  const handleBeforeUnload = () => void cleanup()
 
   const cleanup = () => {
     if (cleanupPromise) return cleanupPromise
     disposed = true
+    dependencies.browserWindow.removeEventListener('beforeunload', handleBeforeUnload)
     presentation.dispose()
     rendererStatusSubscription?.dispose()
     rendererStatusSubscription = undefined
@@ -110,7 +112,7 @@ export async function startWebviewHost(
     return cleanupPromise
   }
 
-  dependencies.browserWindow.addEventListener('beforeunload', () => void cleanup(), { once: true })
+  dependencies.browserWindow.addEventListener('beforeunload', handleBeforeUnload, { once: true })
   import.meta.hot?.dispose(() => void cleanup())
 
   try {

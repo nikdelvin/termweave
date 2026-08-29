@@ -3,7 +3,8 @@ import { availableParallelism, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import process from 'node:process'
 import ffmpegManifest from '../ffmpeg-artifacts.json'
-import { errorMessage, getRustHostTuple, runRequired } from './tooling'
+import { errorMessage } from '../termweave/error-message'
+import { getRustHostTuple, runRequired } from './tooling'
 
 interface ArtifactMetadata {
   artifactSha256: string
@@ -22,8 +23,10 @@ export function getFfmpegOutputPath(
   triple: string,
   platform: NodeJS.Platform = process.platform,
 ) {
-  const extension = platform === 'win32' ? '.exe' : ''
-  return resolve(root, `src-tauri/binaries/ffmpeg-${triple}${extension}`)
+  if (platform !== 'darwin') {
+    throw new Error(`Termweave FFmpeg supports only macOS, not ${platform}.`)
+  }
+  return resolve(root, `src-tauri/binaries/ffmpeg-${triple}`)
 }
 
 export function getFfmpegResourceDirectory(root: string) {

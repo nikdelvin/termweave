@@ -29,7 +29,8 @@ Application authors normally edit:
 - `app.config.json` and `app.icon.png`
 - `app/store.ts` for durable application data and actions
 - `app/screens.tsx` for the typed screen registry and shared demo-screen layout
-- files under `app/components/` and `app/assets/`
+- `app/AppStatePanel.tsx` for the starter's reusable state panel
+- files under `app/assets/`
 - opted-in production media under `app/media/`
 - `app/App.tsx` when changing global keyboard navigation
 
@@ -80,7 +81,14 @@ Audio-less MP4 files play silently. Playback intentionally has no seek or transp
 The media process uses HTTPS through macOS Secure Transport, source timestamps without a fixed FPS
 filter, optional VideoToolbox decoding with software fallback, an audio-primary clock, a two-frame
 presentation queue, bounded diagnostics, and RGB332 conversion immediately before publication.
-Late video frames are discarded so rendering does not stall keyboard input.
+FFmpeg session setup owns its child process, descriptor streams, abort listener, and retained input
+transactionally; timestamp and frame iterators are returned on completion, failure, cancellation,
+and early consumer return. The controller closes the frame iterator before unwinding the process,
+audio, presentation coordinator, and drain owners. Audio owns the single-consumer body and fallback
+drain for the FFmpeg audio pipe. Bundled-media leases are reserved before asynchronous extraction,
+and cleanup failures are reported without replacing primary FFmpeg diagnostics. Only macOS arm64
+and x64 executable names are accepted. Late video frames are discarded so rendering does not stall
+keyboard input.
 
 ## Ownership map
 
@@ -99,6 +107,13 @@ Late video frames are discarded so rendering does not stall keyboard input.
 Ordinary `app/` files import SDK features only from `#termweave`. `app/index.tsx` is the sole
 composition root and passes `App` to the runtime bootstrap. `termweave/` never imports application
 components.
+
+The media import graph is enforced from actual directory contents. `source` and `frame` are leaves;
+`ffmpeg` may import them; `playback` may import `source`, `frame`, and `ffmpeg`; `audio` may import
+`playback`; `controller` may import all five lower layers; and `PixelRenderer` may import only
+`controller` and `frame` within the media directory. Tests reject unregistered media modules,
+reverse edges, and runtime cycles across ordinary imports/re-exports, side-effect imports, and
+literal dynamic imports while excluding type-only edges.
 
 ## Application configuration
 
@@ -163,17 +178,25 @@ Run these commands from the repository root:
 | Command                | Purpose                                                                    |
 | ---------------------- | -------------------------------------------------------------------------- |
 | `bun run dev`          | Prepare generated inputs, build the development launcher, and start Tauri. |
-| `bun run test`         | Run all behavior, lifecycle, transport, renderer, and boundary tests.      |
+| `bun run test`         | Verify/prepare FFmpeg, then run all behavior and ownership tests.          |
 | `bun run typecheck`    | Type-check TypeScript without emitting.                                    |
 | `bun run lint`         | Lint application, runtime, scripts, tests, and Vite configuration.         |
 | `bun run format:check` | Verify Prettier and Rust formatting.                                       |
 | `bun run ffmpeg:build` | Verify or build the pinned LGPL FFmpeg binary for the current Mac target.  |
 | `bun run check`        | Run the full test/static/Rust validation sequence.                         |
-| `bun run build`        | Validate, prepare, compile the sidecar, and build the native `.app`.       |
+| `bun run build`        | Validate, prepare, and build the native `.app` and DMG.                    |
 
 Development uses Bun watch mode with hard restarts, so edits to imported application, SDK, and
 asset files reset sidecar state while keeping Tauri's sidecar pipes stable. Syntax errors remain
 watchable and recover on the next valid edit.
+
+`bun run check` owns the production sidecar build through `rust:check` → `sidecar:build`. The
+release `build` script calls `check` once and then prepares and packages that binary, so a clean
+checkout gets exactly one production sidecar compilation path before Tauri validates and bundles
+it. `bun run test` is the clean-checkout test entry: its FFmpeg preflight validates an existing
+pinned artifact without rebuilding it and prepares the artifact only when it is missing or stale.
+Direct nonstandard media-test invocation reports this prerequisite explicitly. Reusable test-only
+infrastructure lives under `tests/support/`; helpers with one consumer stay beside that test.
 
 Generated icons/overrides, compiled sidecars, frontend output, schemas, Rust targets, and
 dependencies are ignored. Preparation replaces stale generated inputs and never rewrites tracked

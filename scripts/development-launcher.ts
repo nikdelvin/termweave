@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 import process from 'node:process'
-import { errorMessage } from './tooling'
+import { errorMessage } from '../termweave/error-message'
 
 declare const __TERMWEAVE_BUN_EXECUTABLE__: string
 declare const __TERMWEAVE_FFMPEG_PATH__: string

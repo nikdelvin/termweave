@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { parseAppConfig } from '../termweave/config'
 import { startWebviewHost, type WebviewHostDependencies } from '../termweave/host/webview-host'
-import { validAppConfig } from './fixtures'
+import { validAppConfig } from './support/app-config'
 
 function hostFixture(options: { assetFailure?: Error } = {}) {
   const events: string[] = []
@@ -50,6 +50,9 @@ function hostFixture(options: { assetFailure?: Error } = {}) {
     browserWindow: {
       addEventListener(type: string) {
         events.push(`window:${type}`)
+      },
+      removeEventListener(type: string) {
+        events.push(`window:remove:${type}`)
       },
     },
     getConfig: () => parseAppConfig(validAppConfig()),
@@ -142,7 +145,8 @@ describe('WebView host orchestration', () => {
     const secondCleanup = host.cleanup()
     expect(secondCleanup).toBe(firstCleanup)
     await firstCleanup
-    expect(fixture.events.slice(-4)).toEqual([
+    expect(fixture.events.slice(-5)).toEqual([
+      'window:remove:beforeunload',
       'presentation:dispose',
       'renderer:unsubscribe',
       'renderer:dispose',
@@ -153,11 +157,36 @@ describe('WebView host orchestration', () => {
   test('cleans partial host state before surfacing an unrecoverable startup failure', async () => {
     const fixture = hostFixture({ assetFailure: new Error('resources unavailable') })
     await expect(startWebviewHost(fixture.dependencies)).rejects.toThrow('resources unavailable')
-    expect(fixture.events.slice(-4)).toEqual([
+    expect(fixture.events.slice(-5)).toEqual([
+      'window:remove:beforeunload',
       'presentation:dispose',
       'renderer:unsubscribe',
       'renderer:dispose',
       'terminal:dispose',
     ])
+  })
+
+  test('removes the named unload listener so hot reinitialization does not accumulate handlers', async () => {
+    const listeners = new Set<EventListenerOrEventListenerObject>()
+    const browserWindow = {
+      addEventListener(_type: string, listener: EventListenerOrEventListenerObject) {
+        listeners.add(listener)
+      },
+      removeEventListener(_type: string, listener: EventListenerOrEventListenerObject) {
+        listeners.delete(listener)
+      },
+    }
+
+    const firstFixture = hostFixture()
+    const first = await startWebviewHost({ ...firstFixture.dependencies, browserWindow })
+    expect(listeners.size).toBe(1)
+    await first.cleanup()
+    expect(listeners.size).toBe(0)
+
+    const secondFixture = hostFixture()
+    const second = await startWebviewHost({ ...secondFixture.dependencies, browserWindow })
+    expect(listeners.size).toBe(1)
+    await second.cleanup()
+    expect(listeners.size).toBe(0)
   })
 })

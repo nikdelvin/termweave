@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { createImagePlaybackController } from '../termweave/media/controller'
+import { createMediaPlaybackController } from '../termweave/media/controller'
 import type { AnimationFrame } from '../termweave/media/frame'
 import type { MediaFormat, ResolvedMediaSource } from '../termweave/media/source'
 
@@ -15,7 +15,7 @@ function localSource(uri: string, format: MediaFormat = 'png'): ResolvedMediaSou
   return { format, input: uri, kind: 'local', loop: format === 'gif', uri }
 }
 
-describe('image lifecycle controller', () => {
+describe('media lifecycle controller', () => {
   test('keeps the current frame while replacing loads and suppresses stale completions', async () => {
     const pending: Array<{
       resolve: (frames: AnimationFrame[]) => void
@@ -27,7 +27,7 @@ describe('image lifecycle controller', () => {
     const errors: unknown[] = []
     const playbackCallbacks: Array<(frame: AnimationFrame) => void> = []
     let stopped = 0
-    const controller = createImagePlaybackController({
+    const controller = createMediaPlaybackController({
       onError: (error) => {
         if (error !== undefined) errors.push(error)
       },
@@ -89,7 +89,7 @@ describe('image lifecycle controller', () => {
     const errors: unknown[] = []
     const shown: Array<AnimationFrame | undefined> = []
     let stopCount = 0
-    const controller = createImagePlaybackController({
+    const controller = createMediaPlaybackController({
       onError: (error) => {
         if (error !== undefined) errors.push(error)
       },
@@ -109,7 +109,7 @@ describe('image lifecycle controller', () => {
     })
 
     controller.replace({ uri: '', maximum: { width: 4, height: 4 }, background: [0, 0, 0] })
-    expect(String(last(errors))).toContain('Image URI is required')
+    expect(String(last(errors))).toContain('Media URI is required')
     controller.replace({ uri: 'zero.png', maximum: { width: 0, height: 4 }, background: [0, 0, 0] })
     expect(signals).toHaveLength(0)
     controller.replace({ uri: 'bad.png', maximum: { width: 4, height: 4 }, background: [0, 0, 0] })
@@ -149,7 +149,7 @@ describe('image lifecycle controller', () => {
       stopped: boolean
       uri: string
     }> = []
-    const controller = createImagePlaybackController({
+    const controller = createMediaPlaybackController({
       onError: (error) => {
         if (error !== undefined) errors.push(error)
       },
@@ -198,7 +198,7 @@ describe('image lifecycle controller', () => {
     const shown: Array<AnimationFrame | undefined> = []
     const cached = [animationFrame(42, 20)]
     let loadCount = 0
-    const controller = createImagePlaybackController({
+    const controller = createMediaPlaybackController({
       onError: () => {},
       onFrame: (frame) => shown.push(frame),
       getCached: (uri) => (uri === 'cached.png' ? cached : undefined),
@@ -227,7 +227,7 @@ describe('image lifecycle controller', () => {
     const shown: Array<AnimationFrame | undefined> = []
     let loadCount = 0
     let streamCount = 0
-    const controller = createImagePlaybackController({
+    const controller = createMediaPlaybackController({
       onError: () => {},
       onFrame: (frame) => shown.push(frame),
       resolve: async (uri) => ({

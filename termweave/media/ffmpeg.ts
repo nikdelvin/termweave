@@ -1,9 +1,12 @@
 import { basename, dirname, resolve } from 'node:path'
 import process from 'node:process'
 import type { Rgb } from '../color'
+import { errorMessage } from '../error-message'
 import { rgbaByteLength, type Dimensions, type RgbaFrame } from './frame'
 import {
+  createMediaAbortError,
   retainMediaInput,
+  throwIfMediaAborted,
   type MediaFormat,
   type ResolvedMediaSource,
   type RetainedMediaInput,
@@ -30,7 +33,53 @@ export interface FfmpegProcessResult {
   exitCode: number
 }
 
+export class FfmpegProcessError extends Error {
+  readonly diagnostic: string
+  readonly exitCode: number
+
+  constructor(message: string, result: FfmpegProcessResult) {
+    super(message)
+    this.name = 'FfmpegProcessError'
+    this.diagnostic = result.diagnostic
+    this.exitCode = result.exitCode
+  }
+}
+
+export function createFfmpegProcessError(result: FfmpegProcessResult) {
+  return new FfmpegProcessError(
+    result.diagnostic ||
+      (result.exitCode === 0
+        ? 'FFmpeg produced no media frames.'
+        : `FFmpeg media playback failed with exit code ${result.exitCode}.`),
+    result,
+  )
+}
+
+type FfmpegByteStream = ReadableStream<Uint8Array> & AsyncIterable<Uint8Array>
+
+export interface FfmpegChildProcess {
+  readonly exited: Promise<number>
+  readonly stderr: ReadableStream<Uint8Array>
+  readonly stdout: ReadableStream<Uint8Array>
+  readonly stdio: readonly unknown[]
+  kill(): void
+}
+
+export type SpawnFfmpegProcess = (
+  command: string[],
+  options: Readonly<{
+    stdio: ['ignore', 'pipe', 'pipe', 'pipe', 'pipe']
+    windowsHide: true
+  }>,
+) => FfmpegChildProcess
+
+export type OpenFfmpegDescriptor = (
+  descriptor: unknown,
+  name: 'audio' | 'timestamp',
+) => ReadableStream<Uint8Array>
+
 interface ResolveFfmpegOptions {
+  architecture?: string
   development?: boolean
   environment?: NodeJS.ProcessEnv
   executablePath?: string
@@ -38,7 +87,7 @@ interface ResolveFfmpegOptions {
   platform?: NodeJS.Platform
 }
 
-export interface FfmpegCommandOptions extends Dimensions {
+interface FfmpegCommandOptions extends Dimensions {
   background: Rgb
   hardwareAcceleration: boolean
   input: string
@@ -55,6 +104,10 @@ export interface OpenFfmpegMediaSessionOptions extends Dimensions {
   realtime?: boolean
   signal: AbortSignal
   source: ResolvedMediaSource
+  openDescriptor?: OpenFfmpegDescriptor
+  resolvePath?: typeof resolveFfmpegPath
+  retainInput?: typeof retainMediaInput
+  spawn?: SpawnFfmpegProcess
   withAudio: boolean
 }
 
@@ -159,31 +212,25 @@ export function buildFfmpegMediaArguments(options: FfmpegCommandOptions) {
   return arguments_
 }
 
-export function ffmpegExecutableName(platform: NodeJS.Platform = process.platform) {
-  return platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'
+function ffmpegExecutableName(
+  platform: NodeJS.Platform = process.platform,
+  architecture: string = process.arch,
+) {
+  if (platform !== 'darwin' || (architecture !== 'arm64' && architecture !== 'x64')) {
+    throw new Error(
+      `Termweave FFmpeg supports only macOS arm64 and x64, not ${platform}-${architecture}.`,
+    )
+  }
+  return 'ffmpeg'
 }
 
 function developmentFfmpegName(
   platform: NodeJS.Platform = process.platform,
   architecture: string = process.arch,
 ) {
-  const target =
-    platform === 'darwin'
-      ? architecture === 'arm64'
-        ? 'aarch64-apple-darwin'
-        : architecture === 'x64'
-          ? 'x86_64-apple-darwin'
-          : undefined
-      : platform === 'linux'
-        ? architecture === 'arm64'
-          ? 'aarch64-unknown-linux-gnu'
-          : architecture === 'x64'
-            ? 'x86_64-unknown-linux-gnu'
-            : undefined
-        : platform === 'win32' && architecture === 'x64'
-          ? 'x86_64-pc-windows-msvc.exe'
-          : undefined
-  return target ? `ffmpeg-${target}` : undefined
+  ffmpegExecutableName(platform, architecture)
+  const target = architecture === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin'
+  return `ffmpeg-${target}`
 }
 
 async function defaultFileExists(path: string) {
@@ -195,13 +242,16 @@ export async function resolveFfmpegPath(options: ResolveFfmpegOptions = {}) {
   const executablePath = options.executablePath ?? process.execPath
   const fileExists = options.fileExists ?? defaultFileExists
   const platform = options.platform ?? process.platform
+  const architecture = options.architecture ?? process.arch
+  ffmpegExecutableName(platform, architecture)
   const configuredPath = environment.TERMWEAVE_FFMPEG_PATH?.trim()
-  const packagedExecutable = /^opentui-sidecar(?:\.exe)?$/i.test(basename(executablePath))
-    ? resolve(dirname(executablePath), ffmpegExecutableName(platform))
-    : undefined
-  const developmentName = developmentFfmpegName(platform)
+  const packagedExecutable =
+    basename(executablePath) === 'opentui-sidecar'
+      ? resolve(dirname(executablePath), ffmpegExecutableName(platform, architecture))
+      : undefined
+  const developmentName = developmentFfmpegName(platform, architecture)
   const developmentExecutable =
-    configuredPath || !options.development || !developmentName
+    configuredPath || !options.development
       ? undefined
       : resolve(import.meta.dir, '../../src-tauri/binaries', developmentName)
   const candidates = [
@@ -267,39 +317,51 @@ export async function* assembleRawVideoFrames(
   const acquire = () => pool.pop() ?? new Uint8Array(frameBytes)
   let data = acquire()
   let offset = 0
+  let cleanupFailed = false
+  let cleanupError: unknown
 
-  for await (const chunk of chunks) {
-    if (signal?.aborted) return
-    let chunkOffset = 0
-    while (chunkOffset < chunk.byteLength) {
-      const copyLength = Math.min(frameBytes - offset, chunk.byteLength - chunkOffset)
-      data.set(chunk.subarray(chunkOffset, chunkOffset + copyLength), offset)
-      offset += copyLength
-      chunkOffset += copyLength
-      if (offset !== frameBytes) continue
+  try {
+    for await (const chunk of chunks) {
+      if (signal?.aborted) return
+      let chunkOffset = 0
+      while (chunkOffset < chunk.byteLength) {
+        const copyLength = Math.min(frameBytes - offset, chunk.byteLength - chunkOffset)
+        data.set(chunk.subarray(chunkOffset, chunkOffset + copyLength), offset)
+        offset += copyLength
+        chunkOffset += copyLength
+        if (offset !== frameBytes) continue
 
-      const timestamp = await timestampIterator.next()
-      if (timestamp.done) throw new Error('FFmpeg omitted a timestamp for a decoded video frame.')
-      const completed = data
-      let released = false
-      yield {
-        ...dimensions,
-        data: completed,
-        ptsMs: timestamp.value,
-        release: () => {
-          if (released) return
-          released = true
-          if (pool.length < VIDEO_BUFFER_POOL_SIZE) pool.push(completed)
-        },
+        const timestamp = await timestampIterator.next()
+        if (timestamp.done) throw new Error('FFmpeg omitted a timestamp for a decoded video frame.')
+        const completed = data
+        let released = false
+        yield {
+          ...dimensions,
+          data: completed,
+          ptsMs: timestamp.value,
+          release: () => {
+            if (released) return
+            released = true
+            if (pool.length < VIDEO_BUFFER_POOL_SIZE) pool.push(completed)
+          },
+        }
+        data = acquire()
+        offset = 0
       }
-      data = acquire()
-      offset = 0
+    }
+
+    if (!signal?.aborted && offset !== 0) {
+      throw new Error(`FFmpeg ended with a partial video frame (${offset}/${frameBytes} bytes).`)
+    }
+  } finally {
+    try {
+      await timestampIterator.return?.()
+    } catch (error) {
+      cleanupFailed = true
+      cleanupError = error
     }
   }
-
-  if (!signal?.aborted && offset !== 0) {
-    throw new Error(`FFmpeg ended with a partial video frame (${offset}/${frameBytes} bytes).`)
-  }
+  if (cleanupFailed) throw cleanupError
 }
 
 async function readBoundedDiagnostic(stream: ReadableStream<Uint8Array>) {
@@ -323,21 +385,87 @@ async function readBoundedDiagnostic(stream: ReadableStream<Uint8Array>) {
   return `${beginning}\n…\n${ending}`.trim()
 }
 
-function streamForDescriptor(descriptor: number | null, name: string) {
-  if (descriptor === null) throw new Error(`Could not create the FFmpeg ${name} pipe.`)
+function streamForDescriptor(descriptor: unknown, name: 'audio' | 'timestamp') {
+  if (typeof descriptor !== 'number') {
+    throw new Error(`Could not create the FFmpeg ${name} pipe.`)
+  }
   return Bun.file(descriptor).stream()
+}
+
+const spawnFfmpegProcess: SpawnFfmpegProcess = (command, options) =>
+  Bun.spawn(command, options) as unknown as FfmpegChildProcess
+
+async function cancelStream(stream: ReadableStream<Uint8Array> | undefined) {
+  if (!stream || stream.locked) return
+  try {
+    await stream.cancel()
+  } catch {
+    // Descriptor teardown can race process exit.
+  }
 }
 
 export async function openFfmpegMediaSession(
   options: OpenFfmpegMediaSessionOptions,
 ): Promise<FfmpegMediaSession> {
   let retained: RetainedMediaInput | undefined
+  let child: FfmpegChildProcess | undefined
+  let audio: ReadableStream<Uint8Array> | undefined
+  let timestampStream: ReadableStream<Uint8Array> | undefined
+  let abortAttached = false
+  let stopped = false
+  let released = false
+  let setupComplete = false
+
+  const stop = () => {
+    if (stopped) return
+    stopped = true
+    try {
+      child?.kill()
+    } catch {
+      // The process may have exited between the state check and the signal.
+    }
+  }
+  const handleAbort = () => stop()
+  const detachAbort = () => {
+    if (!abortAttached) return
+    abortAttached = false
+    options.signal.removeEventListener('abort', handleAbort)
+  }
+  const releaseInput = async () => {
+    if (released) return
+    released = true
+    await retained?.release()
+  }
+  const releaseInputSafely = async () => {
+    try {
+      await releaseInput()
+    } catch (error) {
+      console.warn(`Termweave could not release a temporary media input: ${errorMessage(error)}`)
+    }
+  }
+  const rollbackSetup = async () => {
+    stop()
+    detachAbort()
+    await Promise.all([
+      cancelStream(audio),
+      cancelStream(timestampStream),
+      cancelStream(child?.stdout),
+      cancelStream(child?.stderr),
+    ])
+    await releaseInputSafely()
+  }
+
   try {
-    retained = await retainMediaInput(options.source)
+    throwIfMediaAborted(options.signal)
+    retained = await (options.retainInput ?? retainMediaInput)(options.source)
+    throwIfMediaAborted(options.signal)
     const ffmpegPath =
       options.ffmpegPath ??
-      (await resolveFfmpegPath({ development: options.source.kind !== 'remote' }))
-    const child = Bun.spawn(
+      (await (options.resolvePath ?? resolveFfmpegPath)({
+        development: options.source.kind !== 'remote',
+      }))
+    throwIfMediaAborted(options.signal)
+    child = (options.spawn ?? spawnFfmpegProcess)(
       [
         ffmpegPath,
         ...buildFfmpegMediaArguments({
@@ -357,49 +485,45 @@ export async function openFfmpegMediaSession(
         windowsHide: true,
       },
     )
-    const audio = options.withAudio ? streamForDescriptor(child.stdio[3], 'audio') : undefined
-    const timestampStream = streamForDescriptor(
-      child.stdio[4],
-      'timestamp',
-    ) as ReadableStream<Uint8Array> & AsyncIterable<Uint8Array>
-    const timestamps = parseFfmpegTimestamps(timestampStream)
-    const diagnostic = readBoundedDiagnostic(child.stderr)
-    let disposed = false
-    const stop = () => {
-      if (disposed) return
-      disposed = true
-      try {
-        child.kill()
-      } catch {
-        // The process may have exited between the state check and the signal.
-      }
-    }
-    const handleAbort = () => stop()
     options.signal.addEventListener('abort', handleAbort, { once: true })
+    abortAttached = true
     if (options.signal.aborted) stop()
+    throwIfMediaAborted(options.signal)
 
-    const retainedInput = retained
+    const openDescriptor = options.openDescriptor ?? streamForDescriptor
+    audio = options.withAudio ? openDescriptor(child.stdio[3], 'audio') : undefined
+    timestampStream = openDescriptor(child.stdio[4], 'timestamp')
+    throwIfMediaAborted(options.signal)
+    const timestamps = parseFfmpegTimestamps(timestampStream as FfmpegByteStream)
+    const diagnostic = readBoundedDiagnostic(child.stderr)
+
     const result = Promise.all([child.exited, diagnostic])
       .then(([exitCode, message]) => ({ exitCode, diagnostic: message }))
       .finally(async () => {
-        options.signal.removeEventListener('abort', handleAbort)
-        await retainedInput.release()
+        detachAbort()
+        await releaseInputSafely()
       })
 
+    setupComplete = true
     return {
       audio,
       frames: assembleRawVideoFrames(
-        child.stdout as ReadableStream<Uint8Array> & AsyncIterable<Uint8Array>,
+        child.stdout as FfmpegByteStream,
         timestamps,
-        options,
+        { width: options.width, height: options.height },
         options.signal,
       ),
       result,
       dispose: stop,
     }
   } catch (error) {
-    await retained?.release()
+    await rollbackSetup()
+    if (options.signal.aborted && !(error instanceof DOMException && error.name === 'AbortError')) {
+      throw options.signal.reason ?? createMediaAbortError()
+    }
     throw error
+  } finally {
+    if (!setupComplete && child) void child.exited.catch(() => {})
   }
 }
 

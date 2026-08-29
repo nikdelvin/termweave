@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -29,15 +30,18 @@ const disposalGif = decode(
 const ffmpegTargets: Record<string, string> = {
   'darwin:arm64': 'ffmpeg-aarch64-apple-darwin',
   'darwin:x64': 'ffmpeg-x86_64-apple-darwin',
-  'linux:arm64': 'ffmpeg-aarch64-unknown-linux-gnu',
-  'linux:x64': 'ffmpeg-x86_64-unknown-linux-gnu',
-  'win32:x64': 'ffmpeg-x86_64-pc-windows-msvc.exe',
 }
 
 export function testFfmpegPath() {
   const name = ffmpegTargets[`${process.platform}:${process.arch}`]
   if (!name) throw new Error(`No test FFmpeg target for ${process.platform}/${process.arch}.`)
-  return resolve(import.meta.dir, '../../src-tauri/binaries', name)
+  const path = resolve(import.meta.dir, '../../src-tauri/binaries', name)
+  if (!existsSync(path)) {
+    throw new Error(
+      `The test FFmpeg artifact is missing at ${path}. Run \`bun run test\` from the repository root to prepare it before running media tests directly.`,
+    )
+  }
+  return path
 }
 
 export interface MediaFixtures {

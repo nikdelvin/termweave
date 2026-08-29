@@ -1,7 +1,13 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { getCachedLocalImageFrames, loadLocalImageFrames } from '../termweave/media/playback'
+import type { Rgb } from '../termweave/color'
+import type { Dimensions } from '../termweave/media/frame'
+import {
+  getCachedLocalImageFrames,
+  loadResolvedLocalImageFrames,
+} from '../termweave/media/playback'
+import { resolveMediaSource, throwIfMediaAborted } from '../termweave/media/source'
 import {
   createMediaFixtures,
   opaqueSquarePng,
@@ -12,6 +18,18 @@ import {
 const maximum = { width: 8, height: 8 }
 const background = [0, 0, 255] as const
 let fixtures: MediaFixtures
+
+async function loadLocalMediaFrames(
+  uri: string,
+  dimensions: Dimensions,
+  background: Rgb,
+  signal?: AbortSignal,
+  ffmpegPath?: string,
+) {
+  throwIfMediaAborted(signal)
+  const source = await resolveMediaSource(uri)
+  return loadResolvedLocalImageFrames(source, dimensions, background, signal, ffmpegPath)
+}
 
 function pixel(frame: { data: Uint8Array; width: number }, x: number, y: number) {
   const offset = (y * frame.width + x) * 4
@@ -32,14 +50,14 @@ describe('FFmpeg image decoding', () => {
     const dimensions = { width: 640, height: 360 }
     const paletteBackground = [1, 4, 22] as const
     const [gifFrames, pngFrames] = await Promise.all([
-      loadLocalImageFrames(
+      loadLocalMediaFrames(
         join(assets, 'campfire.gif'),
         dimensions,
         paletteBackground,
         undefined,
         testFfmpegPath(),
       ),
-      loadLocalImageFrames(
+      loadLocalMediaFrames(
         join(assets, 'campfire.png'),
         dimensions,
         paletteBackground,
@@ -55,7 +73,7 @@ describe('FFmpeg image decoding', () => {
   })
 
   test('detects extensionless PNG content and composites transparency once', async () => {
-    const [frame] = await loadLocalImageFrames(
+    const [frame] = await loadLocalMediaFrames(
       fixtures.transparentPngPath,
       maximum,
       background,
@@ -69,7 +87,7 @@ describe('FFmpeg image decoding', () => {
   })
 
   test('detects and decodes extensionless JPEG content', async () => {
-    const [frame] = await loadLocalImageFrames(
+    const [frame] = await loadLocalMediaFrames(
       pathToFileURL(fixtures.jpegPath).href,
       maximum,
       [1, 2, 3],
@@ -82,7 +100,7 @@ describe('FFmpeg image decoding', () => {
   })
 
   test('uses PTS timing and normalizes invalid GIF delays', async () => {
-    const frames = await loadLocalImageFrames(
+    const frames = await loadLocalMediaFrames(
       fixtures.gifPath,
       { width: 4, height: 4 },
       [7, 8, 9],
@@ -95,7 +113,7 @@ describe('FFmpeg image decoding', () => {
   })
 
   test('honors GIF disposal before composing each full frame', async () => {
-    const frames = await loadLocalImageFrames(
+    const frames = await loadLocalMediaFrames(
       fixtures.disposalGifPath,
       { width: 4, height: 2 },
       [0, 0, 0],
@@ -110,7 +128,7 @@ describe('FFmpeg image decoding', () => {
   })
 
   test('reuses cached frames and invalidates file or rendering changes', async () => {
-    const first = await loadLocalImageFrames(
+    const first = await loadLocalMediaFrames(
       fixtures.brownPngPath,
       maximum,
       [1, 2, 3],
@@ -121,7 +139,7 @@ describe('FFmpeg image decoding', () => {
       getCachedLocalImageFrames(pathToFileURL(fixtures.brownPngPath).href, maximum, [1, 2, 3]),
     ).toBe(first)
     expect(
-      await loadLocalImageFrames(
+      await loadLocalMediaFrames(
         pathToFileURL(fixtures.brownPngPath).href,
         maximum,
         [1, 2, 3],
@@ -130,7 +148,7 @@ describe('FFmpeg image decoding', () => {
       ),
     ).toBe(first)
     expect(
-      await loadLocalImageFrames(
+      await loadLocalMediaFrames(
         fixtures.brownPngPath,
         maximum,
         [3, 2, 1],
@@ -142,7 +160,7 @@ describe('FFmpeg image decoding', () => {
     await Bun.write(fixtures.brownPngPath, opaqueSquarePng)
     expect(getCachedLocalImageFrames(fixtures.brownPngPath, maximum, [1, 2, 3])).toBeUndefined()
     expect(
-      await loadLocalImageFrames(
+      await loadLocalMediaFrames(
         fixtures.brownPngPath,
         maximum,
         [1, 2, 3],
@@ -161,7 +179,7 @@ describe('FFmpeg image decoding', () => {
     const controller = new AbortController()
     controller.abort()
     await expect(
-      loadLocalImageFrames(
+      loadLocalMediaFrames(
         fixtures.transparentPngPath,
         maximum,
         background,
@@ -170,7 +188,7 @@ describe('FFmpeg image decoding', () => {
       ),
     ).rejects.toHaveProperty('name', 'AbortError')
     await expect(
-      loadLocalImageFrames(
+      loadLocalMediaFrames(
         fixtures.corruptPngPath,
         maximum,
         background,
@@ -179,13 +197,13 @@ describe('FFmpeg image decoding', () => {
       ),
     ).rejects.toThrow()
     await expect(
-      loadLocalImageFrames(unsupported, maximum, background, undefined, testFfmpegPath()),
+      loadLocalMediaFrames(unsupported, maximum, background, undefined, testFfmpegPath()),
     ).rejects.toThrow('Unsupported image format')
     await expect(
-      loadLocalImageFrames(empty, maximum, background, undefined, testFfmpegPath()),
+      loadLocalMediaFrames(empty, maximum, background, undefined, testFfmpegPath()),
     ).rejects.toThrow('image file is empty')
     await expect(
-      loadLocalImageFrames(
+      loadLocalMediaFrames(
         join(fixtures.directory, 'missing.data'),
         maximum,
         background,

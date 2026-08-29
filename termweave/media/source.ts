@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { basename, extname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -8,9 +8,9 @@ import { errorMessage } from '../error-message'
 const windowsDrivePattern = /^[A-Za-z]:[\\/]/
 const uriSchemePattern = /^([A-Za-z][A-Za-z0-9+.-]*):/
 
-export type ImageFormat = 'gif' | 'jpeg' | 'png'
+type ImageFormat = 'gif' | 'jpeg' | 'png'
 export type MediaFormat = ImageFormat | 'mp4'
-export type MediaSourceKind = 'bundled' | 'local' | 'remote'
+type MediaSourceKind = 'bundled' | 'local' | 'remote'
 
 export interface ResolvedMediaSource {
   format: MediaFormat
@@ -20,7 +20,7 @@ export interface ResolvedMediaSource {
   uri: string
 }
 
-export interface ResolveMediaSourceOptions {
+interface ResolveMediaSourceOptions {
   environment?: NodeJS.ProcessEnv
   fileExists?: (path: string) => Promise<boolean>
   readSignature?: (path: string) => Promise<Uint8Array>
@@ -34,10 +34,19 @@ export interface RetainedMediaInput {
 interface MaterializedMedia {
   directory: string
   path: string
-  references: number
 }
 
-const materializedMedia = new Map<string, Promise<MaterializedMedia>>()
+interface MaterializedMediaEntry {
+  pending: Promise<MaterializedMedia>
+  references: number
+  removeDirectory: typeof rm
+}
+
+interface RetainMediaInputOptions {
+  removeDirectory?: typeof rm
+}
+
+const materializedMedia = new Map<string, MaterializedMediaEntry>()
 const mediaExtensionFormat = new Map<string, MediaFormat>([
   ['.gif', 'gif'],
   ['.jpeg', 'jpeg'],
@@ -46,16 +55,16 @@ const mediaExtensionFormat = new Map<string, MediaFormat>([
   ['.png', 'png'],
 ])
 
-export function createImageAbortError() {
-  return new DOMException('The image operation was cancelled.', 'AbortError')
+export function createMediaAbortError() {
+  return new DOMException('The media operation was cancelled.', 'AbortError')
 }
 
 export function isAbortError(error: unknown) {
   return error instanceof DOMException && error.name === 'AbortError'
 }
 
-export function throwIfImageAborted(signal?: AbortSignal) {
-  if (signal?.aborted) throw signal.reason ?? createImageAbortError()
+export function throwIfMediaAborted(signal?: AbortSignal) {
+  if (signal?.aborted) throw signal.reason ?? createMediaAbortError()
 }
 
 export function detectImageFormat(bytes: Uint8Array): ImageFormat {
@@ -92,7 +101,7 @@ export function detectImageFormat(bytes: Uint8Array): ImageFormat {
 
 export function resolveLocalImagePath(uri: string) {
   const value = uri.trim()
-  if (!value) throw new Error('Image URI is required.')
+  if (!value) throw new Error('Media URI is required.')
   const scheme = windowsDrivePattern.test(value) ? undefined : uriSchemePattern.exec(value)?.[1]
   if (scheme && /^https?$/i.test(scheme)) {
     throw new Error(
@@ -147,7 +156,7 @@ export async function resolveMediaSource(
   options: ResolveMediaSourceOptions = {},
 ): Promise<ResolvedMediaSource> {
   const value = uri.trim()
-  if (!value) throw new Error('Image URI is required.')
+  if (!value) throw new Error('Media URI is required.')
   const fileExists = options.fileExists ?? defaultFileExists
   const readSignature = options.readSignature ?? readLocalImageSignature
   const environment = options.environment ?? process.env
@@ -208,48 +217,64 @@ export function isBunVirtualFilePath(path: string) {
   return path.includes('$bunfs') || /^B:[\\/]~BUN/i.test(path)
 }
 
-export async function retainMediaInput(source: ResolvedMediaSource): Promise<RetainedMediaInput> {
+export async function retainMediaInput(
+  source: ResolvedMediaSource,
+  options: RetainMediaInputOptions = {},
+): Promise<RetainedMediaInput> {
   if (source.kind === 'remote') return { path: source.input, release: async () => {} }
   if (!isBunVirtualFilePath(source.input)) {
     return { path: source.input, release: async () => {} }
   }
 
-  let pending = materializedMedia.get(source.input)
-  if (!pending) {
-    pending = (async () => {
+  let entry = materializedMedia.get(source.input)
+  if (!entry) {
+    const removeDirectory = options.removeDirectory ?? rm
+    const pending = (async () => {
       const directory = await mkdtemp(join(tmpdir(), 'termweave-media-'))
       const extension = extname(source.input) || `.${source.format}`
       const path = join(directory, `${basename(source.input, extname(source.input))}${extension}`)
       try {
-        await mkdir(directory, { recursive: true })
         await Bun.write(path, Bun.file(source.input))
-        return { directory, path, references: 0 }
+        return { directory, path }
       } catch (error) {
-        await rm(directory, { force: true, recursive: true })
-        throw new Error(`Could not extract bundled media for FFmpeg: ${errorMessage(error)}`)
+        try {
+          await removeDirectory(directory, { force: true, recursive: true })
+        } catch (cleanupError) {
+          console.warn(
+            `Termweave could not remove a failed bundled-media extraction: ${errorMessage(cleanupError)}`,
+          )
+        }
+        throw new Error(`Could not extract bundled media for FFmpeg: ${errorMessage(error)}`, {
+          cause: error,
+        })
       }
     })()
-    materializedMedia.set(source.input, pending)
+    entry = { pending, references: 0, removeDirectory }
+    materializedMedia.set(source.input, entry)
   }
 
-  let entry: MaterializedMedia
+  // Reserve the lease before awaiting extraction so a final release cannot remove it meanwhile.
+  entry.references += 1
+  let materialized: MaterializedMedia
   try {
-    entry = await pending
+    materialized = await entry.pending
   } catch (error) {
-    if (materializedMedia.get(source.input) === pending) materializedMedia.delete(source.input)
+    entry.references -= 1
+    if (entry.references === 0 && materializedMedia.get(source.input) === entry) {
+      materializedMedia.delete(source.input)
+    }
     throw error
   }
-  entry.references += 1
   let released = false
   return {
-    path: entry.path,
+    path: materialized.path,
     release: async () => {
       if (released) return
       released = true
       entry.references -= 1
       if (entry.references > 0) return
-      if (materializedMedia.get(source.input) === pending) materializedMedia.delete(source.input)
-      await rm(entry.directory, { force: true, recursive: true })
+      if (materializedMedia.get(source.input) === entry) materializedMedia.delete(source.input)
+      await entry.removeDirectory(materialized.directory, { force: true, recursive: true })
     },
   }
 }

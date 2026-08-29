@@ -1,8 +1,8 @@
 import { type InputRenderable } from '@opentui/core'
 import { onMount } from 'solid-js'
 import { getTermweaveConfig } from '#termweave'
-import { appState, screen, setInputText } from '../store'
-import type { ScreenKey } from '../screens'
+import { appState, screen, setInputText } from './store'
+import type { ScreenKey } from './screens'
 
 export const appStateInputId = (screenKey: ScreenKey) => `app-state-input:${screenKey}`
 

@@ -11,7 +11,7 @@ import {
 } from '../scripts/prepare'
 import { getFfmpegResourceDirectory } from '../scripts/build-ffmpeg'
 import { FFMPEG_RESOURCE_DIRECTORY } from '../termweave/constants'
-import { validAppConfig } from './fixtures'
+import { validAppConfig } from './support/app-config'
 
 let root = ''
 

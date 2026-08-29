@@ -1,23 +1,18 @@
 import { statSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { Rgb } from '../color'
-import { openFfmpegMediaSession } from './ffmpeg'
+import { createFfmpegProcessError, openFfmpegMediaSession } from './ffmpeg'
 import { compositeRgbaInto, rgbaByteLength, type AnimationFrame, type Dimensions } from './frame'
-import {
-  resolveLocalImagePath,
-  resolveMediaSource,
-  throwIfImageAborted,
-  type ResolvedMediaSource,
-} from './source'
+import { resolveLocalImagePath, throwIfMediaAborted, type ResolvedMediaSource } from './source'
 
 // Playback owns clocks, queues, finite-frame collection, and the stat-keyed LRU cache.
-export interface AudioClockStats {
+interface AudioClockStats {
   framesPlayed: bigint
   sampleRate: number
   state: string
 }
 
-export interface AudioClockSource {
+interface AudioClockSource {
   getStats(): AudioClockStats
 }
 
@@ -94,7 +89,7 @@ export class MediaPlaybackClock implements PlaybackClock {
   }
 }
 
-export interface CoordinatedVideoFrame {
+interface CoordinatedVideoFrame {
   ptsMs: number
   release(): void
 }
@@ -227,7 +222,7 @@ export interface TimerClock<Timer = ReturnType<typeof setTimeout>> {
   clearTimer(timer: Timer): void
 }
 
-export interface FramePlaybackOptions<Timer = ReturnType<typeof setTimeout>> {
+interface FramePlaybackOptions<Timer = ReturnType<typeof setTimeout>> {
   clock?: TimerClock<Timer>
   onError?: (error: unknown) => void
 }
@@ -301,15 +296,6 @@ export function parseFfmpegDuration(diagnostic: string) {
   return Number.isFinite(milliseconds) && milliseconds > 0 ? milliseconds : undefined
 }
 
-function processFailure(result: { diagnostic: string; exitCode: number }) {
-  return new Error(
-    result.diagnostic ||
-      (result.exitCode === 0
-        ? 'FFmpeg produced no media frames.'
-        : `FFmpeg media playback failed with exit code ${result.exitCode}.`),
-  )
-}
-
 export async function loadResolvedLocalImageFrames(
   source: ResolvedMediaSource,
   maximum: Dimensions,
@@ -320,7 +306,7 @@ export async function loadResolvedLocalImageFrames(
   if (source.kind === 'remote' || source.format === 'mp4') {
     throw new Error('Finite image loading requires a local or bundled PNG, JPEG, or GIF source.')
   }
-  throwIfImageAborted(signal)
+  throwIfMediaAborted(signal)
   let cacheKey: string | undefined
   try {
     cacheKey = resolvedFrameCacheKey(source, maximum, background)
@@ -351,7 +337,7 @@ export async function loadResolvedLocalImageFrames(
       withAudio: false,
     })
     for await (const frame of session.frames) {
-      throwIfImageAborted(signal)
+      throwIfMediaAborted(signal)
       const data = new Uint8Array(rgbaByteLength(frame))
       try {
         compositeRgbaInto(frame.data, data, background)
@@ -367,9 +353,9 @@ export async function loadResolvedLocalImageFrames(
       })
     }
     const result = await session.result
-    throwIfImageAborted(signal)
-    if (result.exitCode !== 0) throw processFailure(result)
-    if (frames.length === 0) throw processFailure(result)
+    throwIfMediaAborted(signal)
+    if (result.exitCode !== 0) throw createFfmpegProcessError(result)
+    if (frames.length === 0) throw createFfmpegProcessError(result)
 
     if (source.format === 'gif') {
       const duration = parseFfmpegDuration(result.diagnostic)
@@ -403,28 +389,6 @@ export async function loadResolvedLocalImageFrames(
     session?.dispose()
     await session?.result.catch(() => {})
   }
-}
-
-export async function loadLocalImageFrames(
-  uri: string,
-  maximum: Dimensions,
-  background: Rgb,
-  signal?: AbortSignal,
-  ffmpegPath?: string,
-) {
-  throwIfImageAborted(signal)
-  let key: string | undefined
-  try {
-    key = frameCacheKey(uri, maximum, background)
-  } catch {
-    // Invalid and missing sources continue through the asynchronous resolution path.
-  }
-  if (key) {
-    const frames = cachedFrames(key)
-    if (frames) return frames
-  }
-  const source = await resolveMediaSource(uri)
-  return loadResolvedLocalImageFrames(source, maximum, background, signal, ffmpegPath)
 }
 
 const systemClock: TimerClock = {

@@ -14,6 +14,28 @@ let landscapePath = ''
 let squarePath = ''
 let corruptPath = ''
 let gifPath = ''
+const MEDIA_WAIT_TIMEOUT_MS = 2_000
+
+type RenderSetup = Awaited<ReturnType<typeof testRender>>
+
+async function waitForMedia(setup: RenderSetup, predicate: () => boolean) {
+  const deadline = performance.now() + MEDIA_WAIT_TIMEOUT_MS
+  while (performance.now() < deadline) {
+    await setup.renderOnce()
+    if (predicate()) return
+    await Bun.sleep(5)
+  }
+  throw new Error(`Timed out waiting ${MEDIA_WAIT_TIMEOUT_MS} ms for media rendering.`)
+}
+
+async function waitForMediaFrame(setup: RenderSetup, predicate: (frame: string) => boolean) {
+  let frame = ''
+  await waitForMedia(setup, () => {
+    frame = setup.captureCharFrame()
+    return predicate(frame)
+  })
+  return frame
+}
 
 beforeAll(async () => {
   fixtures = await createMediaFixtures('termweave-pixel-component-')
@@ -38,8 +60,7 @@ describe('PixelRenderer native drawing', () => {
     )
 
     try {
-      await Bun.sleep(20)
-      await setup.waitFor(() => draw.mock.calls.length > 0)
+      await waitForMedia(setup, () => draw.mock.calls.length > 0)
       const call = draw.mock.calls[draw.mock.calls.length - 1]!
       expect(call[0]).toBe(0)
       expect(call[1]).toBe(0)
@@ -87,14 +108,15 @@ describe('PixelRenderer native drawing', () => {
     })
 
     try {
-      await setup.waitFor(() => draw.mock.calls.some((call) => call[5] === 64))
+      await waitForMedia(setup, () => draw.mock.calls.some((call) => call[5] === 64))
       const initialCount = draw.mock.calls.length
       setUri(squarePath)
-      await setup.waitFor(() => draw.mock.calls.length > initialCount)
+      await waitForMedia(setup, () => draw.mock.calls.length > initialCount)
 
       const replacementCount = draw.mock.calls.length
       setup.resize(4, 4)
-      await setup.waitFor(
+      await waitForMedia(
+        setup,
         () =>
           draw.mock.calls.length > replacementCount &&
           draw.mock.calls.some((call) => call[5] === 32),
@@ -121,7 +143,7 @@ describe('PixelRenderer native drawing', () => {
     )
 
     try {
-      await setup.waitFor(() => draw.mock.calls.length > 0)
+      await waitForMedia(setup, () => draw.mock.calls.length > 0)
       await setup.flush()
       const frame = setup.captureCharFrame()
       expect(frame).toContain('TEXT')
@@ -149,8 +171,8 @@ describe('PixelRenderer errors and cleanup', () => {
     )
 
     try {
-      await Bun.sleep(20)
-      const frame = await setup.waitForFrame(
+      const frame = await waitForMediaFrame(
+        setup,
         (candidate) => candidate.includes('PixelRenderer:') && candidate.includes('SIBLING ALIVE'),
       )
       expect(frame.replaceAll(/\s+/g, ' ')).toContain('FFmpeg executable')
@@ -165,7 +187,7 @@ describe('PixelRenderer errors and cleanup', () => {
       { width: 34, height: 6 },
     )
     try {
-      const frame = await corruptSetup.waitForFrame((candidate) =>
+      const frame = await waitForMediaFrame(corruptSetup, (candidate) =>
         candidate.includes('PixelRenderer:'),
       )
       expect(frame).not.toContain('SIBLING CRASHED')
@@ -190,7 +212,8 @@ describe('PixelRenderer errors and cleanup', () => {
       { width: 40, height: 8 },
     )
     try {
-      const frame = await nativeSetup.waitForFrame(
+      const frame = await waitForMediaFrame(
+        nativeSetup,
         (candidate) =>
           candidate.includes('PixelRenderer: native draw') &&
           candidate.includes('exploded') &&
@@ -218,7 +241,7 @@ describe('PixelRenderer errors and cleanup', () => {
     })
 
     try {
-      await setup.waitFor(() => draw.mock.calls.length >= 1)
+      await waitForMedia(setup, () => draw.mock.calls.length >= 1)
       await Bun.sleep(30)
       await setup.flush()
       expect(draw.mock.calls.length).toBeGreaterThanOrEqual(2)

@@ -1,3 +1,5 @@
+import type { NormalizedRgb } from '../../color'
+
 export const CRT_REFERENCE_MODEL = 'Philips 28PW6006'
 export const CRT_REFERENCE_NOMINAL_DIAGONAL_MM = 711.2
 export const CRT_REFERENCE_VISIBLE_DIAGONAL_MM = 660
@@ -225,4 +227,3 @@ void main() {
   outColor = vec4(emittedColor, 1.0);
 }
 `
-import type { NormalizedRgb } from '../../color'

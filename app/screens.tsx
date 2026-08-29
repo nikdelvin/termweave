@@ -1,7 +1,7 @@
 import type { Component } from 'solid-js'
 import campfireGifUri from './assets/campfire.gif' with { type: 'file' }
 import campfirePngUri from './assets/campfire.png' with { type: 'file' }
-import { AppStatePanel } from './components/AppStatePanel'
+import { AppStatePanel } from './AppStatePanel'
 
 interface ScreenDefinition {
   readonly component: Component

@@ -7,8 +7,8 @@ import {
   FFMPEG_RESOURCE_DIRECTORY,
   OPENTUI_ASSET_ROOT_DIRECTORY,
 } from '../termweave/constants'
+import { errorMessage } from '../termweave/error-message'
 import { getFfmpegResourceDirectory } from './build-ffmpeg'
-import { errorMessage } from './tooling'
 
 const projectRoot = resolve(import.meta.dir, '..')
 

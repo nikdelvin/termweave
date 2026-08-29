@@ -5,7 +5,7 @@ import { testRender } from '@opentui/solid'
 import { onMount } from 'solid-js'
 import { App } from '../app/App'
 import { navigate, resetAppState } from '../app/store'
-import { AppStatePanel, appStateInputId } from '../app/components/AppStatePanel'
+import { AppStatePanel, appStateInputId } from '../app/AppStatePanel'
 import { screens, type ScreenKey } from '../app/screens'
 import { PixelRenderer } from '../termweave/media/PixelRenderer'
 

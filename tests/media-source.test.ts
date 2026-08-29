@@ -1,13 +1,16 @@
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { mkdir } from 'node:fs/promises'
+import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
   bundledMediaUri,
   detectImageFormat,
   readLocalImageSignature,
+  retainMediaInput,
   resolveLocalImagePath,
   resolveMediaSource,
+  type RetainedMediaInput,
 } from '../termweave/media/source'
 import { createMediaFixtures, twoFrameGif, type MediaFixtures } from './support/media-fixtures'
 
@@ -50,7 +53,7 @@ describe('local image input and signatures', () => {
     expect(() => resolveLocalImagePath('data:image/png;base64,AA==')).toThrow(
       'only local file paths',
     )
-    expect(() => resolveLocalImagePath('   ')).toThrow('Image URI is required')
+    expect(() => resolveLocalImagePath('   ')).toThrow('Media URI is required')
   })
 
   test('reads only the local signature needed for detection', async () => {
@@ -121,5 +124,69 @@ describe('local image input and signatures', () => {
     await expect(resolveMediaSource('https://example.test/file.webm')).rejects.toThrow(
       'Unsupported media type',
     )
+  })
+
+  test('preserves the bundled extraction failure when rollback also fails', async () => {
+    const input = join(tmpdir(), 'termweave-$bunfs-missing', 'asset.gif')
+    const cleanupFailure = new Error('rollback removal failed')
+    let extractionDirectory: string | undefined
+    using warning = spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const failure = await retainMediaInput(
+        {
+          format: 'gif',
+          input,
+          kind: 'bundled',
+          loop: true,
+          uri: 'media:asset.gif',
+        },
+        {
+          removeDirectory: async (directory) => {
+            extractionDirectory = String(directory)
+            throw cleanupFailure
+          },
+        },
+      ).catch((error: unknown) => error)
+
+      expect(failure).toBeInstanceOf(Error)
+      expect((failure as Error).message).toContain('Could not extract bundled media for FFmpeg')
+      expect((failure as Error).cause).toBeDefined()
+      expect(warning).toHaveBeenCalledWith(
+        'Termweave could not remove a failed bundled-media extraction: rollback removal failed',
+      )
+    } finally {
+      if (extractionDirectory) {
+        await rm(extractionDirectory, { force: true, recursive: true })
+      }
+    }
+  })
+
+  test('keeps Bun-virtual extraction alive across a concurrent final-release handoff', async () => {
+    const virtualRoot = await mkdtemp(join(tmpdir(), 'termweave-$bunfs-source-'))
+    let second: RetainedMediaInput | undefined
+    try {
+      const input = join(virtualRoot, 'asset.gif')
+      await Bun.write(input, twoFrameGif)
+      const source = {
+        format: 'gif' as const,
+        input,
+        kind: 'bundled' as const,
+        loop: true,
+        uri: 'media:asset.gif',
+      }
+      const first = await retainMediaInput(source)
+      const secondPending = retainMediaInput(source)
+      await first.release()
+      second = await secondPending
+
+      expect(second.path).toBe(first.path)
+      expect(await Bun.file(second.path).exists()).toBe(true)
+      await second.release()
+      expect(await Bun.file(second.path).exists()).toBe(false)
+      second = undefined
+    } finally {
+      await second?.release()
+      await rm(virtualRoot, { force: true, recursive: true })
+    }
   })
 })

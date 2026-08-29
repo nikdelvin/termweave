@@ -19,7 +19,7 @@ export interface AnimationFrame extends RgbaFrame {
   release?: () => void
 }
 
-export interface CenteredViewport extends Dimensions {
+interface CenteredViewport extends Dimensions {
   x: number
   y: number
 }
@@ -74,5 +74,3 @@ export function compositeRgbaInto(source: Uint8Array, destination: Uint8Array, b
   }
   applyCrtPalette(destination)
 }
-
-export type { Rgb } from '../color'

@@ -41,6 +41,9 @@ describe('bundled FFmpeg manifest', () => {
     expect(getFfmpegOutputPath('/sdk', 'x86_64-apple-darwin', 'darwin')).toBe(
       '/sdk/src-tauri/binaries/ffmpeg-x86_64-apple-darwin',
     )
+    expect(() => getFfmpegOutputPath('/sdk', 'x86_64-unknown-linux-gnu', 'linux')).toThrow(
+      'supports only macOS',
+    )
   })
 
   test('the built artifact decodes all eight committed campfire GIF frames', async () => {

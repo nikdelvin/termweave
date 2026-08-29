@@ -6,7 +6,7 @@ import {
   TERMINAL_GRID,
   TERMINAL_SURFACE,
 } from '../termweave/constants'
-import { validAppConfig } from './fixtures'
+import { validAppConfig } from './support/app-config'
 
 describe('app configuration', () => {
   test('parses exactly the application-owned schema', () => {

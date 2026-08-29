@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { Terminal } from '@xterm/xterm'
 import { parseAppConfig } from '../termweave/config'
 import { createXtermOptions } from '../termweave/host/xterm-terminal'
-import { validAppConfig } from './fixtures'
+import { validAppConfig } from './support/app-config'
 
 describe('fixed xterm configuration', () => {
   test('uses the fixed grid, foreground, cursor, and non-scrolling terminal options', () => {

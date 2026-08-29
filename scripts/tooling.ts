@@ -1,7 +1,3 @@
-export function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error)
-}
-
 export async function runRequired(command: string[], cwd: string, description: string) {
   const child = Bun.spawn(command, {
     cwd,

@@ -1,8 +1,10 @@
-import { startMediaAudio, type MediaAudioSession } from './audio'
+import { createDrainableAudioBody, startMediaAudio, type MediaAudioSession } from './audio'
 import type { Rgb } from '../color'
 import {
   isMissingAudioDiagnostic,
   isVideoToolboxDiagnostic,
+  createFfmpegProcessError,
+  FfmpegProcessError,
   openFfmpegMediaSession,
   type FfmpegMediaSession,
   type TimedVideoFrame,
@@ -16,7 +18,7 @@ import {
   StreamingFrameCoordinator,
 } from './playback'
 import {
-  createImageAbortError,
+  createMediaAbortError,
   isAbortError,
   resolveMediaSource,
   type ResolvedMediaSource,
@@ -27,7 +29,7 @@ const MAX_REMOTE_RETRIES = 3
 const REMOTE_RETRY_DELAYS_MS = [100, 250, 500] as const
 const DISPLAY_BUFFER_POOL_SIZE = 2
 
-export interface ImageRequest {
+export interface MediaRequest {
   uri: string
   maximum: Dimensions
   background: Rgb
@@ -35,11 +37,16 @@ export interface ImageRequest {
 
 export interface StreamingMediaPlaybackOptions {
   ffmpegPath?: string
+  onComplete?: () => void
   onError(error: unknown): void
   onFrame(frame: AnimationFrame): void
+  openSession?: typeof openFfmpegMediaSession
+  retryDelaysMs?: readonly number[]
+  startAudio?: typeof startMediaAudio
+  waitForRetry?: (signal: AbortSignal, delayMs: number) => Promise<void>
 }
 
-export interface ImageControllerOptions {
+export interface MediaControllerOptions {
   onError(error: unknown | undefined): void
   onFrame(frame: AnimationFrame | undefined): void
   getCached?: typeof getCachedLocalImageFrames
@@ -47,15 +54,6 @@ export interface ImageControllerOptions {
   play?: typeof startFramePlayback
   resolve?: typeof resolveMediaSource
   stream?: typeof startStreamingMediaPlayback
-}
-
-class MediaAttemptError extends Error {
-  constructor(
-    message: string,
-    readonly diagnostic: string,
-  ) {
-    super(message)
-  }
 }
 
 const activePlaybackStops = new Set<() => void>()
@@ -83,64 +81,9 @@ function createDisplayFrame(source: TimedVideoFrame, background: Rgb, pool: Uint
   } satisfies AnimationFrame
 }
 
-function createDrainableAudioBody(stream: ReadableStream<Uint8Array>) {
-  const reader = stream.getReader()
-  let state: 'idle' | 'consuming' | 'draining' | 'done' = 'idle'
-  let drainRequested = false
-
-  const drain = () => {
-    drainRequested = true
-    if (state !== 'idle') return
-    state = 'draining'
-    void (async () => {
-      try {
-        while (!(await reader.read()).done) {
-          // Discard audio only after playback initialization has failed.
-        }
-      } catch {
-        // FFmpeg may close the descriptor while the fallback drain is active.
-      } finally {
-        state = 'done'
-        reader.releaseLock()
-      }
-    })()
-  }
-
-  const body: AsyncIterable<Uint8Array> = {
-    async *[Symbol.asyncIterator]() {
-      if (state !== 'idle') throw new Error('The FFmpeg audio pipe can be consumed only once.')
-      state = 'consuming'
-      try {
-        while (true) {
-          const result = await reader.read()
-          if (result.done) {
-            state = 'done'
-            return
-          }
-          yield result.value
-        }
-      } finally {
-        if (state !== 'done') state = 'idle'
-        if (state === 'done') reader.releaseLock()
-        else if (drainRequested) drain()
-      }
-    },
-  }
-  return { body, drain }
-}
-
-function processFailure(result: { diagnostic: string; exitCode: number }) {
-  const message =
-    result.diagnostic ||
-    (result.exitCode === 0
-      ? 'FFmpeg produced no media frames.'
-      : `FFmpeg media playback failed with exit code ${result.exitCode}.`)
-  return new MediaAttemptError(message, result.diagnostic)
-}
-
 async function playSession(
   source: ResolvedMediaSource,
-  request: ImageRequest,
+  request: MediaRequest,
   options: StreamingMediaPlaybackOptions,
   signal: AbortSignal,
   hardwareAcceleration: boolean,
@@ -151,70 +94,98 @@ async function playSession(
   let coordinator: StreamingFrameCoordinator<TimedVideoFrame> | undefined
   let drainAudio = () => {}
   const displayPool: Uint8Array[] = []
+  let outcome: { audioUnavailable: boolean } | undefined
+  let cleanupFailed = false
+  let cleanupError: unknown
 
   try {
-    session = await openFfmpegMediaSession({
-      source,
-      width: request.maximum.width,
-      height: request.maximum.height,
-      background: request.background,
-      ffmpegPath: options.ffmpegPath,
-      hardwareAcceleration,
-      realtime: true,
-      signal,
-      withAudio,
-    })
-
-    let audioFailure: unknown
-    let startAudio: Promise<MediaAudioSession | undefined> = Promise.resolve(undefined)
-    if (session.audio) {
-      const audioPipe = createDrainableAudioBody(session.audio)
-      drainAudio = audioPipe.drain
-      startAudio = startMediaAudio({
-        body: audioPipe.body,
+    playback: {
+      session = await (options.openSession ?? openFfmpegMediaSession)({
+        source,
+        width: request.maximum.width,
+        height: request.maximum.height,
+        background: request.background,
+        ffmpegPath: options.ffmpegPath,
+        hardwareAcceleration,
+        realtime: true,
         signal,
-        onClockFallback: () => coordinator?.flush(),
-        onFailure: (error) => {
-          if (!signal.aborted) console.warn(`Termweave media audio stopped: ${String(error)}`)
-        },
-      }).catch((error: unknown) => {
-        audioFailure = error
-        audioPipe.drain()
-        return undefined
+        withAudio,
       })
-    }
 
-    const [firstFrame, startedAudio] = await Promise.all([session.frames.next(), startAudio])
-    audioSession = startedAudio
-    if (firstFrame.done) throw processFailure(await session.result)
-    if (audioFailure !== undefined && !signal.aborted) {
-      console.warn(
-        `Termweave media audio is unavailable; continuing silently: ${String(audioFailure)}`,
-      )
-    }
+      let audioFailure: unknown
+      let startAudio: Promise<MediaAudioSession | undefined> = Promise.resolve(undefined)
+      if (session.audio) {
+        const audioPipe = createDrainableAudioBody(session.audio)
+        drainAudio = audioPipe.drain
+        startAudio = (options.startAudio ?? startMediaAudio)({
+          body: audioPipe.body,
+          signal,
+          onClockFallback: () => coordinator?.flush(),
+          onFailure: (error) => {
+            if (!signal.aborted) console.warn(`Termweave media audio stopped: ${String(error)}`)
+          },
+        }).catch((error: unknown) => {
+          audioFailure = error
+          audioPipe.drain()
+          return undefined
+        })
+      }
 
-    coordinator = new StreamingFrameCoordinator<TimedVideoFrame>({
-      clock: audioSession?.clock ?? new MediaPlaybackClock(),
-      onPresent: (frame) =>
-        options.onFrame(createDisplayFrame(frame, request.background, displayPool)),
-    })
-    coordinator.push(firstFrame.value)
+      const [firstFrame, startedAudio] = await Promise.all([session.frames.next(), startAudio])
+      audioSession = startedAudio
+      if (signal.aborted) {
+        if (!firstFrame.done) firstFrame.value.release()
+        outcome = { audioUnavailable: audioFailure !== undefined }
+        break playback
+      }
+      if (firstFrame.done) throw createFfmpegProcessError(await session.result)
+      if (audioFailure !== undefined) {
+        console.warn(
+          `Termweave media audio is unavailable; continuing silently: ${String(audioFailure)}`,
+        )
+      }
 
-    if (!source.loop) {
-      session.dispose()
-      return { audioUnavailable: audioFailure !== undefined }
+      coordinator = new StreamingFrameCoordinator<TimedVideoFrame>({
+        clock: audioSession?.clock ?? new MediaPlaybackClock(),
+        onPresent: (frame) =>
+          options.onFrame(createDisplayFrame(frame, request.background, displayPool)),
+      })
+      coordinator.push(firstFrame.value)
+
+      if (!source.loop) {
+        outcome = { audioUnavailable: audioFailure !== undefined }
+        break playback
+      }
+      for await (const frame of session.frames) coordinator.push(frame)
+      const result = await session.result
+      if (!signal.aborted && result.exitCode !== 0) throw createFfmpegProcessError(result)
+      outcome = { audioUnavailable: audioFailure !== undefined }
     }
-    for await (const frame of session.frames) coordinator.push(frame)
-    const result = await session.result
-    if (!signal.aborted && result.exitCode !== 0) throw processFailure(result)
-    return { audioUnavailable: audioFailure !== undefined }
   } finally {
-    coordinator?.dispose()
-    audioSession?.dispose()
-    drainAudio()
-    session?.dispose()
-    await session?.result.catch(() => {})
+    const cleanup = async (operation: () => void | Promise<void>) => {
+      try {
+        await operation()
+      } catch (error) {
+        if (cleanupFailed) return
+        cleanupFailed = true
+        cleanupError = error
+      }
+    }
+
+    // Release iterator readers before stopping the process, then unwind downstream owners in order.
+    await cleanup(async () => {
+      await session?.frames.return(undefined)
+    })
+    await cleanup(() => session?.dispose())
+    await cleanup(() => audioSession?.dispose())
+    await cleanup(() => coordinator?.dispose())
+    await cleanup(() => drainAudio())
+    await cleanup(async () => {
+      await session?.result.catch(() => {})
+    })
   }
+  if (cleanupFailed) throw cleanupError
+  return outcome!
 }
 
 async function waitForRetry(signal: AbortSignal, delayMs: number) {
@@ -233,13 +204,14 @@ async function waitForRetry(signal: AbortSignal, delayMs: number) {
 
 async function runStreamingPlayback(
   source: ResolvedMediaSource,
-  request: ImageRequest,
+  request: MediaRequest,
   options: StreamingMediaPlaybackOptions,
   signal: AbortSignal,
 ) {
   let hardwareAcceleration = source.format === 'mp4'
   let withAudio = source.format === 'mp4'
   let remoteFailures = 0
+  const retryDelays = options.retryDelaysMs ?? REMOTE_RETRY_DELAYS_MS
 
   while (!signal.aborted) {
     try {
@@ -256,7 +228,7 @@ async function runStreamingPlayback(
       remoteFailures = 0
     } catch (error) {
       if (signal.aborted) return
-      const diagnostic = error instanceof MediaAttemptError ? error.diagnostic : String(error)
+      const diagnostic = error instanceof FfmpegProcessError ? error.diagnostic : String(error)
       if (withAudio && isMissingAudioDiagnostic(diagnostic)) {
         withAudio = false
         continue
@@ -266,13 +238,13 @@ async function runStreamingPlayback(
         continue
       }
       if (
-        error instanceof MediaAttemptError &&
+        error instanceof FfmpegProcessError &&
         source.kind === 'remote' &&
-        remoteFailures < MAX_REMOTE_RETRIES
+        remoteFailures < Math.min(MAX_REMOTE_RETRIES, retryDelays.length)
       ) {
-        const delay = REMOTE_RETRY_DELAYS_MS[remoteFailures]!
+        const delay = retryDelays[remoteFailures]!
         remoteFailures += 1
-        await waitForRetry(signal, delay)
+        await (options.waitForRetry ?? waitForRetry)(signal, delay)
         continue
       }
       throw error
@@ -282,7 +254,7 @@ async function runStreamingPlayback(
 
 export function startStreamingMediaPlayback(
   source: ResolvedMediaSource,
-  request: ImageRequest,
+  request: MediaRequest,
   options: StreamingMediaPlaybackOptions,
 ) {
   const controller = new AbortController()
@@ -298,7 +270,10 @@ export function startStreamingMediaPlayback(
     .catch((error: unknown) => {
       if (!controller.signal.aborted) options.onError(error)
     })
-    .finally(() => activePlaybackStops.delete(stop))
+    .finally(() => {
+      activePlaybackStops.delete(stop)
+      options.onComplete?.()
+    })
   return stop
 }
 
@@ -306,7 +281,7 @@ export function disposeAllStreamingMediaPlayback() {
   for (const stop of [...activePlaybackStops]) stop()
 }
 
-export function createImagePlaybackController({
+export function createMediaPlaybackController({
   onError,
   onFrame,
   getCached = getCachedLocalImageFrames,
@@ -314,7 +289,7 @@ export function createImagePlaybackController({
   play = startFramePlayback,
   resolve = resolveMediaSource,
   stream = startStreamingMediaPlayback,
-}: ImageControllerOptions) {
+}: MediaControllerOptions) {
   let abortController: AbortController | undefined
   let stopPlayback: (() => void) | undefined
   let generation = 0
@@ -330,20 +305,20 @@ export function createImagePlaybackController({
 
   const cancel = () => {
     generation += 1
-    abortController?.abort(createImageAbortError())
+    abortController?.abort(createMediaAbortError())
     abortController = undefined
     stopPlayback?.()
     stopPlayback = undefined
   }
 
-  const replace = (request: ImageRequest) => {
+  const replace = (request: MediaRequest) => {
     if (disposed) return
     cancel()
     onError(undefined)
     const uri = request.uri.trim()
     if (!uri) {
       showFrame(undefined)
-      onError(new Error('Image URI is required.'))
+      onError(new Error('Media URI is required.'))
       return
     }
     if (request.maximum.width < 2 || request.maximum.height < 2) return

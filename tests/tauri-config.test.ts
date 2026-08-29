@@ -55,4 +55,40 @@ describe('Tauri development command', () => {
     )
     expect(packageManifest.scripts['sidecar:build']).toBe('bun scripts/build-sidecar.ts')
   })
+
+  test('bootstraps tests and keeps exactly one release-sidecar build path', async () => {
+    const scripts = packageManifest.scripts as Record<string, string>
+    const countExecutions = (
+      name: string,
+      command: string,
+      visiting = new Set<string>(),
+    ): number => {
+      if (visiting.has(name)) throw new Error(`Package script cycle at ${name}`)
+      const nextVisiting = new Set(visiting).add(name)
+      const script = scripts[name]
+      if (!script) return 0
+      let count = script.includes(command) ? 1 : 0
+      for (const match of script.matchAll(/bun run ([\w:-]+)/g)) {
+        count += countExecutions(match[1]!, command, nextVisiting)
+      }
+      return count
+    }
+
+    expect(scripts.test).toBe(
+      'bun run ffmpeg:build && DEBUG= bun test --preload @opentui/solid/preload tests',
+    )
+    for (const command of ['test', 'check', 'build']) {
+      expect(countExecutions(command, 'scripts/build-ffmpeg.ts'), command).toBe(1)
+    }
+    expect(countExecutions('build', 'scripts/build-sidecar.ts')).toBe(1)
+    expect(scripts.build).toBe(
+      'bun run check && bun run prepare && tauri build --config src-tauri/.generated/override.json',
+    )
+    expect(scripts.dev).toContain('bun scripts/build-sidecar.ts development')
+    const launcher = await Bun.file(
+      new URL('../scripts/development-launcher.ts', import.meta.url),
+    ).text()
+    expect(launcher).toContain("'--watch'")
+    expect(launcher).toContain("stdin: 'inherit'")
+  })
 })

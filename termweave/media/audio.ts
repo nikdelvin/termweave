@@ -1,6 +1,7 @@
 import { setupAudio, type Audio, type AudioStream, type AudioStreamBody } from '@opentui/core'
 import { MediaPlaybackClock } from './playback'
 
+// Audio owns shared engine leases, FFmpeg pipe consumption/draining, and native stream lifecycle.
 const AUDIO_START_TIMEOUT_MS = 3_000
 const AUDIO_READY_POLL_MS = 5
 const AUDIO_BUFFER = {
@@ -20,11 +21,14 @@ export interface MediaAudioSession {
 }
 
 interface StartMediaAudioOptions {
+  acquireAudioEngine?: () => AudioEngineLease
   body: AudioStreamBody
   onClockFallback?: () => void
   onFailure?: (error: unknown) => void
   signal: AbortSignal
+  startTimeout?: (pending: Promise<AudioStream>) => Promise<AudioStream>
   volume?: number
+  waitUntilPlaying?: (stream: Pick<AudioStream, 'getStats'>, signal: AbortSignal) => Promise<void>
 }
 
 function ignoreAudioError() {}
@@ -59,6 +63,81 @@ export function createAudioEnginePool(
 
 export const sharedAudioEngine = createAudioEnginePool()
 
+export function createDrainableAudioBody(stream: ReadableStream<Uint8Array>) {
+  const reader = stream.getReader()
+  let state: 'idle' | 'consuming' | 'abandoned' | 'draining' | 'done' = 'idle'
+  let drainRequested = false
+  let drainCompletion: Promise<void> | undefined
+  let resolveDrain: (() => void) | undefined
+  let lockReleased = false
+
+  const releaseLock = () => {
+    if (lockReleased) return
+    lockReleased = true
+    reader.releaseLock()
+  }
+  const finish = () => {
+    state = 'done'
+    releaseLock()
+    resolveDrain?.()
+    resolveDrain = undefined
+  }
+  const ensureDrainCompletion = () => {
+    drainCompletion ??= new Promise<void>((resolve) => {
+      resolveDrain = resolve
+    })
+    return drainCompletion
+  }
+  const startDrain = () => {
+    if (state === 'draining' || state === 'done') return
+    state = 'draining'
+    void (async () => {
+      try {
+        while (!(await reader.read()).done) {
+          // Discard audio only when no playback consumer owns the descriptor.
+        }
+      } catch {
+        // FFmpeg may close the descriptor while the fallback drain is active.
+      } finally {
+        finish()
+      }
+    })()
+  }
+
+  const drain = () => {
+    drainRequested = true
+    if (state === 'done') return Promise.resolve()
+    const completion = ensureDrainCompletion()
+    if (state === 'idle' || state === 'abandoned') startDrain()
+    return completion
+  }
+
+  const body: AsyncIterable<Uint8Array> = {
+    async *[Symbol.asyncIterator]() {
+      if (state !== 'idle') throw new Error('The FFmpeg audio pipe can be consumed only once.')
+      state = 'consuming'
+      let completed = false
+      try {
+        while (true) {
+          const result = await reader.read()
+          if (result.done) {
+            completed = true
+            finish()
+            return
+          }
+          yield result.value
+        }
+      } finally {
+        if (!completed && state === 'consuming') {
+          state = 'abandoned'
+          if (drainRequested) startDrain()
+        }
+      }
+    },
+  }
+  return { body, drain }
+}
+
 async function withTimeout<T>(pending: Promise<T>, timeoutMs = AUDIO_START_TIMEOUT_MS) {
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
@@ -86,6 +165,29 @@ async function waitForPlayback(stream: Pick<AudioStream, 'getStats'>, signal: Ab
     : new DOMException('Media audio startup was cancelled.', 'AbortError')
 }
 
+async function withAbort<T>(pending: Promise<T>, signal: AbortSignal) {
+  if (signal.aborted) {
+    throw signal.reason instanceof Error
+      ? signal.reason
+      : new DOMException('Media audio startup was cancelled.', 'AbortError')
+  }
+  let handleAbort: (() => void) | undefined
+  const aborted = new Promise<never>((_, reject) => {
+    handleAbort = () =>
+      reject(
+        signal.reason instanceof Error
+          ? signal.reason
+          : new DOMException('Media audio startup was cancelled.', 'AbortError'),
+      )
+    signal.addEventListener('abort', handleAbort, { once: true })
+  })
+  try {
+    return await Promise.race([pending, aborted])
+  } finally {
+    if (handleAbort) signal.removeEventListener('abort', handleAbort)
+  }
+}
+
 export async function startMediaAudio(options: StartMediaAudioOptions): Promise<MediaAudioSession> {
   const controller = new AbortController()
   const forwardAbort = () => controller.abort(options.signal.reason)
@@ -94,24 +196,48 @@ export async function startMediaAudio(options: StartMediaAudioOptions): Promise<
 
   let lease: AudioEngineLease | undefined
   let stream: AudioStream | undefined
+  let startingStream: AudioStream | undefined
+  let startingStreamDisposed = false
+  const disposeStartingStream = () => {
+    if (!startingStream || startingStreamDisposed) return
+    startingStreamDisposed = true
+    startingStream.dispose()
+  }
   try {
-    lease = sharedAudioEngine.acquire()
-    stream = await withTimeout(
-      (async () => {
-        const opened = await lease!.audio.playStream(options.body, {
-          buffer: AUDIO_BUFFER,
-          format: 'flac',
-          signal: controller.signal,
-          volume: options.volume ?? 1,
-        })
-        await waitForPlayback(opened, controller.signal)
-        return opened
-      })(),
+    if (controller.signal.aborted) {
+      throw controller.signal.reason instanceof Error
+        ? controller.signal.reason
+        : new DOMException('Media audio startup was cancelled.', 'AbortError')
+    }
+    lease = (options.acquireAudioEngine ?? (() => sharedAudioEngine.acquire()))()
+    const startTimeout = options.startTimeout ?? withTimeout
+    const waitUntilPlaying = options.waitUntilPlaying ?? waitForPlayback
+    stream = await startTimeout(
+      withAbort(
+        (async () => {
+          const opened = await lease!.audio.playStream(options.body, {
+            buffer: AUDIO_BUFFER,
+            format: 'flac',
+            signal: controller.signal,
+            volume: options.volume ?? 1,
+          })
+          startingStream = opened
+          try {
+            await waitUntilPlaying(opened, controller.signal)
+            return opened
+          } catch (error) {
+            disposeStartingStream()
+            throw error
+          }
+        })(),
+        controller.signal,
+      ),
     )
+    startingStream = undefined
   } catch (error) {
     controller.abort()
     options.signal.removeEventListener('abort', forwardAbort)
-    stream?.dispose()
+    disposeStartingStream()
     lease?.release()
     throw error
   }

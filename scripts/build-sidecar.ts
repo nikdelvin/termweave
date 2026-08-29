@@ -2,10 +2,9 @@ import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import process from 'node:process'
 import solidPlugin from '@opentui/solid/bun-plugin'
+import { errorMessage } from '../termweave/error-message'
 import { ensureFfmpegBinary } from './build-ffmpeg'
-import { errorMessage, getRustHostTuple } from './tooling'
-
-export { getRustHostTuple } from './tooling'
+import { getRustHostTuple } from './tooling'
 
 const projectRoot = resolve(import.meta.dir, '..')
 
