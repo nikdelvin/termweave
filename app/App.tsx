@@ -2,14 +2,14 @@ import { Dynamic, useKeyboard } from '@opentui/solid'
 import { getTermweaveConfig, PixelRenderer } from '#termweave'
 import { Show } from 'solid-js'
 import { navigate, screen } from './store'
-import { screenMedia, screens } from './screens'
+import { screens } from './screens'
 
 const screenOrder = Object.keys(screens) as (keyof typeof screens)[]
 
 export function App() {
   const config = getTermweaveConfig()
-  const mediaUri = () => screenMedia[screen()]
-  const CurrentScreen = () => <Dynamic component={screens[screen()]} />
+  const currentScreen = () => screens[screen()]
+  const CurrentScreen = () => <Dynamic component={currentScreen().component} />
 
   // This callback is the template user's keyboard configuration. navigate() itself is key-agnostic.
   useKeyboard((key) => {
@@ -26,7 +26,7 @@ export function App() {
 
   return (
     <box width="100%" height="100%" backgroundColor={config.themeColor}>
-      <Show when={mediaUri()} fallback={<CurrentScreen />}>
+      <Show when={currentScreen().mediaUri} fallback={<CurrentScreen />}>
         {(uri) => (
           <PixelRenderer uri={uri()} width="100%" height="100%">
             <CurrentScreen />

@@ -3,8 +3,6 @@ import { readFile } from 'node:fs/promises'
 import { dirname, extname, relative, resolve } from 'node:path'
 
 const projectRoot = resolve(import.meta.dir, '..')
-const componentRoot = resolve(projectRoot, 'termweave/components')
-
 async function sourceFiles(pattern: string) {
   return Array.fromAsync(new Bun.Glob(pattern).scan({ cwd: projectRoot, onlyFiles: true }))
 }
@@ -66,51 +64,26 @@ describe('Termweave ownership boundaries', () => {
     for (const file of graph.keys()) visit(file)
   })
 
-  test('pins decoders and keeps remote media inside the SDK-owned pipeline', async () => {
+  test('keeps the FFmpeg media pipeline layered and dependency-free', async () => {
     const packageJson = JSON.parse(
       await readFile(resolve(projectRoot, 'package.json'), 'utf8'),
     ) as {
       dependencies: Record<string, string>
     }
-    expect(packageJson.dependencies).toMatchObject({
-      '@jimp/core': '1.6.1',
-      '@jimp/js-jpeg': '1.6.1',
-      '@jimp/js-png': '1.6.1',
-      'gifuct-js': '2.1.2',
-    })
-
-    const implementation = (
-      await Promise.all(
-        [
-          '../host/crt-effects/crt-palette.ts',
-          'image-source.ts',
-          'pixel-frame.ts',
-          'image-decoder.ts',
-          'image-playback.ts',
-          'image-controller.ts',
-          'media-process.ts',
-          'media-playback.ts',
-          'media-audio.ts',
-          'streaming-media.ts',
-          'PixelRenderer.tsx',
-        ].map((file) => readFile(resolve(componentRoot, file), 'utf8')),
-      )
-    ).join('\n')
-    for (const forbidden of [
-      /OptimizedBuffer\.create/,
-      /drawFrameBuffer/,
-      /drawPackedBuffer/,
-      /quadrant/i,
-      /preload/i,
-      /\bcache\b/i,
-      /\bfetch\s*\(/,
-      /WebSocket/i,
-    ]) {
-      expect(implementation).not.toMatch(forbidden)
+    for (const dependency of ['@jimp/core', '@jimp/js-jpeg', '@jimp/js-png', 'gifuct-js']) {
+      expect(packageJson.dependencies).not.toHaveProperty(dependency)
     }
-    expect(implementation).toMatch(/FFmpeg/)
-    expect(implementation).toMatch(/MediaPlaybackClock/)
-    expect(implementation).toMatch(/setupAudio/)
+
+    const mediaFiles = await sourceFiles('termweave/media/*.{ts,tsx}')
+    expect(mediaFiles.length).toBeGreaterThan(0)
+    expect(await sourceFiles('termweave/components/**')).toEqual([])
+    for (const file of mediaFiles) {
+      const source = await readFile(resolve(projectRoot, file), 'utf8')
+      for (const match of source.matchAll(/from\s+['"](\.\.?\/[^'"]+)['"]/g)) {
+        const imported = resolve(projectRoot, dirname(file), match[1]!)
+        expect(imported.startsWith(resolve(projectRoot, 'termweave'))).toBe(true)
+      }
+    }
   })
 
   test('keeps dedicated starter media and excludes routing compatibility layers', async () => {

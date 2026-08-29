@@ -28,8 +28,8 @@ Application authors normally edit:
 
 - `app.config.json` and `app.icon.png`
 - `app/store.ts` for durable application data and actions
-- `app/screens.ts`
-- files under `app/screens/`, `app/components/`, and `app/assets/`
+- `app/screens.tsx` for the typed screen registry and shared demo-screen layout
+- files under `app/components/` and `app/assets/`
 - opted-in production media under `app/media/`
 - `app/App.tsx` when changing global keyboard navigation
 
@@ -46,16 +46,17 @@ the prior media frame remains visible during a source change. Successful local i
 also retained in a bounded frame cache so later visits at the same terminal size start immediately.
 
 After the native sidecar and CRT renderer start, Termweave plays the SDK-owned turn-on sound once,
-then loops the CRT noise ambience at 0.3 volume. CRT ambience and streamed media share one native
+then loops the CRT noise ambience at 0.5 volume. CRT ambience and streamed media share one native
 audio engine and are both released during sidecar shutdown.
 
 ## PixelRenderer media
 
 `PixelRenderer` accepts ordinary local PNG, JPEG, and GIF paths, local MP4 paths, direct HTTPS URLs
-ending in `.mp4`, `.gif`, `.png`, `.jpg`, or `.jpeg`, and bundled `media:` resources. Local images
-keep the lightweight in-process decoder and bounded cache. MP4, HTTPS, and explicit bundled media
-stream through the packaged FFmpeg process, so compressed sources are not loaded into JavaScript
-memory.
+ending in `.mp4`, `.gif`, `.png`, `.jpg`, or `.jpeg`, and bundled `media:` resources. All formats
+decode through the packaged FFmpeg process. Finite local and bundled PNG/JPEG/GIF sources are
+collected without real-time throttling and retained in a 64 MiB stat-keyed frame cache; MP4 and
+remote sources remain streamed through the bounded playback queue. Local image signatures, not
+filename extensions, select PNG, JPEG, or GIF decoding.
 
 The demo's Remote Video screen streams
 [Blender Foundation's CC-BY Sintel trailer](https://studio.blender.org/projects/sintel/) directly
@@ -86,7 +87,7 @@ Late video frames are discarded so rendering does not stall keyboard input.
 | Path                            | Responsibility                                                                   |
 | ------------------------------- | -------------------------------------------------------------------------------- |
 | `app/`                          | User-owned state, composition, screens, controls, assets, and navigation policy. |
-| `termweave/components/`         | SDK Solid components and finite/streaming media playback pipelines.              |
+| `termweave/media/`              | PixelRenderer, source resolution, FFmpeg, caching, playback, and audio.          |
 | `termweave/assets/`             | SDK-owned CRT startup and ambient audio.                                         |
 | `termweave/host/`               | WebView host, xterm/session ownership, monitor presentation, and CRT effects.    |
 | `termweave/config.ts`           | Internal application-config parsing and the narrow public resolved view.         |
@@ -148,7 +149,7 @@ interface TermweaveConfig {
 
 `createScreenNavigation<Screen>(initialScreen)` is a generic signal-backed selector with a readonly
 `screen` accessor and typed `navigate(destination)` action. `app/store.ts` creates the starter's
-`ScreenKey`-typed instance, while `app/screens.ts` remains the sole registry and `App.tsx` owns all
+`ScreenKey`-typed instance, while `app/screens.tsx` remains the sole registry and `App.tsx` owns all
 keyboard transition choices. This is screen selection, not URL routing, history, or a provider.
 
 Application state also lives in `app/store.ts`. Keep focus handles, timers, renderer objects, and
@@ -169,6 +170,10 @@ Run these commands from the repository root:
 | `bun run ffmpeg:build` | Verify or build the pinned LGPL FFmpeg binary for the current Mac target.  |
 | `bun run check`        | Run the full test/static/Rust validation sequence.                         |
 | `bun run build`        | Validate, prepare, compile the sidecar, and build the native `.app`.       |
+
+Development uses Bun watch mode with hard restarts, so edits to imported application, SDK, and
+asset files reset sidecar state while keeping Tauri's sidecar pipes stable. Syntax errors remain
+watchable and recover on the next valid edit.
 
 Generated icons/overrides, compiled sidecars, frontend output, schemas, Rust targets, and
 dependencies are ignored. Preparation replaces stale generated inputs and never rewrites tracked

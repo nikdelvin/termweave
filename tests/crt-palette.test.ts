@@ -1,7 +1,13 @@
 import { describe, expect, test } from 'bun:test'
-import { applyCrtPalette } from '../termweave/host/crt-effects/crt-palette'
+import { applyCrtPalette, normalizeRgb, parseHexRgb } from '../termweave/color'
 
 describe('CRT image palette', () => {
+  test('shares strict hexadecimal parsing and normalization', () => {
+    expect(parseHexRgb('#01aBfF')).toEqual([1, 171, 255])
+    expect(normalizeRgb([1, 4, 22])).toEqual([1 / 255, 4 / 255, 22 / 255])
+    expect(() => parseHexRgb('black')).toThrow('six-digit')
+  })
+
   test('uses the uniform RGB332 cube and keeps alpha opaque', () => {
     const data = Uint8Array.of(100, 150, 200, 255, 255, 0, 36, 255)
     applyCrtPalette(data)

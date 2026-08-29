@@ -3,6 +3,7 @@ import {
   CrtPostprocessor,
   type RuntimePostprocessorFailure,
 } from '../termweave/host/crt-effects/crt-postprocessor'
+import { FakeCanvas, FakeTerminal } from './support/rendering-fakes'
 
 type GlObject = { readonly kind: string; readonly id: number }
 
@@ -260,53 +261,6 @@ class FakeGl {
   }
   isContextLost() {
     return this.contextLost
-  }
-}
-
-class FakeCanvas {
-  width = 2560
-  height = 1440
-  clientWidth = 2560
-  clientHeight = 1440
-  style = { backgroundColor: '#112233' }
-  private readonly listeners = new Map<string, Set<EventListenerOrEventListenerObject>>()
-
-  addEventListener(type: string, listener: EventListenerOrEventListenerObject) {
-    const listeners = this.listeners.get(type) ?? new Set()
-    listeners.add(listener)
-    this.listeners.set(type, listeners)
-  }
-  removeEventListener(type: string, listener: EventListenerOrEventListenerObject) {
-    this.listeners.get(type)?.delete(listener)
-  }
-  emit(type: string) {
-    for (const listener of this.listeners.get(type) ?? []) {
-      if (typeof listener === 'function') listener({ type } as Event)
-      else listener.handleEvent({ type } as Event)
-    }
-  }
-  listenerCount(type: string) {
-    return this.listeners.get(type)?.size ?? 0
-  }
-}
-
-class FakeTerminal {
-  renderDisposeCount = 0
-  throwOnSubscribe = false
-  private renderHandler: (() => void) | undefined
-
-  onRender(handler: () => void) {
-    if (this.throwOnSubscribe) throw new Error('render subscription failed')
-    this.renderHandler = handler
-    return {
-      dispose: () => {
-        this.renderDisposeCount += 1
-        this.renderHandler = undefined
-      },
-    }
-  }
-  render() {
-    this.renderHandler?.()
   }
 }
 

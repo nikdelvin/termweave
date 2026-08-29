@@ -3,7 +3,7 @@ import {
   MediaPlaybackClock,
   StreamingFrameCoordinator,
   type PlaybackClock,
-} from '../termweave/components/media-playback'
+} from '../termweave/media/playback'
 
 interface TestFrame {
   ptsMs: number

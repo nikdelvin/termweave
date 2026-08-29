@@ -1,53 +1,30 @@
 import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test'
-import { createJimp } from '@jimp/core'
-import jpeg from '@jimp/js-jpeg'
-import png from '@jimp/js-png'
 import { OptimizedBuffer } from '@opentui/core'
 import { testRender } from '@opentui/solid'
-import { mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { createSignal } from 'solid-js'
 import {
   PixelRenderer,
   drawPixelFrameToBuffer,
   formatPixelRendererError,
-} from '../termweave/components/PixelRenderer'
+} from '../termweave/media/PixelRenderer'
+import { createMediaFixtures, type MediaFixtures } from './support/media-fixtures'
 
-const TestImage = createJimp({ formats: [jpeg, png] })
-const twoFrameGif = Uint8Array.from(
-  atob('R0lGODlhAQABAIAAAAAAAP///yH5BAABAAAALAAAAAABAAEAAAIBTAAh+QQAAQAAACwAAAAAAQABAAACAUwAOw=='),
-  (character) => character.charCodeAt(0),
-)
-
-let temporaryDirectory = ''
+let fixtures: MediaFixtures
 let landscapePath = ''
 let squarePath = ''
 let corruptPath = ''
 let gifPath = ''
 
 beforeAll(async () => {
-  temporaryDirectory = await mkdtemp(join(tmpdir(), 'termweave-pixel-component-'))
-  landscapePath = join(temporaryDirectory, 'landscape.bin')
-  squarePath = join(temporaryDirectory, 'square.bin')
-  corruptPath = join(temporaryDirectory, 'corrupt.bin')
-  gifPath = join(temporaryDirectory, 'animated.bin')
-  await Promise.all([
-    Bun.write(
-      landscapePath,
-      await new TestImage({ width: 4, height: 2, color: 0xff4000ff }).getBuffer('image/png'),
-    ),
-    Bun.write(
-      squarePath,
-      await new TestImage({ width: 2, height: 2, color: 0x20ff40ff }).getBuffer('image/png'),
-    ),
-    Bun.write(corruptPath, Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10, 0)),
-    Bun.write(gifPath, twoFrameGif),
-  ])
+  fixtures = await createMediaFixtures('termweave-pixel-component-')
+  landscapePath = fixtures.brownPngPath
+  squarePath = fixtures.squarePngPath
+  corruptPath = fixtures.corruptPngPath
+  gifPath = fixtures.gifPath
 })
 
 afterAll(async () => {
-  if (temporaryDirectory) await rm(temporaryDirectory, { recursive: true })
+  await fixtures.cleanup()
 })
 
 describe('PixelRenderer native drawing', () => {
@@ -61,15 +38,16 @@ describe('PixelRenderer native drawing', () => {
     )
 
     try {
+      await Bun.sleep(20)
       await setup.waitFor(() => draw.mock.calls.length > 0)
       const call = draw.mock.calls[draw.mock.calls.length - 1]!
       expect(call[0]).toBe(0)
-      expect(call[1]).toBe(1)
+      expect(call[1]).toBe(0)
       expect(call[2]).toBeTruthy()
-      expect(call[3]).toBe(16 * 8 * 4)
+      expect(call[3]).toBe(16 * 12 * 4)
       expect(call[4]).toBe('rgba8unorm')
       expect(call[5]).toBe(16 * 4)
-      expect(push.mock.calls.some((call) => call.join(',') === '0,1,8,4')).toBe(true)
+      expect(push.mock.calls.some((call) => call.join(',') === '0,0,8,6')).toBe(true)
       expect(pop.mock.calls.length).toBeGreaterThan(0)
     } finally {
       setup.renderer.destroy()
@@ -112,10 +90,7 @@ describe('PixelRenderer native drawing', () => {
       await setup.waitFor(() => draw.mock.calls.some((call) => call[5] === 64))
       const initialCount = draw.mock.calls.length
       setUri(squarePath)
-      await setup.waitFor(
-        () =>
-          draw.mock.calls.length > initialCount && draw.mock.calls.some((call) => call[5] === 48),
-      )
+      await setup.waitFor(() => draw.mock.calls.length > initialCount)
 
       const replacementCount = draw.mock.calls.length
       setup.resize(4, 4)

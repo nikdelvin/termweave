@@ -1,8 +1,15 @@
 import { basename, dirname, resolve } from 'node:path'
 import process from 'node:process'
-import { retainMediaInput, type ResolvedMediaSource, type RetainedMediaInput } from './image-source'
-import { rgbaByteLength, type Dimensions, type Rgb, type RgbaFrame } from './pixel-frame'
+import type { Rgb } from '../color'
+import { rgbaByteLength, type Dimensions, type RgbaFrame } from './frame'
+import {
+  retainMediaInput,
+  type MediaFormat,
+  type ResolvedMediaSource,
+  type RetainedMediaInput,
+} from './source'
 
+// FFmpeg owns only executable/process mechanics and yields pooled, timestamped raw frames.
 const MAX_FFMPEG_DIAGNOSTIC_LENGTH = 8_192
 const VIDEO_BUFFER_POOL_SIZE = 3
 
@@ -24,6 +31,7 @@ export interface FfmpegProcessResult {
 }
 
 interface ResolveFfmpegOptions {
+  development?: boolean
   environment?: NodeJS.ProcessEnv
   executablePath?: string
   fileExists?: (path: string) => Promise<boolean>
@@ -34,6 +42,8 @@ export interface FfmpegCommandOptions extends Dimensions {
   background: Rgb
   hardwareAcceleration: boolean
   input: string
+  inputFormat: MediaFormat
+  realtime: boolean
   remote: boolean
   withAudio: boolean
 }
@@ -42,6 +52,7 @@ export interface OpenFfmpegMediaSessionOptions extends Dimensions {
   background: Rgb
   ffmpegPath?: string
   hardwareAcceleration?: boolean
+  realtime?: boolean
   signal: AbortSignal
   source: ResolvedMediaSource
   withAudio: boolean
@@ -52,7 +63,17 @@ function ffmpegColor(background: Rgb) {
 }
 
 export function buildFfmpegMediaArguments(options: FfmpegCommandOptions) {
-  const { background, hardwareAcceleration, height, input, remote, width, withAudio } = options
+  const {
+    background,
+    hardwareAcceleration,
+    height,
+    input,
+    inputFormat,
+    realtime,
+    remote,
+    width,
+    withAudio,
+  } = options
   if (!Number.isSafeInteger(width) || width < 2 || !Number.isSafeInteger(height) || height < 2) {
     throw new RangeError('Media output dimensions must be integers of at least two pixels.')
   }
@@ -70,8 +91,14 @@ export function buildFfmpegMediaArguments(options: FfmpegCommandOptions) {
       ]
     : []
   const hardwareOptions = hardwareAcceleration ? ['-hwaccel', 'videotoolbox'] : []
+  const imageInputOptions =
+    inputFormat === 'gif'
+      ? ['-f', 'gif']
+      : inputFormat === 'png' || inputFormat === 'jpeg'
+        ? ['-f', 'image2', '-c:v', inputFormat === 'png' ? 'png' : 'mjpeg']
+        : []
   const videoFilter = [
-    `scale=${width}:${height}:force_original_aspect_ratio=decrease:flags=fast_bilinear`,
+    `scale=${width}:${height}:force_original_aspect_ratio=decrease:flags=bilinear`,
     `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=${ffmpegColor(background)}`,
     'format=rgba',
     'setpts=PTS-STARTPTS',
@@ -81,11 +108,12 @@ export function buildFfmpegMediaArguments(options: FfmpegCommandOptions) {
     '-nostdin',
     '-hide_banner',
     '-loglevel',
-    'error',
+    realtime ? 'error' : 'info',
     '-nostats',
-    '-re',
+    ...(realtime ? ['-re'] : []),
     ...inputOptions,
     ...hardwareOptions,
+    ...imageInputOptions,
     '-i',
     input,
     '-map',
@@ -135,6 +163,29 @@ export function ffmpegExecutableName(platform: NodeJS.Platform = process.platfor
   return platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'
 }
 
+function developmentFfmpegName(
+  platform: NodeJS.Platform = process.platform,
+  architecture: string = process.arch,
+) {
+  const target =
+    platform === 'darwin'
+      ? architecture === 'arm64'
+        ? 'aarch64-apple-darwin'
+        : architecture === 'x64'
+          ? 'x86_64-apple-darwin'
+          : undefined
+      : platform === 'linux'
+        ? architecture === 'arm64'
+          ? 'aarch64-unknown-linux-gnu'
+          : architecture === 'x64'
+            ? 'x86_64-unknown-linux-gnu'
+            : undefined
+        : platform === 'win32' && architecture === 'x64'
+          ? 'x86_64-pc-windows-msvc.exe'
+          : undefined
+  return target ? `ffmpeg-${target}` : undefined
+}
+
 async function defaultFileExists(path: string) {
   return Bun.file(path).exists()
 }
@@ -148,9 +199,15 @@ export async function resolveFfmpegPath(options: ResolveFfmpegOptions = {}) {
   const packagedExecutable = /^opentui-sidecar(?:\.exe)?$/i.test(basename(executablePath))
     ? resolve(dirname(executablePath), ffmpegExecutableName(platform))
     : undefined
+  const developmentName = developmentFfmpegName(platform)
+  const developmentExecutable =
+    configuredPath || !options.development || !developmentName
+      ? undefined
+      : resolve(import.meta.dir, '../../src-tauri/binaries', developmentName)
   const candidates = [
     configuredPath ? resolve(configuredPath) : undefined,
     packagedExecutable,
+    developmentExecutable,
   ].filter((path): path is string => Boolean(path))
 
   for (const path of candidates) {
@@ -159,7 +216,7 @@ export async function resolveFfmpegPath(options: ResolveFfmpegOptions = {}) {
   throw new Error(
     configuredPath
       ? `The configured FFmpeg executable does not exist: ${configuredPath}`
-      : 'The bundled FFmpeg executable could not be found next to the OpenTUI sidecar; run the FFmpeg preparation step before playback.',
+      : 'The bundled FFmpeg executable could not be found; run the FFmpeg preparation step before playback.',
   )
 }
 
@@ -247,16 +304,23 @@ export async function* assembleRawVideoFrames(
 
 async function readBoundedDiagnostic(stream: ReadableStream<Uint8Array>) {
   const decoder = new TextDecoder()
-  let message = ''
-  const chunks = stream as ReadableStream<Uint8Array> & AsyncIterable<Uint8Array>
-  for await (const chunk of chunks) {
-    message += decoder.decode(chunk, { stream: true })
-    if (message.length > MAX_FFMPEG_DIAGNOSTIC_LENGTH) {
-      message = message.slice(-MAX_FFMPEG_DIAGNOSTIC_LENGTH)
-    }
+  const halfLimit = MAX_FFMPEG_DIAGNOSTIC_LENGTH / 2
+  let beginning = ''
+  let ending = ''
+  let totalLength = 0
+  const append = (text: string) => {
+    totalLength += text.length
+    if (beginning.length < halfLimit) beginning += text.slice(0, halfLimit - beginning.length)
+    ending = `${ending}${text}`.slice(-halfLimit)
   }
-  message += decoder.decode()
-  return message.trim()
+  const chunks = stream as ReadableStream<Uint8Array> & AsyncIterable<Uint8Array>
+  for await (const chunk of chunks) append(decoder.decode(chunk, { stream: true }))
+  append(decoder.decode())
+  if (totalLength <= MAX_FFMPEG_DIAGNOSTIC_LENGTH) {
+    const overlap = Math.max(0, beginning.length + ending.length - totalLength)
+    return `${beginning}${ending.slice(overlap)}`.trim()
+  }
+  return `${beginning}\n…\n${ending}`.trim()
 }
 
 function streamForDescriptor(descriptor: number | null, name: string) {
@@ -270,7 +334,9 @@ export async function openFfmpegMediaSession(
   let retained: RetainedMediaInput | undefined
   try {
     retained = await retainMediaInput(options.source)
-    const ffmpegPath = options.ffmpegPath ?? (await resolveFfmpegPath())
+    const ffmpegPath =
+      options.ffmpegPath ??
+      (await resolveFfmpegPath({ development: options.source.kind !== 'remote' }))
     const child = Bun.spawn(
       [
         ffmpegPath,
@@ -279,6 +345,8 @@ export async function openFfmpegMediaSession(
           hardwareAcceleration: options.hardwareAcceleration ?? false,
           height: options.height,
           input: retained.path,
+          inputFormat: options.source.format,
+          realtime: options.realtime ?? true,
           remote: options.source.kind === 'remote',
           width: options.width,
           withAudio: options.withAudio,

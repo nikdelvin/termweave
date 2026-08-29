@@ -3,6 +3,7 @@ import { availableParallelism, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import process from 'node:process'
 import ffmpegManifest from '../ffmpeg-artifacts.json'
+import { errorMessage, getRustHostTuple, runRequired } from './tooling'
 
 interface ArtifactMetadata {
   artifactSha256: string
@@ -38,36 +39,6 @@ async function sha256(path: string) {
   const stream = Bun.file(path).stream() as ReadableStream<Uint8Array> & AsyncIterable<Uint8Array>
   for await (const chunk of stream) hasher.update(chunk)
   return hasher.digest('hex')
-}
-
-async function runRequired(command: string[], cwd: string, description: string) {
-  const child = Bun.spawn(command, {
-    cwd,
-    stdin: 'ignore',
-    stdout: 'inherit',
-    stderr: 'inherit',
-  })
-  const exitCode = await child.exited
-  if (exitCode !== 0) throw new Error(`${description} failed with exit code ${exitCode}.`)
-}
-
-async function getRustHostTuple() {
-  const child = Bun.spawn(['rustc', '--print', 'host-tuple'], {
-    stdout: 'pipe',
-    stderr: 'pipe',
-  })
-  const [exitCode, stdout, stderr] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ])
-  const triple = stdout.trim()
-  if (exitCode !== 0 || triple === '') {
-    throw new Error(
-      `Could not determine the Rust host tuple: ${stderr.trim() || `exit ${exitCode}`}`,
-    )
-  }
-  return triple
 }
 
 async function ensureSourceArchive(resourceDirectory: string) {
@@ -238,7 +209,7 @@ if (import.meta.main) {
   try {
     await ensureFfmpegBinary()
   } catch (error) {
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
+    process.stderr.write(`${errorMessage(error)}\n`)
     process.exitCode = 1
   }
 }

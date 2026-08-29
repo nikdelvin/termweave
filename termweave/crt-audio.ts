@@ -1,12 +1,12 @@
 import type { Audio, AudioSound, AudioVoice } from '@opentui/core'
 import crtNoisePath from './assets/crt-noise.mp3' with { type: 'file' }
 import crtTurnOnPath from './assets/turn-on.mp3' with { type: 'file' }
-import { sharedAudioEngine, type AudioEngineLease } from './components/media-audio'
+import { sharedAudioEngine, type AudioEngineLease } from './media/audio'
 
 const TURN_ON_COMPLETION_TIMEOUT_MS = 2_000
 const TURN_ON_POLL_INTERVAL_MS = 10
 const TURN_ON_VOLUME = 1
-export const CRT_NOISE_VOLUME = 0.5
+const CRT_NOISE_VOLUME = 0.5
 
 interface CrtAudioState {
   audio: Audio

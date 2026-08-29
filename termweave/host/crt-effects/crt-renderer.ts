@@ -1,6 +1,7 @@
 import { WebglAddon } from '@xterm/addon-webgl'
 import type { IDisposable, ITerminalAddon, Terminal } from '@xterm/xterm'
 import type { AppConfig } from '../../config'
+import { errorMessage } from '../../error-message'
 import {
   CrtPostprocessor,
   discoverActivatedWebglCanvas,
@@ -297,8 +298,4 @@ export function activateCrtRenderer(
       statusHandlers.clear()
     },
   }
-}
-
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error)
 }

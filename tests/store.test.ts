@@ -34,7 +34,7 @@ describe('global application store', () => {
     const screenKey: ScreenKey = destination
     expect(screenKey).toBe('picture')
 
-    // @ts-expect-error ScreenKey is derived from the keys in app/screens.ts.
+    // @ts-expect-error ScreenKey is derived from the keys in app/screens.tsx.
     const invalidDestination: NavigateDestination = 'missing'
     expect(String(invalidDestination)).toBe('missing')
   })

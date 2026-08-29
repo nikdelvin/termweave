@@ -5,7 +5,7 @@ import {
   buildFfmpegMediaArguments,
   parseFfmpegTimestamps,
   resolveFfmpegPath,
-} from '../termweave/components/media-process'
+} from '../termweave/media/ffmpeg'
 
 async function* chunks(values: readonly number[][]) {
   for (const value of values) yield Uint8Array.from(value)
@@ -24,6 +24,8 @@ describe('FFmpeg media command construction', () => {
       hardwareAcceleration: true,
       height: 144,
       input,
+      inputFormat: 'mp4',
+      realtime: true,
       remote: true,
       width: 256,
       withAudio: true,
@@ -38,7 +40,7 @@ describe('FFmpeg media command construction', () => {
     expect(arguments_).toContain('passthrough')
     expect(arguments_.join(' ')).not.toMatch(/\bfps=/)
     expect(arguments_[arguments_.indexOf('-vf') + 1]).toBe(
-      'scale=256:144:force_original_aspect_ratio=decrease:flags=fast_bilinear,' +
+      'scale=256:144:force_original_aspect_ratio=decrease:flags=bilinear,' +
         'pad=256:144:(ow-iw)/2:(oh-ih)/2:color=0x010416,format=rgba,setpts=PTS-STARTPTS',
     )
     expect(arguments_[arguments_.lastIndexOf('-map') + 1]).toBe('0:a:0')
@@ -50,6 +52,8 @@ describe('FFmpeg media command construction', () => {
       hardwareAcceleration: false,
       height: 2,
       input: '/tmp/movie 世界.mp4',
+      inputFormat: 'mp4',
+      realtime: true,
       remote: false,
       width: 2,
       withAudio: false,
@@ -58,6 +62,47 @@ describe('FFmpeg media command construction', () => {
     expect(arguments_).not.toContain('videotoolbox')
     expect(arguments_).not.toContain('pipe:3')
     expect(arguments_).not.toContain('0:a:0')
+  })
+
+  test('collects finite signature-detected images without real-time throttling', () => {
+    const arguments_ = buildFfmpegMediaArguments({
+      background: [0, 0, 0],
+      hardwareAcceleration: false,
+      height: 4,
+      input: '/tmp/extensionless-image',
+      inputFormat: 'png',
+      realtime: false,
+      remote: false,
+      width: 4,
+      withAudio: false,
+    })
+    expect(arguments_).not.toContain('-re')
+    expect(arguments_[arguments_.indexOf('-vf') + 1]).toContain('flags=bilinear')
+    expect(arguments_[arguments_.indexOf('-vf') + 1]).not.toContain('flags=fast_bilinear')
+    expect(arguments_.slice(arguments_.indexOf('-f'), arguments_.indexOf('-i'))).toEqual([
+      '-f',
+      'image2',
+      '-c:v',
+      'png',
+    ])
+  })
+
+  test('selects the GIF demuxer explicitly for extensionless inputs', () => {
+    const arguments_ = buildFfmpegMediaArguments({
+      background: [0, 0, 0],
+      hardwareAcceleration: false,
+      height: 4,
+      input: '/tmp/animation.data',
+      inputFormat: 'gif',
+      realtime: false,
+      remote: false,
+      width: 4,
+      withAudio: false,
+    })
+    expect(arguments_.slice(arguments_.indexOf('-f'), arguments_.indexOf('-i'))).toEqual([
+      '-f',
+      'gif',
+    ])
   })
 
   test('resolves only an explicit development binary or packaged sibling', async () => {

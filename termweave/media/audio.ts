@@ -1,11 +1,5 @@
-import {
-  setupAudio,
-  type Audio,
-  type AudioStream,
-  type AudioStreamBody,
-  type AudioStreamStats,
-} from '@opentui/core'
-import { MediaPlaybackClock } from './media-playback'
+import { setupAudio, type Audio, type AudioStream, type AudioStreamBody } from '@opentui/core'
+import { MediaPlaybackClock } from './playback'
 
 const AUDIO_START_TIMEOUT_MS = 3_000
 const AUDIO_READY_POLL_MS = 5
@@ -23,7 +17,6 @@ export interface AudioEngineLease {
 export interface MediaAudioSession {
   clock: MediaPlaybackClock
   dispose(): void
-  getStats(): AudioStreamStats
 }
 
 interface StartMediaAudioOptions {
@@ -60,9 +53,6 @@ export function createAudioEnginePool(
           leasedAudio.dispose()
         },
       }
-    },
-    get referenceCount() {
-      return references
     },
   }
 }
@@ -157,6 +147,5 @@ export async function startMediaAudio(options: StartMediaAudioOptions): Promise<
   return {
     clock,
     dispose: release,
-    getStats: () => activeStream.getStats(),
   }
 }

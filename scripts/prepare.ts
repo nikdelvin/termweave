@@ -8,6 +8,7 @@ import {
   OPENTUI_ASSET_ROOT_DIRECTORY,
 } from '../termweave/constants'
 import { getFfmpegResourceDirectory } from './build-ffmpeg'
+import { errorMessage } from './tooling'
 
 const projectRoot = resolve(import.meta.dir, '..')
 
@@ -45,10 +46,6 @@ export type BundledMediaAsset = Readonly<{
 }>
 
 const supportedBundledMediaExtension = /\.(?:gif|jpe?g|mp4|png)$/i
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
 
 function isInside(root: string, candidate: string): boolean {
   const pathFromRoot = relative(root, candidate)

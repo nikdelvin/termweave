@@ -1,30 +1,52 @@
-import { applyCrtPalette } from '../host/crt-effects/crt-palette'
-import { startMediaAudio, type MediaAudioSession } from './media-audio'
+import { startMediaAudio, type MediaAudioSession } from './audio'
+import type { Rgb } from '../color'
 import {
   isMissingAudioDiagnostic,
   isVideoToolboxDiagnostic,
   openFfmpegMediaSession,
   type FfmpegMediaSession,
   type TimedVideoFrame,
-} from './media-process'
-import { MediaPlaybackClock, StreamingFrameCoordinator } from './media-playback'
-import { resolveMediaSource, type ResolvedMediaSource } from './image-source'
-import { rgbaByteLength, type AnimationFrame, type Dimensions, type Rgb } from './pixel-frame'
+} from './ffmpeg'
+import { compositeRgbaInto, rgbaByteLength, type AnimationFrame, type Dimensions } from './frame'
+import {
+  getCachedLocalImageFrames,
+  loadResolvedLocalImageFrames,
+  MediaPlaybackClock,
+  startFramePlayback,
+  StreamingFrameCoordinator,
+} from './playback'
+import {
+  createImageAbortError,
+  isAbortError,
+  resolveMediaSource,
+  type ResolvedMediaSource,
+} from './source'
 
+// Controller is the sole owner of request replacement, cancellation, retry, and publication.
 const MAX_REMOTE_RETRIES = 3
 const REMOTE_RETRY_DELAYS_MS = [100, 250, 500] as const
 const DISPLAY_BUFFER_POOL_SIZE = 2
 
-export interface StreamingMediaRequest {
-  background: Rgb
-  maximum: Dimensions
+export interface ImageRequest {
   uri: string
+  maximum: Dimensions
+  background: Rgb
 }
 
 export interface StreamingMediaPlaybackOptions {
   ffmpegPath?: string
   onError(error: unknown): void
   onFrame(frame: AnimationFrame): void
+}
+
+export interface ImageControllerOptions {
+  onError(error: unknown | undefined): void
+  onFrame(frame: AnimationFrame | undefined): void
+  getCached?: typeof getCachedLocalImageFrames
+  load?: typeof loadResolvedLocalImageFrames
+  play?: typeof startFramePlayback
+  resolve?: typeof resolveMediaSource
+  stream?: typeof startStreamingMediaPlayback
 }
 
 class MediaAttemptError extends Error {
@@ -38,36 +60,11 @@ class MediaAttemptError extends Error {
 
 const activePlaybackStops = new Set<() => void>()
 
-export function usesStreamingMediaPipeline(uri: string) {
-  const value = uri.trim()
-  if (/^(?:https?|media):/i.test(value)) return true
-  let path = value
-  if (value.startsWith('file:')) {
-    try {
-      path = new URL(value).pathname
-    } catch {
-      return false
-    }
-  }
-  return /\.mp4(?:$|[?#])/i.test(path)
-}
-
-function createDisplayFrame(
-  source: TimedVideoFrame,
-  background: Rgb,
-  pool: Uint8Array[],
-): AnimationFrame {
+function createDisplayFrame(source: TimedVideoFrame, background: Rgb, pool: Uint8Array[]) {
   const byteLength = rgbaByteLength(source)
   const data = pool.pop() ?? new Uint8Array(byteLength)
   try {
-    for (let offset = 0; offset < byteLength; offset += 4) {
-      const alpha = source.data[offset + 3]! / 255
-      data[offset] = Math.round(source.data[offset]! * alpha + background[0] * (1 - alpha))
-      data[offset + 1] = Math.round(source.data[offset + 1]! * alpha + background[1] * (1 - alpha))
-      data[offset + 2] = Math.round(source.data[offset + 2]! * alpha + background[2] * (1 - alpha))
-      data[offset + 3] = 255
-    }
-    applyCrtPalette(data)
+    compositeRgbaInto(source.data, data, background)
   } finally {
     source.release()
   }
@@ -83,7 +80,7 @@ function createDisplayFrame(
       released = true
       if (pool.length < DISPLAY_BUFFER_POOL_SIZE) pool.push(data)
     },
-  }
+  } satisfies AnimationFrame
 }
 
 function createDrainableAudioBody(stream: ReadableStream<Uint8Array>) {
@@ -143,7 +140,7 @@ function processFailure(result: { diagnostic: string; exitCode: number }) {
 
 async function playSession(
   source: ResolvedMediaSource,
-  request: StreamingMediaRequest,
+  request: ImageRequest,
   options: StreamingMediaPlaybackOptions,
   signal: AbortSignal,
   hardwareAcceleration: boolean,
@@ -163,6 +160,7 @@ async function playSession(
       background: request.background,
       ffmpegPath: options.ffmpegPath,
       hardwareAcceleration,
+      realtime: true,
       signal,
       withAudio,
     })
@@ -188,19 +186,15 @@ async function playSession(
 
     const [firstFrame, startedAudio] = await Promise.all([session.frames.next(), startAudio])
     audioSession = startedAudio
-    if (firstFrame.done) {
-      const result = await session.result
-      throw processFailure(result)
-    }
+    if (firstFrame.done) throw processFailure(await session.result)
     if (audioFailure !== undefined && !signal.aborted) {
       console.warn(
         `Termweave media audio is unavailable; continuing silently: ${String(audioFailure)}`,
       )
     }
 
-    const clock = audioSession?.clock ?? new MediaPlaybackClock()
     coordinator = new StreamingFrameCoordinator<TimedVideoFrame>({
-      clock,
+      clock: audioSession?.clock ?? new MediaPlaybackClock(),
       onPresent: (frame) =>
         options.onFrame(createDisplayFrame(frame, request.background, displayPool)),
     })
@@ -210,7 +204,6 @@ async function playSession(
       session.dispose()
       return { audioUnavailable: audioFailure !== undefined }
     }
-
     for await (const frame of session.frames) coordinator.push(frame)
     const result = await session.result
     if (!signal.aborted && result.exitCode !== 0) throw processFailure(result)
@@ -239,15 +232,11 @@ async function waitForRetry(signal: AbortSignal, delayMs: number) {
 }
 
 async function runStreamingPlayback(
-  request: StreamingMediaRequest,
+  source: ResolvedMediaSource,
+  request: ImageRequest,
   options: StreamingMediaPlaybackOptions,
   signal: AbortSignal,
 ) {
-  const source = await resolveMediaSource(request.uri)
-  if (source.pipeline !== 'ffmpeg') {
-    throw new Error('The resolved source does not require streaming media playback.')
-  }
-
   let hardwareAcceleration = source.format === 'mp4'
   let withAudio = source.format === 'mp4'
   let remoteFailures = 0
@@ -292,7 +281,8 @@ async function runStreamingPlayback(
 }
 
 export function startStreamingMediaPlayback(
-  request: StreamingMediaRequest,
+  source: ResolvedMediaSource,
+  request: ImageRequest,
   options: StreamingMediaPlaybackOptions,
 ) {
   const controller = new AbortController()
@@ -304,8 +294,7 @@ export function startStreamingMediaPlayback(
     controller.abort(new DOMException('Media playback was cancelled.', 'AbortError'))
   }
   activePlaybackStops.add(stop)
-
-  void runStreamingPlayback(request, options, controller.signal)
+  void runStreamingPlayback(source, request, options, controller.signal)
     .catch((error: unknown) => {
       if (!controller.signal.aborted) options.onError(error)
     })
@@ -315,4 +304,115 @@ export function startStreamingMediaPlayback(
 
 export function disposeAllStreamingMediaPlayback() {
   for (const stop of [...activePlaybackStops]) stop()
+}
+
+export function createImagePlaybackController({
+  onError,
+  onFrame,
+  getCached = getCachedLocalImageFrames,
+  load = loadResolvedLocalImageFrames,
+  play = startFramePlayback,
+  resolve = resolveMediaSource,
+  stream = startStreamingMediaPlayback,
+}: ImageControllerOptions) {
+  let abortController: AbortController | undefined
+  let stopPlayback: (() => void) | undefined
+  let generation = 0
+  let disposed = false
+  let currentFrame: AnimationFrame | undefined
+
+  const showFrame = (frame: AnimationFrame | undefined) => {
+    const previous = currentFrame
+    currentFrame = frame
+    onFrame(frame)
+    if (previous !== frame) previous?.release?.()
+  }
+
+  const cancel = () => {
+    generation += 1
+    abortController?.abort(createImageAbortError())
+    abortController = undefined
+    stopPlayback?.()
+    stopPlayback = undefined
+  }
+
+  const replace = (request: ImageRequest) => {
+    if (disposed) return
+    cancel()
+    onError(undefined)
+    const uri = request.uri.trim()
+    if (!uri) {
+      showFrame(undefined)
+      onError(new Error('Image URI is required.'))
+      return
+    }
+    if (request.maximum.width < 2 || request.maximum.height < 2) return
+
+    const requestGeneration = generation
+    const publishFrame = (frame: AnimationFrame) => {
+      if (!disposed && requestGeneration === generation) showFrame(frame)
+      else frame.release?.()
+    }
+    const beginPlayback = (frames: readonly AnimationFrame[]) => {
+      if (disposed || requestGeneration !== generation) return
+      stopPlayback = play(frames, publishFrame, {
+        onError: (error) => {
+          if (!disposed && requestGeneration === generation) onError(error)
+        },
+      })
+    }
+
+    const cached = getCached(uri, request.maximum, request.background)
+    if (cached) {
+      try {
+        beginPlayback(cached)
+      } catch (error) {
+        onError(error)
+      }
+      return
+    }
+
+    const controller = new AbortController()
+    abortController = controller
+    void resolve(uri)
+      .then(async (source) => {
+        if (disposed || controller.signal.aborted || requestGeneration !== generation) return
+        if (source.kind === 'remote' || source.format === 'mp4') {
+          abortController = undefined
+          stopPlayback = stream(source, request, {
+            onError: (error) => {
+              if (!disposed && requestGeneration === generation) onError(error)
+            },
+            onFrame: publishFrame,
+          })
+          return
+        }
+        const frames = await load(source, request.maximum, request.background, controller.signal)
+        if (disposed || controller.signal.aborted || requestGeneration !== generation) return
+        abortController = undefined
+        beginPlayback(frames)
+      })
+      .catch((error: unknown) => {
+        if (
+          disposed ||
+          controller.signal.aborted ||
+          requestGeneration !== generation ||
+          isAbortError(error)
+        ) {
+          return
+        }
+        abortController = undefined
+        onError(error)
+      })
+  }
+
+  return {
+    replace,
+    dispose() {
+      if (disposed) return
+      disposed = true
+      cancel()
+      showFrame(undefined)
+    },
+  }
 }

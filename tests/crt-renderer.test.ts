@@ -5,6 +5,7 @@ import {
   type WebglAddonPort,
 } from '../termweave/host/crt-effects/crt-renderer'
 import type { AnimationFrameScheduler } from '../termweave/host/crt-effects/glyph-atlas'
+import { fakeWebglCanvas } from './support/rendering-fakes'
 
 class ManualAnimationFrameScheduler implements AnimationFrameScheduler<number> {
   private readonly callbacks = new Map<number, () => void>()
@@ -92,22 +93,6 @@ class FakeAtlasWebglAddon extends FakeWebglAddon {
   removeAtlasPage(canvas: HTMLCanvasElement) {
     for (const handler of this.removeHandlers) handler(canvas)
   }
-}
-
-function fakeWebglCanvas(maximumTextureUnits = 16) {
-  const maximumTextureUnitsParameter = 0x8872
-  const gl = {
-    MAX_TEXTURE_IMAGE_UNITS: maximumTextureUnitsParameter,
-    getParameter(parameter: number) {
-      expect(parameter).toBe(maximumTextureUnitsParameter)
-      return maximumTextureUnits
-    },
-  } as unknown as WebGL2RenderingContext
-  return {
-    getContext(type: string) {
-      return type === 'webgl2' ? gl : null
-    },
-  } as unknown as HTMLCanvasElement
 }
 
 type TestRendererTerminal = Pick<

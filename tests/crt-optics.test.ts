@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { TERMINAL_SURFACE } from '../termweave/constants'
+import { normalizeRgb, parseHexRgb } from '../termweave/color'
 import {
   CRT_BARREL_APERTURE_GAIN,
   CRT_BARREL_COEFFICIENT,
@@ -30,7 +31,6 @@ import {
   crtBrightPassThreshold,
   crtFragmentShaderSource,
   mapCrtDestinationToSource,
-  parseRgbHex,
 } from '../termweave/host/crt-effects/crt-optics'
 
 describe('physically calibrated CRT optics', () => {
@@ -240,9 +240,9 @@ describe('physically calibrated CRT optics', () => {
   })
 
   test('derives the documented luminance threshold from the configured background', () => {
-    expect(parseRgbHex('#010416')).toEqual([1 / 255, 4 / 255, 22 / 255])
-    expect(crtBrightPassThreshold(parseRgbHex('#010416'))).toBe(0.5)
+    expect(normalizeRgb(parseHexRgb('#010416'))).toEqual([1 / 255, 4 / 255, 22 / 255])
+    expect(crtBrightPassThreshold(normalizeRgb(parseHexRgb('#010416')))).toBe(0.5)
     expect(crtBrightPassThreshold([0.8, 0.8, 0.8])).toBeCloseTo(0.9, 12)
-    expect(() => parseRgbHex('black')).toThrow()
+    expect(() => parseHexRgb('black')).toThrow()
   })
 })

@@ -1,4 +1,5 @@
 import type { AppConfig } from '../config'
+import { normalizeRgb, parseHexRgb } from '../color'
 import { TERMINAL_FONT_FAMILY, TERMINAL_FOREGROUND_COLOR, TERMINAL_SURFACE } from '../constants'
 
 const MONITOR_ARTWORK_GEOMETRY = {
@@ -29,9 +30,7 @@ export type MonitorLayout = Readonly<{
 }>
 
 export function monitorBezelFilter(color: string) {
-  const red = Number.parseInt(color.slice(1, 3), 16) / 255
-  const green = Number.parseInt(color.slice(3, 5), 16) / 255
-  const blue = Number.parseInt(color.slice(5, 7), 16) / 255
+  const [red, green, blue] = normalizeRgb(parseHexRgb(color))
   const maximum = Math.max(red, green, blue)
   const minimum = Math.min(red, green, blue)
   const delta = maximum - minimum
@@ -157,7 +156,6 @@ export function createMonitorPresentation(root: HTMLElement, config: AppConfig) 
     terminalHost,
     rendererStatusHost,
     rendererStatusMessage,
-    fit,
     dispose() {
       resizeObserver.disconnect()
     },

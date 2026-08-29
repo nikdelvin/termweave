@@ -8,19 +8,7 @@ import {
   type SidecarProcess,
   type TerminalPort,
 } from '../termweave/host/sidecar-session'
-
-class Deferred<T> {
-  readonly promise: Promise<T>
-  resolve!: (value: T) => void
-  reject!: (error: unknown) => void
-
-  constructor() {
-    this.promise = new Promise<T>((resolve, reject) => {
-      this.resolve = resolve
-      this.reject = reject
-    })
-  }
-}
+import { Deferred } from './support/deferred'
 
 class DataEmitter<T> {
   private readonly listeners = new Set<(data: T) => void>()

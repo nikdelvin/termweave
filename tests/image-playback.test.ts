@@ -1,10 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import {
   normalizeGifDelay,
+  parseFfmpegDuration,
   startFramePlayback,
   type TimerClock,
-} from '../termweave/components/image-playback'
-import type { AnimationFrame } from '../termweave/components/pixel-frame'
+} from '../termweave/media/playback'
+import type { AnimationFrame } from '../termweave/media/frame'
 
 function animationFrame(value: number, delayMs: number): AnimationFrame {
   return { width: 2, height: 2, data: new Uint8Array(16).fill(value), delayMs }
@@ -57,6 +58,11 @@ describe('frame delay normalization', () => {
     expect(normalizeGifDelay(1)).toBe(10)
     expect(normalizeGifDelay(10.6)).toBe(11)
     expect(normalizeGifDelay(100.4)).toBe(100)
+  })
+
+  test('parses the final GIF-frame boundary from FFmpeg duration output', () => {
+    expect(parseFfmpegDuration('Duration: 01:02:03.450, start: 0.000000')).toBe(3_723_450)
+    expect(parseFfmpegDuration('Duration: N/A')).toBeUndefined()
   })
 })
 

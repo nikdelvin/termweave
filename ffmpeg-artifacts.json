@@ -48,6 +48,7 @@
     "--enable-decoder=png",
     "--enable-decoder=mjpeg",
     "--enable-parser=aac",
+    "--enable-parser=gif",
     "--enable-parser=h264",
     "--enable-parser=hevc",
     "--enable-hwaccel=h264_videotoolbox",

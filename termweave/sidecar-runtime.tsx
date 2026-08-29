@@ -4,12 +4,12 @@ import type { JSX } from 'solid-js'
 import { createReadStream } from 'node:fs'
 import { getAppConfig } from './config'
 import { TERMINAL_GRID } from './constants'
-import { disposeAllStreamingMediaPlayback } from './components/streaming-media'
+import { errorMessage } from './error-message'
+import { disposeAllStreamingMediaPlayback } from './media/controller'
 import { createCrtAudio } from './crt-audio'
 
 function writeDiagnostic(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error)
-  process.stderr.write(`${message}\n`)
+  process.stderr.write(`${errorMessage(error)}\n`)
 }
 
 export async function startTermweaveSidecar(root: () => JSX.Element) {

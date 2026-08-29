@@ -1,9 +1,9 @@
 import type { IDisposable, Terminal } from '@xterm/xterm'
+import { normalizeRgb, parseHexRgb } from '../../color'
 import {
   crtBrightPassThreshold,
   crtFragmentShaderSource,
   crtVertexShaderSource,
-  parseRgbHex,
 } from './crt-optics'
 
 export type CrtTerminal = Pick<Terminal, 'onRender'>
@@ -336,7 +336,7 @@ export class CrtPostprocessor implements IDisposable {
     const { terminal, canvas, gl, themeColor, createObserver } = options
     this.canvas = canvas
     this.gl = gl
-    this.background = parseRgbHex(themeColor)
+    this.background = normalizeRgb(parseHexRgb(themeColor))
     this.brightPassThreshold = crtBrightPassThreshold(this.background)
     this.previousCanvasBackground = canvas.style.backgroundColor
 

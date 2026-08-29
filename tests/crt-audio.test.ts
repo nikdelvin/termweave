@@ -1,17 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 import type { Audio, AudioPlayOptions } from '@opentui/core'
-import { CRT_NOISE_VOLUME, createCrtAudio } from '../termweave/crt-audio'
-
-function deferred<T>() {
-  let resolve!: (value: T) => void
-  const promise = new Promise<T>((resolvePromise) => {
-    resolve = resolvePromise
-  })
-  return { promise, resolve }
-}
+import { createCrtAudio } from '../termweave/crt-audio'
+import { deferred } from './support/deferred'
 
 describe('CRT audio', () => {
-  test('plays turn-on once before looping noise at 0.3 volume', async () => {
+  test('plays turn-on once before looping noise at 0.5 volume', async () => {
     const events: string[] = []
     const plays: Array<{ sound: number; options?: AudioPlayOptions }> = []
     let voicesActive = 1
@@ -56,7 +49,7 @@ describe('CRT audio', () => {
 
     expect(plays).toEqual([
       { sound: 1, options: { volume: 1 } },
-      { sound: 2, options: { loop: true, volume: CRT_NOISE_VOLUME } },
+      { sound: 2, options: { loop: true, volume: 0.5 } },
     ])
     expect(events.indexOf('play:2')).toBeGreaterThan(events.indexOf('stats:0'))
     expect(events).toContain('unload:1')

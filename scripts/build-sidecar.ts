@@ -3,6 +3,9 @@ import { resolve } from 'node:path'
 import process from 'node:process'
 import solidPlugin from '@opentui/solid/bun-plugin'
 import { ensureFfmpegBinary } from './build-ffmpeg'
+import { errorMessage, getRustHostTuple } from './tooling'
+
+export { getRustHostTuple } from './tooling'
 
 const projectRoot = resolve(import.meta.dir, '..')
 
@@ -22,32 +25,8 @@ type BuildSidecarOptions = {
   prepareFfmpeg?: (root: string, triple: string) => Promise<string>
 }
 
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error)
-}
-
 export function getSidecarBinaryPath(root: string, triple: string) {
   return resolve(root, `src-tauri/binaries/opentui-sidecar-${triple}`)
-}
-
-export async function getRustHostTuple() {
-  const child = Bun.spawn(['rustc', '--print', 'host-tuple'], {
-    stdout: 'pipe',
-    stderr: 'pipe',
-  })
-  const [exitCode, stdout, stderr] = await Promise.all([
-    child.exited,
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-  ])
-
-  const triple = stdout.trim()
-  if (exitCode !== 0 || triple === '') {
-    throw new Error(
-      `Could not determine the Rust host tuple: ${stderr.trim() || `exit ${exitCode}`}`,
-    )
-  }
-  return triple
 }
 
 export async function buildSidecarBinary({

@@ -1,11 +1,3 @@
-export function glyphAtlasRecyclePageThreshold(maximumPages: number) {
-  if (!Number.isInteger(maximumPages) || maximumPages < 1) {
-    throw new RangeError('Glyph atlas maximum page count must be a positive integer.')
-  }
-
-  return maximumPages
-}
-
 export interface AnimationFrameScheduler<Handle = unknown> {
   request(callback: () => void): Handle
   cancel(handle: Handle): void
@@ -48,7 +40,7 @@ export function createGlyphAtlasMonitor<Handle>({
       disposed ||
       scheduled !== undefined ||
       maximumPages === undefined ||
-      pages.size < glyphAtlasRecyclePageThreshold(maximumPages)
+      pages.size < maximumPages
     ) {
       return
     }
@@ -60,7 +52,7 @@ export function createGlyphAtlasMonitor<Handle>({
         disposed ||
         generation !== scheduledGeneration ||
         maximumPages === undefined ||
-        pages.size < glyphAtlasRecyclePageThreshold(maximumPages)
+        pages.size < maximumPages
       ) {
         return
       }
@@ -88,8 +80,10 @@ export function createGlyphAtlasMonitor<Handle>({
     },
     setMaximumPages(value) {
       if (disposed) return
+      if (!Number.isInteger(value) || value < 1) {
+        throw new RangeError('Glyph atlas maximum page count must be a positive integer.')
+      }
       maximumPages = value
-      glyphAtlasRecyclePageThreshold(value)
       scheduleIfNeeded()
     },
     resetGeneration() {

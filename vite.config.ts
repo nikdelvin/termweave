@@ -25,7 +25,7 @@ export default defineConfig({
       ignored: [
         '**/src-tauri/**',
         '**/app/**',
-        '**/termweave/components/**',
+        '**/termweave/media/**',
         '**/termweave/index.ts',
         '**/termweave/navigation-store.ts',
         '**/termweave/sidecar-runtime.tsx',

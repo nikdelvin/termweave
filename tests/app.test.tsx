@@ -6,9 +6,8 @@ import { onMount } from 'solid-js'
 import { App } from '../app/App'
 import { navigate, resetAppState } from '../app/store'
 import { AppStatePanel, appStateInputId } from '../app/components/AppStatePanel'
-import { screenMedia, screens, type ScreenKey } from '../app/screens'
-import { remoteVideoScreenMediaUri } from '../app/screens/RemoteVideoScreen'
-import { PixelRenderer } from '../termweave/components/PixelRenderer'
+import { screens, type ScreenKey } from '../app/screens'
+import { PixelRenderer } from '../termweave/media/PixelRenderer'
 
 const TEST_SIZE = { width: 320, height: 180 }
 const ANIMATION_SCREEN: ScreenKey = 'animation'
@@ -36,11 +35,10 @@ afterEach(() => {
 
 describe('native Solid screens', () => {
   test('registers the verified HTTPS MP4 for the remote-video screen', () => {
-    const uri = new URL(remoteVideoScreenMediaUri)
+    const uri = new URL(screens[VIDEO_SCREEN].mediaUri)
 
     expect(uri.protocol).toBe('https:')
     expect(uri.pathname).toEndWith('.mp4')
-    expect(screenMedia[VIDEO_SCREEN]).toBe(remoteVideoScreenMediaUri)
   })
 
   test('renders and focuses all supported initial screens', async () => {

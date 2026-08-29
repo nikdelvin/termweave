@@ -15,14 +15,9 @@ const INITIAL_APP_STATE: MutableAppState = Object.freeze({
 })
 
 const [appStore, setAppState] = createStore<MutableAppState>(INITIAL_APP_STATE)
-const navigation = createScreenNavigation<ScreenKey>('animation')
 
 export const appState: Readonly<AppState> = appStore
-export const screen = navigation.screen
-
-export function navigate(destination: ScreenKey) {
-  navigation.navigate(destination)
-}
+export const { navigate, screen } = createScreenNavigation<ScreenKey>('animation')
 
 export function setInputText(value: string) {
   setAppState('inputText', value)

@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
   createGlyphAtlasMonitor,
-  glyphAtlasRecyclePageThreshold,
   type AnimationFrameScheduler,
 } from '../termweave/host/crt-effects/glyph-atlas'
 
@@ -33,12 +32,14 @@ class FakeFrameScheduler implements AnimationFrameScheduler<number> {
 
 describe('glyph-atlas pressure monitor', () => {
   test('uses the runtime WebGL page limit as the recycle threshold', () => {
-    expect(glyphAtlasRecyclePageThreshold(32)).toBe(32)
-    expect(glyphAtlasRecyclePageThreshold(16)).toBe(16)
-    expect(glyphAtlasRecyclePageThreshold(8)).toBe(8)
-    expect(glyphAtlasRecyclePageThreshold(4)).toBe(4)
-    expect(() => glyphAtlasRecyclePageThreshold(0)).toThrow(RangeError)
-    expect(() => glyphAtlasRecyclePageThreshold(1.5)).toThrow(RangeError)
+    const monitor = createGlyphAtlasMonitor({
+      scheduler: new FakeFrameScheduler(),
+      onRecycle() {},
+    })
+    expect(() => monitor.setMaximumPages(0)).toThrow(RangeError)
+    expect(() => monitor.setMaximumPages(1.5)).toThrow(RangeError)
+    monitor.setMaximumPages(4)
+    expect(monitor.pageCount).toBe(0)
   })
 
   test('coalesces pressure into one scheduled recycle and rechecks before firing', () => {

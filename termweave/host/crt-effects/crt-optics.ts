@@ -80,21 +80,11 @@ export function mapCrtDestinationToSource(
   return { x: sourceX, y: sourceY }
 }
 
-export function parseRgbHex(color: string): readonly [number, number, number] {
-  const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(color)
-  if (!match) throw new Error('CRT theme color must be a six-digit hexadecimal color')
-  return [
-    Number.parseInt(match[1]!, 16) / 255,
-    Number.parseInt(match[2]!, 16) / 255,
-    Number.parseInt(match[3]!, 16) / 255,
-  ]
-}
-
-export function relativeLuminance(rgb: readonly [number, number, number]) {
+export function relativeLuminance(rgb: NormalizedRgb) {
   return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722
 }
 
-export function crtBrightPassThreshold(background: readonly [number, number, number]) {
+export function crtBrightPassThreshold(background: NormalizedRgb) {
   return Math.max(0.5, relativeLuminance(background) + 0.1)
 }
 
@@ -235,3 +225,4 @@ void main() {
   outColor = vec4(emittedColor, 1.0);
 }
 `
+import type { NormalizedRgb } from '../../color'

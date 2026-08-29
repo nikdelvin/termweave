@@ -1,4 +1,5 @@
 export type Rgb = readonly [red: number, green: number, blue: number]
+export type NormalizedRgb = readonly [red: number, green: number, blue: number]
 
 const threeBitLookup = Uint8Array.from({ length: 256 }, (_, value) =>
   Math.round((Math.round((value * 7) / 255) * 255) / 7),
@@ -6,6 +7,20 @@ const threeBitLookup = Uint8Array.from({ length: 256 }, (_, value) =>
 const twoBitLookup = Uint8Array.from({ length: 256 }, (_, value) =>
   Math.round((Math.round((value * 3) / 255) * 255) / 3),
 )
+
+export function parseHexRgb(color: string): Rgb {
+  const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(color)
+  if (!match) throw new Error('Expected a six-digit hexadecimal color.')
+  return [
+    Number.parseInt(match[1]!, 16),
+    Number.parseInt(match[2]!, 16),
+    Number.parseInt(match[3]!, 16),
+  ]
+}
+
+export function normalizeRgb(rgb: Rgb): NormalizedRgb {
+  return [rgb[0] / 255, rgb[1] / 255, rgb[2] / 255]
+}
 
 /** Reduces opaque image bytes to the exact 256-color RGB332 cube. */
 export function applyCrtPalette(data: Uint8Array) {

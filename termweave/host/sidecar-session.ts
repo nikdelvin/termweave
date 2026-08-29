@@ -1,4 +1,5 @@
 import type { IDisposable } from '@xterm/xterm'
+import { errorMessage } from '../error-message'
 
 export type SidecarExit = Readonly<{
   code: number | null
@@ -49,10 +50,6 @@ type SidecarSessionOptions = {
   terminal: TerminalPort
   command: SidecarCommand
   appWindow: DesktopWindow
-}
-
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error)
 }
 
 function terminalText(text: string) {

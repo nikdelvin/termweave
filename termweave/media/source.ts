@@ -2,28 +2,28 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { basename, extname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
+import { errorMessage } from '../error-message'
 
-const MAX_TYPED_ARRAY_LENGTH = 0xffff_ffff
+// Source owns URI policy and temporary input retention; it never owns process or playback state.
 const windowsDrivePattern = /^[A-Za-z]:[\\/]/
 const uriSchemePattern = /^([A-Za-z][A-Za-z0-9+.-]*):/
 
 export type ImageFormat = 'gif' | 'jpeg' | 'png'
 export type MediaFormat = ImageFormat | 'mp4'
 export type MediaSourceKind = 'bundled' | 'local' | 'remote'
-export type MediaPipeline = 'decoder' | 'ffmpeg'
 
 export interface ResolvedMediaSource {
   format: MediaFormat
   input: string
   kind: MediaSourceKind
   loop: boolean
-  pipeline: MediaPipeline
   uri: string
 }
 
 export interface ResolveMediaSourceOptions {
   environment?: NodeJS.ProcessEnv
   fileExists?: (path: string) => Promise<boolean>
+  readSignature?: (path: string) => Promise<Uint8Array>
 }
 
 export interface RetainedMediaInput {
@@ -60,7 +60,6 @@ export function throwIfImageAborted(signal?: AbortSignal) {
 
 export function detectImageFormat(bytes: Uint8Array): ImageFormat {
   if (bytes.length === 0) throw new Error('The image file is empty.')
-
   if (
     bytes.length >= 8 &&
     bytes[0] === 0x89 &&
@@ -74,11 +73,9 @@ export function detectImageFormat(bytes: Uint8Array): ImageFormat {
   ) {
     return 'png'
   }
-
   if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
     return 'jpeg'
   }
-
   if (
     bytes.length >= 6 &&
     bytes[0] === 0x47 &&
@@ -90,14 +87,12 @@ export function detectImageFormat(bytes: Uint8Array): ImageFormat {
   ) {
     return 'gif'
   }
-
   throw new Error('Unsupported image format; expected PNG, JPEG, or GIF content.')
 }
 
 export function resolveLocalImagePath(uri: string) {
   const value = uri.trim()
   if (!value) throw new Error('Image URI is required.')
-
   const scheme = windowsDrivePattern.test(value) ? undefined : uriSchemePattern.exec(value)?.[1]
   if (scheme && /^https?$/i.test(scheme)) {
     throw new Error(
@@ -107,15 +102,12 @@ export function resolveLocalImagePath(uri: string) {
   if (scheme && !/^file$/i.test(scheme)) {
     throw new Error('PixelRenderer accepts only local file paths and file: URLs.')
   }
-
-  if (scheme) {
-    try {
-      return fileURLToPath(new URL(value))
-    } catch {
-      throw new Error('The image file: URL is invalid or is not local.')
-    }
+  if (!scheme) return value
+  try {
+    return fileURLToPath(new URL(value))
+  } catch {
+    throw new Error('The image file: URL is invalid or is not local.')
   }
-  return value
 }
 
 function normalizedBundledPath(uri: string) {
@@ -146,6 +138,10 @@ async function defaultFileExists(path: string) {
   return Bun.file(path).exists()
 }
 
+export async function readLocalImageSignature(path: string) {
+  return new Uint8Array(await Bun.file(path).slice(0, 8).arrayBuffer())
+}
+
 export async function resolveMediaSource(
   uri: string,
   options: ResolveMediaSourceOptions = {},
@@ -153,6 +149,7 @@ export async function resolveMediaSource(
   const value = uri.trim()
   if (!value) throw new Error('Image URI is required.')
   const fileExists = options.fileExists ?? defaultFileExists
+  const readSignature = options.readSignature ?? readLocalImageSignature
   const environment = options.environment ?? process.env
   const scheme = windowsDrivePattern.test(value) ? undefined : uriSchemePattern.exec(value)?.[1]
 
@@ -185,7 +182,7 @@ export async function resolveMediaSource(
     }
     input = resolveLocalImagePath(value)
     kind = 'local'
-    format = formatFromPath(input)
+    format = formatFromPath(input) === 'mp4' ? 'mp4' : undefined
   }
 
   if (kind !== 'local' && !format) {
@@ -195,15 +192,15 @@ export async function resolveMediaSource(
     const subject = kind === 'bundled' ? 'Bundled media resource' : 'Media file'
     throw new Error(`${subject} does not exist: ${input}`)
   }
+  if (kind === 'local' && format === undefined)
+    format = detectImageFormat(await readSignature(input))
 
-  const resolvedFormat = format ?? 'png'
   return {
     uri: value,
     input,
-    format: resolvedFormat,
+    format: format!,
     kind,
-    pipeline: resolvedFormat === 'mp4' || kind !== 'local' ? 'ffmpeg' : 'decoder',
-    loop: resolvedFormat === 'mp4' || resolvedFormat === 'gif',
+    loop: format === 'mp4' || format === 'gif',
   }
 }
 
@@ -229,9 +226,7 @@ export async function retainMediaInput(source: ResolvedMediaSource): Promise<Ret
         return { directory, path, references: 0 }
       } catch (error) {
         await rm(directory, { force: true, recursive: true })
-        throw new Error(
-          `Could not extract bundled media for FFmpeg: ${error instanceof Error ? error.message : String(error)}`,
-        )
+        throw new Error(`Could not extract bundled media for FFmpeg: ${errorMessage(error)}`)
       }
     })()
     materializedMedia.set(source.input, pending)
@@ -256,44 +251,5 @@ export async function retainMediaInput(source: ResolvedMediaSource): Promise<Ret
       if (materializedMedia.get(source.input) === pending) materializedMedia.delete(source.input)
       await rm(entry.directory, { force: true, recursive: true })
     },
-  }
-}
-
-export async function readLocalImageBytes(uri: string, signal?: AbortSignal) {
-  const path = resolveLocalImagePath(uri)
-  throwIfImageAborted(signal)
-
-  const reader = Bun.file(path).stream().getReader()
-  const chunks: Uint8Array[] = []
-  let totalLength = 0
-  const cancel = () => {
-    void reader.cancel(signal?.reason ?? createImageAbortError()).catch(() => {})
-  }
-  signal?.addEventListener('abort', cancel, { once: true })
-
-  try {
-    while (true) {
-      throwIfImageAborted(signal)
-      const result = await reader.read()
-      if (result.done) break
-      const chunk = result.value
-      totalLength += chunk.byteLength
-      if (!Number.isSafeInteger(totalLength) || totalLength > MAX_TYPED_ARRAY_LENGTH) {
-        throw new Error('The image file is too large to read safely.')
-      }
-      chunks.push(chunk)
-    }
-    throwIfImageAborted(signal)
-
-    const bytes = new Uint8Array(totalLength)
-    let offset = 0
-    for (const chunk of chunks) {
-      bytes.set(chunk, offset)
-      offset += chunk.byteLength
-    }
-    return bytes
-  } finally {
-    signal?.removeEventListener('abort', cancel)
-    reader.releaseLock()
   }
 }

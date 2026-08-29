@@ -2,17 +2,14 @@ import { type BoxRenderable, type OptimizedBuffer, type RenderableOptions } from
 import { ptr } from 'bun:ffi'
 import { createEffect, createSignal, onCleanup, onMount, Show, type ParentProps } from 'solid-js'
 import { getTermweaveConfig } from '../config'
+import { parseHexRgb } from '../color'
 import {
   PIXEL_RENDERER_ERROR_BACKGROUND_COLOR,
   PIXEL_RENDERER_ERROR_FOREGROUND_COLOR,
 } from '../constants'
-import { createImagePlaybackController } from './image-controller'
-import {
-  calculateCenteredViewport,
-  parseHexColor,
-  type AnimationFrame,
-  type Dimensions,
-} from './pixel-frame'
+import { errorMessage } from '../error-message'
+import { createImagePlaybackController } from './controller'
+import { calculateCenteredViewport, type AnimationFrame, type Dimensions } from './frame'
 
 const ERROR_LENGTH = 220
 
@@ -25,9 +22,7 @@ export interface PixelRendererProps {
 }
 
 export function formatPixelRendererError(error: unknown) {
-  const normalized = (error instanceof Error ? error.message : String(error))
-    .trim()
-    .replaceAll(/\s+/g, ' ')
+  const normalized = errorMessage(error).trim().replaceAll(/\s+/g, ' ')
   const message = normalized || 'Unknown image error.'
   return message.length <= ERROR_LENGTH ? message : `${message.slice(0, ERROR_LENGTH - 1)}…`
 }
@@ -63,7 +58,7 @@ export function PixelRenderer(props: ParentProps<PixelRendererProps>) {
   let currentFrame: AnimationFrame | undefined
   let disposed = false
   const config = getTermweaveConfig()
-  const background = parseHexColor(config.themeColor)
+  const background = parseHexRgb(config.themeColor)
   const [container, setContainer] = createSignal<Dimensions>({ width: 0, height: 0 })
   const [error, setError] = createSignal('')
   let renderQueued = false

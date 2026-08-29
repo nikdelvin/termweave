@@ -1,47 +1,24 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { createJimp } from '@jimp/core'
-import jpeg from '@jimp/js-jpeg'
-import png from '@jimp/js-png'
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
   bundledMediaUri,
   detectImageFormat,
-  readLocalImageBytes,
-  resolveMediaSource,
+  readLocalImageSignature,
   resolveLocalImagePath,
-} from '../termweave/components/image-source'
+  resolveMediaSource,
+} from '../termweave/media/source'
+import { createMediaFixtures, twoFrameGif, type MediaFixtures } from './support/media-fixtures'
 
-const TestImage = createJimp({ formats: [jpeg, png] })
-const twoFrameGif = Uint8Array.from(
-  atob('R0lGODlhAQABAIAAAAAAAP///yH5BAABAAAALAAAAAABAAEAAAIBTAAh+QQAAQAAACwAAAAAAQABAAACAUwAOw=='),
-  (character) => character.charCodeAt(0),
-)
-
-let temporaryDirectory = ''
-let pngPath = ''
-let jpegPath = ''
-let gifPath = ''
+let fixtures: MediaFixtures
 
 beforeAll(async () => {
-  temporaryDirectory = await mkdtemp(join(tmpdir(), 'termweave-pixel-renderer-'))
-  pngPath = join(temporaryDirectory, 'opaque-jpeg-name.data')
-  jpegPath = join(temporaryDirectory, 'lossy-png-name.data')
-  gifPath = join(temporaryDirectory, 'animation.bin')
-
-  const transparentRed = new TestImage({ width: 4, height: 2, color: 0xff000080 })
-  const opaqueGreen = new TestImage({ width: 3, height: 2, color: 0x00ff00ff })
-  await Promise.all([
-    Bun.write(pngPath, await transparentRed.getBuffer('image/png')),
-    Bun.write(jpegPath, await opaqueGreen.getBuffer('image/jpeg')),
-    Bun.write(gifPath, twoFrameGif),
-  ])
+  fixtures = await createMediaFixtures('termweave-source-test-')
 })
 
 afterAll(async () => {
-  if (temporaryDirectory) await rm(temporaryDirectory, { recursive: true })
+  await fixtures.cleanup()
 })
 
 describe('local image input and signatures', () => {
@@ -60,8 +37,12 @@ describe('local image input and signatures', () => {
   })
 
   test('accepts paths and local file URLs while rejecting remote and other schemes', () => {
-    expect(resolveLocalImagePath(`  ${pngPath}  `)).toBe(pngPath)
-    expect(resolveLocalImagePath(pathToFileURL(pngPath).href)).toBe(pngPath)
+    expect(resolveLocalImagePath(`  ${fixtures.transparentPngPath}  `)).toBe(
+      fixtures.transparentPngPath,
+    )
+    expect(resolveLocalImagePath(pathToFileURL(fixtures.transparentPngPath).href)).toBe(
+      fixtures.transparentPngPath,
+    )
     expect(() => resolveLocalImagePath('https://example.test/image.png')).toThrow(
       'HTTP and HTTPS images are not supported',
     )
@@ -72,23 +53,22 @@ describe('local image input and signatures', () => {
     expect(() => resolveLocalImagePath('   ')).toThrow('Image URI is required')
   })
 
-  test('reads the same Bun-import-compatible file by path and file URL', async () => {
-    const pathBytes = await readLocalImageBytes(pngPath)
-    const urlBytes = await readLocalImageBytes(pathToFileURL(pngPath).href)
-    expect(pathBytes).toEqual(urlBytes)
-    expect(detectImageFormat(pathBytes)).toBe('png')
+  test('reads only the local signature needed for detection', async () => {
+    const signature = await readLocalImageSignature(fixtures.transparentPngPath)
+    expect(signature).toHaveLength(8)
+    expect(detectImageFormat(signature)).toBe('png')
   })
 
-  test('honors an already-aborted read without starting I/O', async () => {
-    const controller = new AbortController()
-    controller.abort()
-    await expect(readLocalImageBytes(pngPath, controller.signal)).rejects.toHaveProperty(
-      'name',
-      'AbortError',
-    )
+  test('trusts local signatures instead of misleading image extensions', async () => {
+    await expect(
+      resolveMediaSource('/tmp/not-really-a.png', {
+        fileExists: async () => true,
+        readSignature: async () => Uint8Array.of(0xff, 0xd8, 0xff, 0xe0),
+      }),
+    ).resolves.toMatchObject({ format: 'jpeg', kind: 'local' })
   })
 
-  test('classifies direct HTTPS, bundled, MP4, and ordinary local image sources', async () => {
+  test('classifies HTTPS, bundled, MP4, and extensionless local sources', async () => {
     expect(
       await resolveMediaSource('https://cdn.example.test/a%20b/video.mp4?token=one'),
     ).toMatchObject({
@@ -96,14 +76,23 @@ describe('local image input and signatures', () => {
       input: 'https://cdn.example.test/a%20b/video.mp4?token=one',
       kind: 'remote',
       loop: true,
-      pipeline: 'ffmpeg',
     })
-    expect(await resolveMediaSource(pngPath)).toMatchObject({
+    expect(await resolveMediaSource(fixtures.transparentPngPath)).toMatchObject({
+      format: 'png',
       kind: 'local',
-      pipeline: 'decoder',
+      loop: false,
+    })
+    expect(await resolveMediaSource(fixtures.jpegPath)).toMatchObject({
+      format: 'jpeg',
+      kind: 'local',
+    })
+    expect(await resolveMediaSource(fixtures.gifPath)).toMatchObject({
+      format: 'gif',
+      kind: 'local',
+      loop: true,
     })
 
-    const mediaRoot = join(temporaryDirectory, 'bundled media')
+    const mediaRoot = join(fixtures.directory, 'bundled media')
     const bundledPath = join(mediaRoot, 'clips', 'demo 世界.gif')
     await mkdir(join(mediaRoot, 'clips'), { recursive: true })
     await Bun.write(bundledPath, twoFrameGif)
@@ -111,12 +100,7 @@ describe('local image input and signatures', () => {
     expect(uri).toBe('media:clips/demo%20%E4%B8%96%E7%95%8C.gif')
     expect(
       await resolveMediaSource(uri, { environment: { TERMWEAVE_MEDIA_ROOT: mediaRoot } }),
-    ).toMatchObject({
-      format: 'gif',
-      input: bundledPath,
-      kind: 'bundled',
-      pipeline: 'ffmpeg',
-    })
+    ).toMatchObject({ format: 'gif', input: bundledPath, kind: 'bundled', loop: true })
   })
 
   test('rejects insecure, unsupported, escaping, and missing media before spawning', async () => {
@@ -126,12 +110,12 @@ describe('local image input and signatures', () => {
     await expect(resolveMediaSource('ftp://example.test/video.mp4')).rejects.toThrow('local files')
     await expect(
       resolveMediaSource('media:../secret.mp4', {
-        environment: { TERMWEAVE_MEDIA_ROOT: temporaryDirectory },
+        environment: { TERMWEAVE_MEDIA_ROOT: fixtures.directory },
       }),
     ).rejects.toThrow('safe paths')
     await expect(
       resolveMediaSource('media:missing.mp4', {
-        environment: { TERMWEAVE_MEDIA_ROOT: temporaryDirectory },
+        environment: { TERMWEAVE_MEDIA_ROOT: fixtures.directory },
       }),
     ).rejects.toThrow('does not exist')
     await expect(resolveMediaSource('https://example.test/file.webm')).rejects.toThrow(
