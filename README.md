@@ -45,6 +45,10 @@ The screens share one application-level `PixelRenderer`, allowing their overlays
 the prior media frame remains visible during a source change. Successful local image decodes are
 also retained in a bounded frame cache so later visits at the same terminal size start immediately.
 
+After the native sidecar and CRT renderer start, Termweave plays the SDK-owned turn-on sound once,
+then loops the CRT noise ambience at 0.3 volume. CRT ambience and streamed media share one native
+audio engine and are both released during sidecar shutdown.
+
 ## PixelRenderer media
 
 `PixelRenderer` accepts ordinary local PNG, JPEG, and GIF paths, local MP4 paths, direct HTTPS URLs
@@ -83,6 +87,7 @@ Late video frames are discarded so rendering does not stall keyboard input.
 | ------------------------------- | -------------------------------------------------------------------------------- |
 | `app/`                          | User-owned state, composition, screens, controls, assets, and navigation policy. |
 | `termweave/components/`         | SDK Solid components and finite/streaming media playback pipelines.              |
+| `termweave/assets/`             | SDK-owned CRT startup and ambient audio.                                         |
 | `termweave/host/`               | WebView host, xterm/session ownership, monitor presentation, and CRT effects.    |
 | `termweave/config.ts`           | Internal application-config parsing and the narrow public resolved view.         |
 | `termweave/constants.ts`        | Fixed terminal, color, error, and native-asset policy.                           |

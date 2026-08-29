@@ -5,6 +5,7 @@ import { createReadStream } from 'node:fs'
 import { getAppConfig } from './config'
 import { TERMINAL_GRID } from './constants'
 import { disposeAllStreamingMediaPlayback } from './components/streaming-media'
+import { createCrtAudio } from './crt-audio'
 
 function writeDiagnostic(error: unknown) {
   const message = error instanceof Error ? error.message : String(error)
@@ -13,6 +14,7 @@ function writeDiagnostic(error: unknown) {
 
 export async function startTermweaveSidecar(root: () => JSX.Element) {
   const rendererState: { current?: CliRenderer } = {}
+  const crtAudio = createCrtAudio()
   // The macOS sidecar owns a duplicate of fd 0. Bun's process.stdin wrapper can reach EOF when
   // OpenTUI becomes quiescent after a static native-media frame, even while Tauri's pipe remains
   // open. Giving the renderer its own descriptor keeps raw input alive for the sidecar lifetime.
@@ -25,6 +27,7 @@ export async function startTermweaveSidecar(root: () => JSX.Element) {
     if (shuttingDown) return
     shuttingDown = true
 
+    crtAudio.stop()
     disposeAllStreamingMediaPlayback()
 
     try {
@@ -71,8 +74,10 @@ export async function startTermweaveSidecar(root: () => JSX.Element) {
     for (const signal of ['SIGINT', 'SIGTERM'] as const) {
       process.once(signal, () => shutdown())
     }
+    process.once('exit', crtAudio.stop)
 
     await render(root, renderer)
+    void crtAudio.start()
   } catch (error) {
     writeDiagnostic(error)
     shutdown(1)
