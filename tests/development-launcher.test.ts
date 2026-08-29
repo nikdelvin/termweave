@@ -138,9 +138,9 @@ function createHarness(children: FakeChild[]) {
   }
 
   const completed = runDevelopmentLauncher({
-    root: '/sdk-v2',
+    root: '/project',
     bunExecutable: '/bin/bun',
-    ffmpegPath: '/sdk-v2/ffmpeg',
+    ffmpegPath: '/project/ffmpeg',
     watch,
     spawn,
     schedule: clock.schedule,
@@ -170,18 +170,18 @@ describe('development sidecar startup', () => {
         recursive: watcher.recursive,
       })),
     ).toEqual([
-      { path: resolve('/sdk-v2', 'app'), recursive: true },
-      { path: resolve('/sdk-v2', 'termweave'), recursive: true },
+      { path: resolve('/project', 'app'), recursive: true },
+      { path: resolve('/project', 'termweave'), recursive: true },
     ])
     expect(harness.spawnCalls).toHaveLength(1)
     expect(harness.spawnCalls[0]?.command).toEqual([
       '/bin/bun',
       '--preload',
       '@opentui/solid/preload',
-      resolve('/sdk-v2', 'app/index.tsx'),
+      resolve('/project', 'app/index.tsx'),
     ])
     expect(harness.spawnCalls[0]?.options).toMatchObject({
-      cwd: '/sdk-v2',
+      cwd: '/project',
       stdin: 'inherit',
       stdout: 'inherit',
       stderr: 'inherit',
@@ -190,8 +190,8 @@ describe('development sidecar startup', () => {
       Object.prototype.hasOwnProperty.call(harness.spawnCalls[0]?.options.env ?? {}, 'DEBUG'),
     ).toBe(true)
     expect(harness.spawnCalls[0]?.options.env.DEBUG).toBeUndefined()
-    expect(harness.spawnCalls[0]?.options.env.TERMWEAVE_FFMPEG_PATH).toBe('/sdk-v2/ffmpeg')
-    expect(harness.spawnCalls[0]?.options.env.TERMWEAVE_MEDIA_ROOT).toBe('/sdk-v2/app/media')
+    expect(harness.spawnCalls[0]?.options.env.TERMWEAVE_FFMPEG_PATH).toBe('/project/ffmpeg')
+    expect(harness.spawnCalls[0]?.options.env.TERMWEAVE_MEDIA_ROOT).toBe('/project/app/media')
 
     harness.signals.emit('SIGTERM')
     child.exit.resolve(0)

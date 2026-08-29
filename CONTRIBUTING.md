@@ -1,7 +1,7 @@
 # Contributing to Termweave
 
-Bug fixes, documentation, examples, and focused improvements are welcome. Current development is
-in `sdk-v2/`; keep `sdk/` unchanged unless a task explicitly targets the v1 reference.
+Bug fixes, documentation, examples, and focused improvements are welcome. The repository root is
+the current SDK and application template.
 
 ## Setup
 
@@ -9,7 +9,7 @@ Development requires macOS, Bun 1.3+, a stable Rust toolchain, and the Xcode Com
 
 ```sh
 git clone https://github.com/nikdelvin/termweave.git
-cd termweave/sdk-v2
+cd termweave
 bun install
 bun run dev
 ```
