@@ -2,6 +2,7 @@ import { mkdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import process from 'node:process'
 import solidPlugin from '@opentui/solid/bun-plugin'
+import { ensureFfmpegBinary } from './build-ffmpeg'
 
 const projectRoot = resolve(import.meta.dir, '..')
 
@@ -18,6 +19,7 @@ type BuildSidecarOptions = {
   platform?: NodeJS.Platform
   bunExecutable?: string
   build?: BuildRunner
+  prepareFfmpeg?: (root: string, triple: string) => Promise<string>
 }
 
 function errorMessage(error: unknown) {
@@ -55,6 +57,7 @@ export async function buildSidecarBinary({
   platform = process.platform,
   bunExecutable = process.execPath,
   build = Bun.build,
+  prepareFfmpeg = ensureFfmpegBinary,
 }: BuildSidecarOptions = {}) {
   if (platform !== 'darwin') {
     throw new Error(`Termweave v2 sidecars support only macOS, not ${platform}`)
@@ -63,6 +66,7 @@ export async function buildSidecarBinary({
   if (!hostTuple.includes('apple-darwin')) {
     throw new Error(`Termweave v2 requires an Apple Darwin host tuple, not ${hostTuple}`)
   }
+  const ffmpegPath = await prepareFfmpeg(root, hostTuple)
   const outputPath = getSidecarBinaryPath(root, hostTuple)
   await mkdir(resolve(root, 'src-tauri/binaries'), { recursive: true })
 
@@ -81,6 +85,7 @@ export async function buildSidecarBinary({
   } else {
     buildOptions.define = {
       __TERMWEAVE_BUN_EXECUTABLE__: JSON.stringify(bunExecutable),
+      __TERMWEAVE_FFMPEG_PATH__: JSON.stringify(ffmpegPath),
       __TERMWEAVE_PROJECT_ROOT__: JSON.stringify(root),
     }
   }

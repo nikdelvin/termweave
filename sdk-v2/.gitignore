@@ -10,6 +10,8 @@
 /src-tauri/binaries/
 /src-tauri/gen/
 /src-tauri/target/
+/src-tauri/third-party/ffmpeg/*
+!/src-tauri/third-party/ffmpeg/README.md
 
 # Editors and operating systems
 .DS_Store

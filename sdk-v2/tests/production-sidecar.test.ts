@@ -18,6 +18,8 @@ describe('compiled production sidecar', () => {
     const executable = await buildProductionSidecar({
       root: projectRoot,
       triple: smokeTriple,
+      prepareFfmpeg: async () =>
+        resolve(projectRoot, 'src-tauri/binaries/ffmpeg-aarch64-apple-darwin'),
     })
     const child = spawn(executable, [], {
       cwd: projectRoot,

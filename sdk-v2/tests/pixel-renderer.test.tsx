@@ -160,7 +160,7 @@ describe('PixelRenderer native drawing', () => {
 })
 
 describe('PixelRenderer errors and cleanup', () => {
-  test('shows a concise component-local remote-input error without harming siblings', async () => {
+  test('shows a concise component-local missing-runtime error without harming siblings', async () => {
     const setup = await testRender(
       () => (
         <box width="100%" height="100%">
@@ -174,10 +174,11 @@ describe('PixelRenderer errors and cleanup', () => {
     )
 
     try {
+      await Bun.sleep(20)
       const frame = await setup.waitForFrame(
         (candidate) => candidate.includes('PixelRenderer:') && candidate.includes('SIBLING ALIVE'),
       )
-      expect(frame.replaceAll(/\s+/g, ' ')).toContain('local files only')
+      expect(frame.replaceAll(/\s+/g, ' ')).toContain('FFmpeg executable')
     } finally {
       setup.renderer.destroy()
     }

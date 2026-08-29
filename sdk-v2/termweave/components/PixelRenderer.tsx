@@ -66,9 +66,15 @@ export function PixelRenderer(props: ParentProps<PixelRendererProps>) {
   const background = parseHexColor(config.themeColor)
   const [container, setContainer] = createSignal<Dimensions>({ width: 0, height: 0 })
   const [error, setError] = createSignal('')
+  let renderQueued = false
 
   const requestRender = () => {
-    if (!surface?.isDestroyed) surface?.requestRender()
+    if (renderQueued) return
+    renderQueued = true
+    queueMicrotask(() => {
+      renderQueued = false
+      if (!surface?.isDestroyed) surface?.requestRender()
+    })
   }
   const showFrame = (frame: AnimationFrame | undefined) => {
     currentFrame = frame
@@ -122,6 +128,7 @@ export function PixelRenderer(props: ParentProps<PixelRendererProps>) {
         try {
           drawPixelFrameToBuffer(buffer, surface, container(), frame)
         } catch (drawError) {
+          frame.release?.()
           currentFrame = undefined
           queueMicrotask(() => {
             if (!disposed) showError(drawError)

@@ -1,8 +1,13 @@
-import { mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { relative, resolve, sep } from 'node:path'
 import process from 'node:process'
 import { parseAppConfig, type AppConfig } from '../termweave/config'
-import { OPENTUI_ASSET_ROOT_DIRECTORY } from '../termweave/constants'
+import {
+  BUNDLED_MEDIA_ROOT_DIRECTORY,
+  FFMPEG_RESOURCE_DIRECTORY,
+  OPENTUI_ASSET_ROOT_DIRECTORY,
+} from '../termweave/constants'
+import { getFfmpegResourceDirectory } from './build-ffmpeg'
 
 const projectRoot = resolve(import.meta.dir, '..')
 
@@ -33,6 +38,13 @@ export type OpenTuiNativeLibrary = Readonly<{
   sourcePath: string
   resourcePath: string
 }>
+
+export type BundledMediaAsset = Readonly<{
+  sourcePath: string
+  resourcePath: string
+}>
+
+const supportedBundledMediaExtension = /\.(?:gif|jpe?g|mp4|png)$/i
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -123,6 +135,35 @@ async function requireOpenTuiNativeAsset(
   return asset
 }
 
+export async function collectBundledMediaAssets(root: string): Promise<BundledMediaAsset[]> {
+  const mediaRoot = resolve(root, 'app/media')
+  let entries
+  try {
+    entries = await readdir(mediaRoot, { recursive: true, withFileTypes: true })
+  } catch (error) {
+    const code = error instanceof Error && 'code' in error ? error.code : undefined
+    if (code === 'ENOENT') return []
+    throw error
+  }
+
+  const assets: BundledMediaAsset[] = []
+  for (const entry of entries) {
+    if (!entry.isFile()) continue
+    const sourcePath = resolve(entry.parentPath, entry.name)
+    const mediaPath = relative(mediaRoot, sourcePath).replaceAll(sep, '/')
+    if (!supportedBundledMediaExtension.test(mediaPath)) {
+      throw new Error(
+        `Unsupported bundled media file app/media/${mediaPath}; expected MP4, GIF, PNG, or JPEG.`,
+      )
+    }
+    assets.push({
+      sourcePath,
+      resourcePath: `${BUNDLED_MEDIA_ROOT_DIRECTORY}/${mediaPath}`,
+    })
+  }
+  return assets.sort((left, right) => left.resourcePath.localeCompare(right.resourcePath))
+}
+
 async function generateTauriIcons({
   root,
   iconPath,
@@ -155,7 +196,18 @@ async function generateTauriIcons({
   }
 }
 
-function createOverride(config: AppConfig, nativeAsset: OpenTuiNativeLibrary) {
+function createOverride(
+  root: string,
+  config: AppConfig,
+  nativeAsset: OpenTuiNativeLibrary,
+  mediaAssets: readonly BundledMediaAsset[],
+) {
+  const resources: Record<string, string> = {
+    [nativeAsset.sourcePath]: nativeAsset.resourcePath,
+    [getFfmpegResourceDirectory(root)]: FFMPEG_RESOURCE_DIRECTORY,
+  }
+  for (const asset of mediaAssets) resources[asset.sourcePath] = asset.resourcePath
+
   return {
     productName: config.name,
     version: config.version,
@@ -171,9 +223,8 @@ function createOverride(config: AppConfig, nativeAsset: OpenTuiNativeLibrary) {
     },
     bundle: {
       icon: desktopIconFiles.map((icon) => `.generated/icons/${icon}`),
-      resources: {
-        [nativeAsset.sourcePath]: nativeAsset.resourcePath,
-      },
+      externalBin: ['binaries/opentui-sidecar', 'binaries/ffmpeg'],
+      resources,
     },
   }
 }
@@ -187,6 +238,7 @@ export async function prepareProject({
   const config = await loadConfig(root)
   const iconPath = await resolveIcon(root, config)
   const nativeAsset = await requireOpenTuiNativeAsset(root, platform, arch)
+  const mediaAssets = await collectBundledMediaAssets(root)
   const generatedDirectory = resolve(root, 'src-tauri/.generated')
   const iconOutputDirectory = resolve(generatedDirectory, 'icons')
   const overridePath = resolve(generatedDirectory, 'override.json')
@@ -208,7 +260,7 @@ export async function prepareProject({
 
     await writeFile(
       overridePath,
-      `${JSON.stringify(createOverride(config, nativeAsset), null, 2)}\n`,
+      `${JSON.stringify(createOverride(root, config, nativeAsset, mediaAssets), null, 2)}\n`,
     )
   } catch (error) {
     await rm(generatedDirectory, { recursive: true, force: true })

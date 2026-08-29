@@ -2,6 +2,7 @@ import { getCachedLocalImageFrames, loadLocalImageFrames } from './image-decoder
 import { startFramePlayback } from './image-playback'
 import { createImageAbortError, isAbortError } from './image-source'
 import type { AnimationFrame, Dimensions, Rgb } from './pixel-frame'
+import { startStreamingMediaPlayback, usesStreamingMediaPipeline } from './streaming-media'
 
 export interface ImageRequest {
   uri: string
@@ -15,6 +16,7 @@ export interface ImageControllerOptions {
   getCached?: typeof getCachedLocalImageFrames
   load?: typeof loadLocalImageFrames
   play?: typeof startFramePlayback
+  stream?: typeof startStreamingMediaPlayback
 }
 
 export function createImagePlaybackController({
@@ -23,11 +25,20 @@ export function createImagePlaybackController({
   getCached = getCachedLocalImageFrames,
   load = loadLocalImageFrames,
   play = startFramePlayback,
+  stream = startStreamingMediaPlayback,
 }: ImageControllerOptions) {
   let abortController: AbortController | undefined
   let stopPlayback: (() => void) | undefined
   let generation = 0
   let disposed = false
+  let currentFrame: AnimationFrame | undefined
+
+  const showFrame = (frame: AnimationFrame | undefined) => {
+    const previous = currentFrame
+    currentFrame = frame
+    onFrame(frame)
+    if (previous !== frame) previous?.release?.()
+  }
 
   const cancel = () => {
     generation += 1
@@ -44,7 +55,7 @@ export function createImagePlaybackController({
 
     const uri = request.uri.trim()
     if (!uri) {
-      onFrame(undefined)
+      showFrame(undefined)
       onError(new Error('Image URI is required.'))
       return
     }
@@ -52,7 +63,18 @@ export function createImagePlaybackController({
 
     const requestGeneration = generation
     const publishFrame = (frame: AnimationFrame) => {
-      if (!disposed && requestGeneration === generation) onFrame(frame)
+      if (!disposed && requestGeneration === generation) showFrame(frame)
+      else frame.release?.()
+    }
+
+    if (usesStreamingMediaPipeline(uri)) {
+      stopPlayback = stream(request, {
+        onError: (error) => {
+          if (!disposed && requestGeneration === generation) onError(error)
+        },
+        onFrame: publishFrame,
+      })
+      return
     }
     const beginPlayback = (frames: readonly AnimationFrame[]) => {
       if (disposed || requestGeneration !== generation) return
@@ -68,7 +90,6 @@ export function createImagePlaybackController({
       try {
         beginPlayback(cached)
       } catch (error) {
-        onFrame(undefined)
         onError(error)
       }
       return
@@ -92,7 +113,6 @@ export function createImagePlaybackController({
           return
         }
         abortController = undefined
-        onFrame(undefined)
         onError(error)
       })
   }
@@ -103,7 +123,7 @@ export function createImagePlaybackController({
       if (disposed) return
       disposed = true
       cancel()
-      onFrame(undefined)
+      showFrame(undefined)
     },
   }
 }

@@ -15,8 +15,8 @@ describe('Tauri runtime configuration', () => {
     expect(tauriConfig.bundle.icon).toEqual(['../termweave/host/crt-effects/assets/crt-noise.png'])
   })
 
-  test('bundles exactly the OpenTUI sidecar and permits only scoped process operations', () => {
-    expect(tauriConfig.bundle.externalBin).toEqual(['binaries/opentui-sidecar'])
+  test('bundles the OpenTUI and FFmpeg sidecars while permitting only scoped host operations', () => {
+    expect(tauriConfig.bundle.externalBin).toEqual(['binaries/opentui-sidecar', 'binaries/ffmpeg'])
     expect(capabilities.permissions).toEqual([
       'core:default',
       'core:window:allow-close',

@@ -3,6 +3,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { Command } from '@tauri-apps/plugin-shell'
 import { getAppConfig, type AppConfig } from '../config'
 import {
+  BUNDLED_MEDIA_ROOT_DIRECTORY,
   OPENTUI_ASSET_ROOT_DIRECTORY,
   TERMINAL_FONT_FAMILY,
   TERMINAL_FONT_SIZE,
@@ -29,8 +30,9 @@ export interface WebviewHostDependencies {
   readonly activateRenderer: (terminal: XtermTerminal, config: AppConfig) => CrtRendererController
   readonly createSession: typeof createSidecarSession
   readonly getDesktopWindow: () => DesktopWindow
+  readonly resolveBundledMediaRoot: () => Promise<string>
   readonly resolveOpenTuiAssetRoot: () => Promise<string>
-  readonly createCommand: (openTuiAssetRoot: string) => SidecarCommand
+  readonly createCommand: (openTuiAssetRoot: string, bundledMediaRoot: string) => SidecarCommand
   readonly loadFont: (font: string) => Promise<unknown>
 }
 
@@ -45,15 +47,22 @@ function resolveDependencies(overrides: Partial<WebviewHostDependencies>): Webvi
     activateRenderer: overrides.activateRenderer ?? activateCrtRenderer,
     createSession: overrides.createSession ?? createSidecarSession,
     getDesktopWindow: overrides.getDesktopWindow ?? getCurrentWindow,
+    resolveBundledMediaRoot:
+      overrides.resolveBundledMediaRoot ??
+      (async () => join(await resourceDir(), BUNDLED_MEDIA_ROOT_DIRECTORY)),
     resolveOpenTuiAssetRoot:
       overrides.resolveOpenTuiAssetRoot ??
       (async () => join(await resourceDir(), OPENTUI_ASSET_ROOT_DIRECTORY)),
     createCommand:
       overrides.createCommand ??
-      ((openTuiAssetRoot) =>
+      ((openTuiAssetRoot, bundledMediaRoot) =>
         Command.sidecar('binaries/opentui-sidecar', [], {
           encoding: 'raw',
-          env: { DEBUG: '', OTUI_ASSET_ROOT: openTuiAssetRoot },
+          env: {
+            DEBUG: '',
+            OTUI_ASSET_ROOT: openTuiAssetRoot,
+            TERMWEAVE_MEDIA_ROOT: bundledMediaRoot,
+          },
         })),
     loadFont: overrides.loadFont ?? ((font) => hostDocument.fonts.load(font)),
   }
@@ -119,9 +128,12 @@ export async function startWebviewHost(
       renderRendererStatus(presentation, status),
     )
 
-    const openTuiAssetRoot = await dependencies.resolveOpenTuiAssetRoot()
+    const [openTuiAssetRoot, bundledMediaRoot] = await Promise.all([
+      dependencies.resolveOpenTuiAssetRoot(),
+      dependencies.resolveBundledMediaRoot(),
+    ])
     if (disposed) return { cleanup }
-    const command = dependencies.createCommand(openTuiAssetRoot)
+    const command = dependencies.createCommand(openTuiAssetRoot, bundledMediaRoot)
     session = dependencies.createSession({
       terminal,
       command,

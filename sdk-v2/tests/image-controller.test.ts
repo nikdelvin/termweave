@@ -114,7 +114,7 @@ describe('image lifecycle controller', () => {
     controller.replace({ uri: 'bad.png', maximum: { width: 4, height: 4 }, background: [0, 0, 0] })
     await Promise.resolve()
     await Promise.resolve()
-    expect(last(shown)).toBeUndefined()
+    expect(last(shown)?.data[0]).toBe(7)
 
     controller.dispose()
     expect(last(signals)?.aborted).toBe(false)
@@ -128,6 +128,54 @@ describe('image lifecycle controller', () => {
       background: [0, 0, 0],
     })
     expect(signals).toHaveLength(count)
+  })
+
+  test('routes streaming sources through an abortable generation and keeps the last good frame', () => {
+    const shown: Array<AnimationFrame | undefined> = []
+    const errors: unknown[] = []
+    const streams: Array<{
+      onError(error: unknown): void
+      onFrame(frame: AnimationFrame): void
+      stopped: boolean
+      uri: string
+    }> = []
+    const controller = createImagePlaybackController({
+      onError: (error) => {
+        if (error !== undefined) errors.push(error)
+      },
+      onFrame: (frame) => shown.push(frame),
+      stream: (request, options) => {
+        const entry = { ...options, stopped: false, uri: request.uri }
+        streams.push(entry)
+        return () => {
+          entry.stopped = true
+        }
+      },
+    })
+
+    controller.replace({
+      uri: 'https://example.test/video.mp4',
+      maximum: { width: 8, height: 8 },
+      background: [0, 0, 0],
+    })
+    const first = animationFrame(4, 0)
+    streams[0]!.onFrame(first)
+    expect(last(shown)).toBe(first)
+
+    controller.replace({
+      uri: 'media:clips/next.mp4',
+      maximum: { width: 8, height: 8 },
+      background: [0, 0, 0],
+    })
+    expect(streams[0]!.stopped).toBe(true)
+    streams[0]!.onError(new Error('stale'))
+    streams[1]!.onError(new Error('new failed'))
+    expect(last(shown)).toBe(first)
+    expect(String(last(errors))).toContain('new failed')
+
+    controller.dispose()
+    expect(streams[1]!.stopped).toBe(true)
+    expect(last(shown)).toBeUndefined()
   })
 
   test('starts cached frames synchronously without loading the source again', () => {

@@ -16,6 +16,7 @@ export interface RgbaFrame extends Dimensions {
 
 export interface AnimationFrame extends RgbaFrame {
   delayMs: number
+  release?: () => void
 }
 
 export interface CenteredViewport extends Dimensions {

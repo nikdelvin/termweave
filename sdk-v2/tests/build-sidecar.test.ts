@@ -9,6 +9,8 @@ import {
 } from '../scripts/build-sidecar'
 
 let root = ''
+const prepareFfmpeg = async (projectRoot: string, triple: string) =>
+  resolve(projectRoot, `src-tauri/binaries/ffmpeg-${triple}`)
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'termweave-sidecar-'))
@@ -53,6 +55,7 @@ describe('production sidecar build', () => {
       root,
       triple: 'aarch64-apple-darwin',
       platform: 'darwin',
+      prepareFfmpeg,
       build: async (options) => {
         buildOptions = options
         return { success: true, logs: [] }
@@ -79,6 +82,7 @@ describe('production sidecar build', () => {
       triple: 'aarch64-apple-darwin',
       platform: 'darwin',
       bunExecutable: '/opt/bun/bin/bun',
+      prepareFfmpeg,
       build: async (options) => {
         buildOptions = options
         return { success: true, logs: [] }
@@ -89,6 +93,9 @@ describe('production sidecar build', () => {
     expect(buildOptions?.compile).toEqual({ outfile: outputPath })
     expect(buildOptions?.define).toEqual({
       __TERMWEAVE_BUN_EXECUTABLE__: '"/opt/bun/bin/bun"',
+      __TERMWEAVE_FFMPEG_PATH__: JSON.stringify(
+        resolve(root, 'src-tauri/binaries/ffmpeg-aarch64-apple-darwin'),
+      ),
       __TERMWEAVE_PROJECT_ROOT__: JSON.stringify(root),
     })
     expect(buildOptions?.plugins).toBeUndefined()
@@ -99,6 +106,7 @@ describe('production sidecar build', () => {
       buildProductionSidecar({
         root,
         triple: 'aarch64-apple-darwin',
+        prepareFfmpeg,
         build: async () => ({
           success: false,
           logs: ['app/index.tsx: unexpected token', 'build stopped'],
@@ -115,6 +123,7 @@ describe('production sidecar build', () => {
         mode: 'development',
         root,
         triple: 'aarch64-apple-darwin',
+        prepareFfmpeg,
         build: async () => ({ success: false, logs: ['launcher failed'] }),
       }),
     ).rejects.toThrow('Development launcher build failed:\nlauncher failed')

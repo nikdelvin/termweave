@@ -2,13 +2,15 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { createJimp } from '@jimp/core'
 import jpeg from '@jimp/js-jpeg'
 import png from '@jimp/js-png'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
+  bundledMediaUri,
   detectImageFormat,
   readLocalImageBytes,
+  resolveMediaSource,
   resolveLocalImagePath,
 } from '../termweave/components/image-source'
 
@@ -83,6 +85,57 @@ describe('local image input and signatures', () => {
     await expect(readLocalImageBytes(pngPath, controller.signal)).rejects.toHaveProperty(
       'name',
       'AbortError',
+    )
+  })
+
+  test('classifies direct HTTPS, bundled, MP4, and ordinary local image sources', async () => {
+    expect(
+      await resolveMediaSource('https://cdn.example.test/a%20b/video.mp4?token=one'),
+    ).toMatchObject({
+      format: 'mp4',
+      input: 'https://cdn.example.test/a%20b/video.mp4?token=one',
+      kind: 'remote',
+      loop: true,
+      pipeline: 'ffmpeg',
+    })
+    expect(await resolveMediaSource(pngPath)).toMatchObject({
+      kind: 'local',
+      pipeline: 'decoder',
+    })
+
+    const mediaRoot = join(temporaryDirectory, 'bundled media')
+    const bundledPath = join(mediaRoot, 'clips', 'demo 世界.gif')
+    await mkdir(join(mediaRoot, 'clips'), { recursive: true })
+    await Bun.write(bundledPath, twoFrameGif)
+    const uri = bundledMediaUri('clips/demo 世界.gif')
+    expect(uri).toBe('media:clips/demo%20%E4%B8%96%E7%95%8C.gif')
+    expect(
+      await resolveMediaSource(uri, { environment: { TERMWEAVE_MEDIA_ROOT: mediaRoot } }),
+    ).toMatchObject({
+      format: 'gif',
+      input: bundledPath,
+      kind: 'bundled',
+      pipeline: 'ffmpeg',
+    })
+  })
+
+  test('rejects insecure, unsupported, escaping, and missing media before spawning', async () => {
+    await expect(resolveMediaSource('http://example.test/video.mp4')).rejects.toThrow(
+      'Insecure HTTP',
+    )
+    await expect(resolveMediaSource('ftp://example.test/video.mp4')).rejects.toThrow('local files')
+    await expect(
+      resolveMediaSource('media:../secret.mp4', {
+        environment: { TERMWEAVE_MEDIA_ROOT: temporaryDirectory },
+      }),
+    ).rejects.toThrow('safe paths')
+    await expect(
+      resolveMediaSource('media:missing.mp4', {
+        environment: { TERMWEAVE_MEDIA_ROOT: temporaryDirectory },
+      }),
+    ).rejects.toThrow('does not exist')
+    await expect(resolveMediaSource('https://example.test/file.webm')).rejects.toThrow(
+      'Unsupported media type',
     )
   })
 })

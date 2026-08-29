@@ -8,7 +8,7 @@ import { TERMINAL_GRID } from '../termweave/constants'
 const projectRoot = fileURLToPath(new URL('../', import.meta.url))
 
 describe('real sidecar stdin parsing', () => {
-  test('keeps typing responsive across every media and plain-screen transition', async () => {
+  test('keeps typing responsive across every media-screen transition', async () => {
     const child = spawn(
       process.execPath,
       ['--preload', '@opentui/solid/preload', 'app/index.tsx'],
@@ -108,18 +108,18 @@ describe('real sidecar stdin parsing', () => {
       await typeText('b', 'a')
       await typeText('c', 'ab')
 
-      // PNG -> plain through CSI Right.
+      // PNG -> remote video through CSI Right.
       await write('\u001b[C')
-      await waitForScreen(screenMarker('plain'))
+      await waitForScreen(screenMarker('video'))
       expect(screenText()).not.toContain(screenMarker('picture'))
       expect(screenText()).not.toContain(screenMarker('animation'))
 
       await typeText('d', 'abc')
 
-      // Plain -> PNG through SS3 Left.
+      // Remote video -> PNG through SS3 Left.
       await write('\u001bOD')
       await waitForScreen(screenMarker('picture'))
-      expect(screenText()).not.toContain(screenMarker('plain'))
+      expect(screenText()).not.toContain(screenMarker('video'))
       await typeText('e', 'abcd')
 
       // PNG -> GIF through CSI Left.
@@ -129,15 +129,15 @@ describe('real sidecar stdin parsing', () => {
 
       await typeText('f', 'abcde')
 
-      // GIF -> plain through SS3 Left, then plain -> GIF through SS3 Right.
+      // GIF -> remote video through SS3 Left, then remote video -> GIF through SS3 Right.
       await write('\u001bOD')
-      await waitForScreen(screenMarker('plain'))
+      await waitForScreen(screenMarker('video'))
       expect(screenText()).not.toContain(screenMarker('animation'))
       await typeText('g', 'abcdef')
 
       await write('\u001bOC')
       await waitForScreen(screenMarker('animation'))
-      expect(screenText()).not.toContain(screenMarker('plain'))
+      expect(screenText()).not.toContain(screenMarker('video'))
       await typeText('h', 'abcdefg')
 
       expect(stderr).toBe('')

@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import process from 'node:process'
 
 declare const __TERMWEAVE_BUN_EXECUTABLE__: string
+declare const __TERMWEAVE_FFMPEG_PATH__: string
 declare const __TERMWEAVE_PROJECT_ROOT__: string
 
 export const restartDelayMs = 75
@@ -41,6 +42,7 @@ type TimerHandle = unknown
 type DevelopmentLauncherOptions = {
   root: string
   bunExecutable: string
+  ffmpegPath: string
   watch?: WatchDevelopmentSource
   spawn?: SpawnDevelopmentChild
   schedule?: (callback: () => void, delay: number) => TimerHandle
@@ -62,6 +64,7 @@ const defaultSpawn: SpawnDevelopmentChild = (command, options) => Bun.spawn(comm
 export function runDevelopmentLauncher({
   root,
   bunExecutable,
+  ffmpegPath,
   watch = defaultWatch,
   spawn = defaultSpawn,
   schedule = (callback, delay) => setTimeout(callback, delay),
@@ -185,7 +188,12 @@ export function runDevelopmentLauncher({
         [bunExecutable, '--preload', '@opentui/solid/preload', resolve(root, 'app/index.tsx')],
         {
           cwd: root,
-          env: { ...process.env, DEBUG: undefined },
+          env: {
+            ...process.env,
+            DEBUG: undefined,
+            TERMWEAVE_FFMPEG_PATH: process.env.TERMWEAVE_FFMPEG_PATH?.trim() || ffmpegPath,
+            TERMWEAVE_MEDIA_ROOT: resolve(root, 'app/media'),
+          },
           stdin: 'inherit',
           stdout: 'inherit',
           stderr: 'inherit',
@@ -261,6 +269,7 @@ if (import.meta.main) {
   const exitCode = await runDevelopmentLauncher({
     root: __TERMWEAVE_PROJECT_ROOT__,
     bunExecutable: __TERMWEAVE_BUN_EXECUTABLE__,
+    ffmpegPath: __TERMWEAVE_FFMPEG_PATH__,
   })
   process.exit(exitCode)
 }

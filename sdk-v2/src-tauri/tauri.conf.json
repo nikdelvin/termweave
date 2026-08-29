@@ -34,6 +34,6 @@
     "active": true,
     "targets": "all",
     "icon": ["../termweave/host/crt-effects/assets/crt-noise.png"],
-    "externalBin": ["binaries/opentui-sidecar"]
+    "externalBin": ["binaries/opentui-sidecar", "binaries/ffmpeg"]
   }
 }

@@ -4,6 +4,7 @@ import type { JSX } from 'solid-js'
 import { createReadStream } from 'node:fs'
 import { getAppConfig } from './config'
 import { TERMINAL_GRID } from './constants'
+import { disposeAllStreamingMediaPlayback } from './components/streaming-media'
 
 function writeDiagnostic(error: unknown) {
   const message = error instanceof Error ? error.message : String(error)
@@ -23,6 +24,8 @@ export async function startTermweaveSidecar(root: () => JSX.Element) {
   function shutdown(exitCode = 0) {
     if (shuttingDown) return
     shuttingDown = true
+
+    disposeAllStreamingMediaPlayback()
 
     try {
       rendererState.current?.destroy()

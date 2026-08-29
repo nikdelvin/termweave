@@ -1,17 +1,19 @@
-import { getTermweaveConfig } from '#termweave'
 import { AppStatePanel } from '../components/AppStatePanel'
 
-export function PlainScreen() {
-  const config = getTermweaveConfig()
+export const remoteVideoScreenMediaUri =
+  'https://download.blender.org/durian/trailer/sintel_trailer-1080p.mp4'
 
+export function RemoteVideoScreen() {
   return (
     <box
+      position="absolute"
+      top={0}
+      left={0}
       width="100%"
       height="100%"
       flexDirection="column"
       justifyContent="space-between"
       alignItems="center"
-      backgroundColor={config.themeColor}
     >
       <box
         width={72}
@@ -23,8 +25,8 @@ export function PlainScreen() {
         borderColor="#FFFFFF"
         flexDirection="column"
       >
-        <text fg="#FFFFFF">PLAIN SCREEN · NO PIXEL RENDERER</text>
-        <text fg="#FFFFFF">Ordinary Solid/OpenTUI content with no native media drawing.</text>
+        <text fg="#FFFFFF">REMOTE VIDEO · 1080P H.264 + AAC</text>
+        <text fg="#FFFFFF">Sintel trailer · Blender Foundation · CC BY</text>
         <text fg="#FFFFFF">LEFT/RIGHT: CHANGE SCREEN</text>
       </box>
       <AppStatePanel />

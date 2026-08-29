@@ -86,8 +86,13 @@ function hostFixture(options: { assetFailure?: Error } = {}) {
       if (options.assetFailure) throw options.assetFailure
       return '/resources/opentui-assets'
     },
-    createCommand(assetRoot: string) {
+    async resolveBundledMediaRoot() {
+      events.push('media-root:resolve')
+      return '/resources/termweave-media'
+    },
+    createCommand(assetRoot: string, mediaRoot: string) {
       expect(assetRoot).toBe('/resources/opentui-assets')
+      expect(mediaRoot).toBe('/resources/termweave-media')
       events.push('command:create')
       return {}
     },
@@ -121,6 +126,7 @@ describe('WebView host orchestration', () => {
       'renderer:activate',
       'renderer:subscribe',
       'asset-root:resolve',
+      'media-root:resolve',
       'command:create',
       'window:get',
       'session:create',

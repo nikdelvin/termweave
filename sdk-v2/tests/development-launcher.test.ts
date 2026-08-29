@@ -140,6 +140,7 @@ function createHarness(children: FakeChild[]) {
   const completed = runDevelopmentLauncher({
     root: '/sdk-v2',
     bunExecutable: '/bin/bun',
+    ffmpegPath: '/sdk-v2/ffmpeg',
     watch,
     spawn,
     schedule: clock.schedule,
@@ -189,6 +190,8 @@ describe('development sidecar startup', () => {
       Object.prototype.hasOwnProperty.call(harness.spawnCalls[0]?.options.env ?? {}, 'DEBUG'),
     ).toBe(true)
     expect(harness.spawnCalls[0]?.options.env.DEBUG).toBeUndefined()
+    expect(harness.spawnCalls[0]?.options.env.TERMWEAVE_FFMPEG_PATH).toBe('/sdk-v2/ffmpeg')
+    expect(harness.spawnCalls[0]?.options.env.TERMWEAVE_MEDIA_ROOT).toBe('/sdk-v2/app/media')
 
     harness.signals.emit('SIGTERM')
     child.exit.resolve(0)

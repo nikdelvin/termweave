@@ -66,7 +66,7 @@ describe('Termweave ownership boundaries', () => {
     for (const file of graph.keys()) visit(file)
   })
 
-  test('pins decoders and excludes unsupported media architecture', async () => {
+  test('pins decoders and keeps remote media inside the SDK-owned pipeline', async () => {
     const packageJson = JSON.parse(
       await readFile(resolve(projectRoot, 'package.json'), 'utf8'),
     ) as {
@@ -88,6 +88,10 @@ describe('Termweave ownership boundaries', () => {
           'image-decoder.ts',
           'image-playback.ts',
           'image-controller.ts',
+          'media-process.ts',
+          'media-playback.ts',
+          'media-audio.ts',
+          'streaming-media.ts',
           'PixelRenderer.tsx',
         ].map((file) => readFile(resolve(componentRoot, file), 'utf8')),
       )
@@ -101,12 +105,12 @@ describe('Termweave ownership boundaries', () => {
       /\bcache\b/i,
       /\bfetch\s*\(/,
       /WebSocket/i,
-      /FFmpeg/i,
-      /\baudio\b/i,
-      /media clock/i,
     ]) {
       expect(implementation).not.toMatch(forbidden)
     }
+    expect(implementation).toMatch(/FFmpeg/)
+    expect(implementation).toMatch(/MediaPlaybackClock/)
+    expect(implementation).toMatch(/setupAudio/)
   })
 
   test('keeps dedicated starter media and excludes routing compatibility layers', async () => {

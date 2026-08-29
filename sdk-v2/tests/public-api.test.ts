@@ -6,6 +6,7 @@ describe('Termweave public API', () => {
     const termweave = await import('#termweave')
     expect(Object.keys(termweave).sort()).toEqual([
       'PixelRenderer',
+      'bundledMediaUri',
       'createScreenNavigation',
       'getTermweaveConfig',
     ])
@@ -18,6 +19,9 @@ describe('Termweave public API', () => {
     const config: Readonly<TermweaveConfig> = termweave.getTermweaveConfig()
     const navigation: ScreenNavigation<'one' | 'two'> = termweave.createScreenNavigation('one')
     expect(props.uri).toBe('/tmp/example.png')
+    expect(termweave.bundledMediaUri('clips/demo 世界.mp4')).toBe(
+      'media:clips/demo%20%E4%B8%96%E7%95%8C.mp4',
+    )
     expect(config).toEqual({
       themeColor: '#010416',
       terminalForegroundColor: '#F59B5A',

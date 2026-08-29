@@ -3,11 +3,14 @@ import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import {
+  collectBundledMediaAssets,
   desktopIconFiles,
   getOpenTuiNativeAsset,
   prepareProject,
   type IconGenerator,
 } from '../scripts/prepare'
+import { getFfmpegResourceDirectory } from '../scripts/build-ffmpeg'
+import { FFMPEG_RESOURCE_DIRECTORY } from '../termweave/constants'
 import { validAppConfig } from './fixtures'
 
 let root = ''
@@ -115,8 +118,10 @@ describe('preparation', () => {
       },
       bundle: {
         icon: desktopIconFiles.map((icon) => `.generated/icons/${icon}`),
+        externalBin: ['binaries/opentui-sidecar', 'binaries/ffmpeg'],
         resources: {
           [getOpenTuiNativeAsset(root).sourcePath]: getOpenTuiNativeAsset(root).resourcePath,
+          [getFfmpegResourceDirectory(root)]: FFMPEG_RESOURCE_DIRECTORY,
         },
       },
     })
@@ -133,6 +138,27 @@ describe('preparation', () => {
       'src-tauri/.generated/icons/icon.ico',
       'src-tauri/.generated/override.json',
     ])
+  })
+
+  test('packages only opted-in supported app/media files at stable resource paths', async () => {
+    await createProject()
+    await mkdir(resolve(root, 'app/media/clips'), { recursive: true })
+    await writeFile(resolve(root, 'app/media/cover.jpg'), 'jpeg')
+    await writeFile(resolve(root, 'app/media/clips/demo 世界.mp4'), 'mp4')
+
+    expect(await collectBundledMediaAssets(root)).toEqual([
+      {
+        sourcePath: resolve(root, 'app/media/clips/demo 世界.mp4'),
+        resourcePath: 'termweave-media/clips/demo 世界.mp4',
+      },
+      {
+        sourcePath: resolve(root, 'app/media/cover.jpg'),
+        resourcePath: 'termweave-media/cover.jpg',
+      },
+    ])
+
+    await writeFile(resolve(root, 'app/media/readme.txt'), 'unsupported')
+    await expect(collectBundledMediaAssets(root)).rejects.toThrow('Unsupported bundled media file')
   })
 
   test('replaces stale generated output', async () => {
