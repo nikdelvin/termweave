@@ -1,0 +1,10 @@
+{
+  "name": "Termweave App",
+  "description": "A terminal desktop application built with Termweave.",
+  "packageName": "termweave-app",
+  "bundleIdentifier": "com.example.termweave-app",
+  "version": "0.1.0",
+  "author": "Example Author",
+  "themeColor": "#010416",
+  "icon": "app.icon.png"
+}
