@@ -81,7 +81,7 @@ export function calculateMonitorLayout(): MonitorLayout {
     monitorTop: -screenCenterY,
     monitorWidth,
     monitorHeight,
-    windowInset: 64,
+    windowInset: 4,
   }
 }
 

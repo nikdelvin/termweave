@@ -1,4 +1,5 @@
 import { NativeImage } from '@opentui/core'
+import { TERMINAL_GRID } from '../constants'
 import { colorsFromPackedArray, type Rgba } from './color'
 import { add2, glslMod, scale2, step, type Vec2 } from './glsl'
 import { createBackgroundHash, createCircleNoise, createFbm, createValueNoise, type HashFn } from './noise'
@@ -7,8 +8,8 @@ import { blendPixel, createFrameBuffer, fillFrameBuffer, type FrameBuffer } from
 import starsAtlasPath from './assets/stars.png' with { type: 'file' }
 import starsSpecialAtlasPath from './assets/stars-special.png' with { type: 'file' }
 
-export const BACKGROUND_WIDTH = 256
-export const BACKGROUND_HEIGHT = 144
+export const BACKGROUND_WIDTH = TERMINAL_GRID.cols * 2
+export const BACKGROUND_HEIGHT = TERMINAL_GRID.rows * 2
 const BACKGROUND_PALETTE = colorsFromPackedArray([
   0.0228, 0.0228, 0.04, 1, 0.0666667, 0.0666667, 0.121569, 1, 0.113725, 0.113725, 0.2, 1,
   0.152941, 0.152941, 0.266667, 1, 0.286275, 0.301961, 0.494118, 1, 0.545098, 0.427451,

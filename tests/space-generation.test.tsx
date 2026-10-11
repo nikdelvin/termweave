@@ -8,6 +8,7 @@ import {
   objectBufferSize,
   renderSpaceObject,
   spaceObjectLayerNames,
+  spaceObjectPixelScale,
   type SpaceObjectConfig,
 } from '../termweave/space/space-objects'
 import { REALISTIC_PALETTES, spaceObjectPaletteNames } from '../termweave/space/palettes'
@@ -54,7 +55,7 @@ describe('space foundations', () => {
 })
 
 describe('space objects', () => {
-  test('quad sizes: 48 for planets, 64 for the asteroid, 144 for the big kinds', () => {
+  test('quad sizes: 48 for planets, 64 for the asteroid, 144 for the big kinds, scaled to the grid', () => {
     const expected: Record<string, number> = {
       'terran-wet': 48,
       'terran-dry': 48,
@@ -70,7 +71,7 @@ describe('space objects', () => {
       star: 144,
     }
     for (const type of SPACE_OBJECT_TYPES) {
-      expect(objectBufferSize(type)).toBe(expected[type])
+      expect(objectBufferSize(type)).toBe(Math.round(expected[type]! * spaceObjectPixelScale()))
     }
   })
 
@@ -100,7 +101,7 @@ describe('space objects', () => {
 
   test('colors are optional: omitted colors use the .tscn default palettes', () => {
     const buffer = renderSpaceObject({ type: 'terran-wet', seed: 42 })
-    expect(buffer.width).toBe(48)
+    expect(buffer.width).toBe(objectBufferSize('terran-wet'))
     let sawDefaultLand = false
     for (let i = 0; i < buffer.data.length; i += 4) {
       if (
@@ -209,7 +210,7 @@ describe('space objects', () => {
 })
 
 describe('space background', () => {
-  test('renders a fully opaque 256×144 buffer with ramp structure', async () => {
+  test('renders a fully opaque background-sized buffer with ramp structure', async () => {
     const buffer = await renderBackground(424242)
     expect(buffer.width).toBe(BACKGROUND_WIDTH)
     expect(buffer.height).toBe(BACKGROUND_HEIGHT)

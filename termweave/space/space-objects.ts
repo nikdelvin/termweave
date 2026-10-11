@@ -1,6 +1,7 @@
 import { createRng } from './random'
 import { createFrameBuffer, type FrameBuffer } from './pixels'
 import { REALISTIC_PALETTES } from './palettes'
+import { BACKGROUND_HEIGHT } from './background'
 import type { LayerParams, LayerPixelFn } from './object-shaders/layer'
 import { renderLayer } from './object-shaders/layer'
 import type { LayerDefaults } from './objects'
@@ -96,6 +97,12 @@ interface SpaceObjectSpec {
   relativeScale: number
   bufferSize: number
   layers: ObjectLayerSpec[]
+}
+
+export const SPACE_OBJECT_DESIGN_HEIGHT = 144
+
+export function spaceObjectPixelScale(): number {
+  return BACKGROUND_HEIGHT / SPACE_OBJECT_DESIGN_HEIGHT
 }
 
 export const SPACE_OBJECT_TYPES: readonly SpaceObjectType[] = [
@@ -237,10 +244,10 @@ function resolvePalette(config: SpaceObjectConfig) {
 }
 
 export function objectBufferSize(type: SpaceObjectType): number {
-  return SPACE_OBJECTS[type].bufferSize
+  return Math.round(SPACE_OBJECTS[type].bufferSize * spaceObjectPixelScale())
 }
 
-export function renderSpaceObject(config: SpaceObjectConfig, pixelScale = 1): FrameBuffer {
+export function renderSpaceObject(config: SpaceObjectConfig, pixelScale = spaceObjectPixelScale()): FrameBuffer {
   const spec = SPACE_OBJECTS[config.type]
   const palette = resolvePalette(config)
   const hasSeed = config.seed !== undefined

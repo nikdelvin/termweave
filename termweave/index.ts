@@ -16,6 +16,7 @@ export {
   objectBufferSize,
   renderSpaceObject,
   spaceObjectLayerNames,
+  spaceObjectPixelScale,
   type SpaceObjectConfig,
   type SpaceObjectType,
 } from './space/space-objects'

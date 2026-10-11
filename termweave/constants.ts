@@ -1,8 +1,8 @@
 export const TERMINAL_SURFACE = Object.freeze({ width: 2560, height: 1440 } as const)
-export const TERMINAL_FONT_SIZE = 20
+export const TERMINAL_FONT_SIZE = 16
 export const TERMINAL_GRID = Object.freeze({
-  cols: 128,
-  rows: 72,
+  cols: 160,
+  rows: 90,
   fontSize: TERMINAL_FONT_SIZE,
   width: TERMINAL_SURFACE.width,
   height: TERMINAL_SURFACE.height,

@@ -36,13 +36,13 @@ const GEN_HASH: Record<string, string> = {
   'object-curated/black-hole': 'ff837d2d4dd31046874034f51f1037785f45e8f3784ed1d576949ac0eaba8ea2',
   'object-curated/galaxy': '996606165d15617fd1bbf09e9a6eb55b9e25c45ebcbcc00d8dd0625cc4f12539',
   'object-curated/star': 'b839ad89aa51105f41be820b4c524ca5d288c7709b9309b0e84cd0723c98cbcb',
-  'background': '6f83e7b32fbd8ae38c95a19a06e8c96ca08f52f8ed6e484d43ecd7ff12583bdd',
+  'background': '30aeabd02c74e64f4ff0763cefe28d234be6d6eec2aca6109362ca6fa108d4a5',
 }
 
 describe('golden renders', () => {
   test('12 types × default palettes match the pinned checksums', () => {
     for (const type of SPACE_OBJECT_TYPES) {
-      const hash = checksum(renderSpaceObject({ type, seed: 4242 }).data)
+      const hash = checksum(renderSpaceObject({ type, seed: 4242 }, 1).data)
       expect(hash, `object-default/${type}`).toBe(GEN_HASH[`object-default/${type}`])
     }
   })
@@ -50,7 +50,7 @@ describe('golden renders', () => {
   test('12 types × first curated palette match the pinned checksums', () => {
     for (const type of SPACE_OBJECT_TYPES) {
       const palette = REALISTIC_PALETTES[type][0]!.name
-      const hash = checksum(renderSpaceObject({ type, seed: 4242, palette }).data)
+      const hash = checksum(renderSpaceObject({ type, seed: 4242, palette }, 1).data)
       expect(hash, `object-curated/${type}`).toBe(GEN_HASH[`object-curated/${type}`])
     }
   })

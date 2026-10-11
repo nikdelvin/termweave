@@ -61,15 +61,15 @@ export function App() {
         flexDirection="column"
         gap={1}
       >
-        <text fg="#c8c8c8">📟 React in, CRT app out</text>
-        <text fg="#c8c8c8">📺 A real CRT, no filter</text>
-        <text fg="#c8c8c8">🖼️ Pixel-art backdrops</text>
-        <text fg="#c8c8c8">🧊 three.js in the tube</text>
-        <text fg="#c8c8c8">🪐 Whole galaxy as example</text>
-        <text fg="#c8c8c8">🎨 All colors → RGB332</text>
-        <text fg="#c8c8c8">⚡️ One command → .app + .dmg</text>
-        <text fg="#c8c8c8">✨ You bring the vibes</text>
-        <text fg="#c8c8c8">🖥️ We bring the machine</text>
+        <text fg="#c8c8c8">📟 REACT IN, CRT APP OUT</text>
+        <text fg="#c8c8c8">📺 A REAL CRT, NO FILTER</text>
+        <text fg="#c8c8c8">🖼️ PIXEL-ART BACKDROPS</text>
+        <text fg="#c8c8c8">🧊 THREE.JS IN THE TUBE</text>
+        <text fg="#c8c8c8">🪐 WHOLE GALAXY AS EXAMPLE</text>
+        <text fg="#c8c8c8">🎨 ALL COLORS → RGB332</text>
+        <text fg="#c8c8c8">⚡️ ONE COMMAND → .APP + .DMG</text>
+        <text fg="#c8c8c8">✨ YOU BRING THE VIBES</text>
+        <text fg="#c8c8c8">🖥️ WE BRING THE MACHINE</text>
       </box>
       {rendererError !== '' && (
         <box
